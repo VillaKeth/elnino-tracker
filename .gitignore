@@ -1,0 +1,27 @@
+# Cached downloads: refetched on every run, not source.
+data/raw/*.cache
+data/raw/*.meta.json
+
+# The dated archive is kept on disk for auditability, but it grows by about a
+# megabyte a day and is raw upstream data, not source.
+data/raw/archive/
+
+# Run history: SQLite, rewritten on every run. Local state, not source.
+data/elnino.db
+
+# Generated output: regenerate with `python track.py`.
+output/dashboard.html
+output/latest.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store

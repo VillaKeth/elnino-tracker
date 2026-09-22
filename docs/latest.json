@@ -1,0 +1,1824 @@
+{
+  "generated_utc": "2026-09-22T19:35:31+00:00",
+  "run_at": "2026-09-22T19:35:31+00:00",
+  "schema": 4,
+  "headline": "Strong El Nino -- ONI +1.80 degC (JJA 2026), power index 82/100 (Very High), intensifying rapidly.",
+  "cpc_status": "El Nino Advisory",
+  "degraded": false,
+  "warnings": [],
+  "oni": {
+    "season": "JJA 2026",
+    "value": 1.8,
+    "tier": "Strong El Nino"
+  },
+  "roni": {
+    "season": "JJA 2026",
+    "value": 1.36,
+    "tier": "Moderate El Nino"
+  },
+  "episode_status": "El Nino conditions present for 3 consecutive season(s); 2 more needed before NOAA logs this as a formal episode.",
+  "seasons_at_threshold": 3,
+  "ranking": {
+    "rank_all": 23,
+    "total_all": 919,
+    "rank_in_season": 1,
+    "total_in_season": 77,
+    "season": "JJA"
+  },
+  "weekly": {
+    "week_ending": "2026-09-16",
+    "nino12": 4.6,
+    "nino3": 3.8,
+    "nino34": 3.0,
+    "nino4": 1.0
+  },
+  "scale": {
+    "flavour": "East Pacific (canonical) El Nino",
+    "flavour_index": 3.5999999999999996,
+    "active_regions": 4,
+    "basin_score": 100.0,
+    "regions": [
+      {
+        "key": "nino12",
+        "label": "Nino-1+2 (coastal Peru/Ecuador)",
+        "anomaly": 4.6,
+        "sst": 25.3
+      },
+      {
+        "key": "nino3",
+        "label": "Nino-3 (eastern Pacific)",
+        "anomaly": 3.8,
+        "sst": 28.6
+      },
+      {
+        "key": "nino34",
+        "label": "Nino-3.4 (east-central, index region)",
+        "anomaly": 3.0,
+        "sst": 29.6
+      },
+      {
+        "key": "nino4",
+        "label": "Nino-4 (central/western Pacific)",
+        "anomaly": 1.0,
+        "sst": 29.6
+      }
+    ]
+  },
+  "power_index": {
+    "value": 81.6,
+    "band": "Very High",
+    "components": {
+      "amplitude": 63.2,
+      "coupling": 90.8,
+      "basin_scale": 100.0,
+      "momentum": 91.0
+    },
+    "weights": {
+      "amplitude": 0.4,
+      "coupling": 0.25,
+      "basin_scale": 0.2,
+      "momentum": 0.15
+    }
+  },
+  "momentum": {
+    "season_delta": 0.41000000000000014,
+    "weekly_delta": 0.3999999999999999,
+    "direction": "intensifying rapidly",
+    "score": 91.00000000000001
+  },
+  "subsurface": {
+    "month": "Aug 2026",
+    "wwv_anomaly": 3.459717,
+    "wwv_west_anomaly": -0.5587994,
+    "wwv_east_anomaly": 4.0185164,
+    "rank_alltime": 2,
+    "total_alltime": 560,
+    "rank_in_month": 1,
+    "total_in_month": 47,
+    "percentile": 99.82110912343471,
+    "tendency_per_month": 0.25302733333333327,
+    "tendency": "still recharging",
+    "phase": "El Nino mature, discharging",
+    "phase_angle_deg": 0.04638275312350707,
+    "phase_confident": true,
+    "lead_months": 5,
+    "lead_correlation": 0.5217380518749412,
+    "implied_nino34": 0.0010643563090177153
+  },
+  "atmosphere": {
+    "walker_index": 1.567391304347826,
+    "as_of": "Aug 2026",
+    "coupled": true,
+    "agreement": 0.8888888888888888,
+    "dissenters": [
+      "tahiti"
+    ],
+    "westerly_burst_months_12mo": 4,
+    "indicators": [
+      {
+        "key": "olr_central",
+        "name": "OLR, central Pacific",
+        "as_of": "Jan 2026",
+        "raw": -37.0,
+        "standard_score": 2.5459772379836054,
+        "supports_el_nino": true,
+        "stale": true
+      },
+      {
+        "key": "eqsoi",
+        "name": "Equatorial SOI",
+        "as_of": "Aug 2026",
+        "raw": -2.5,
+        "standard_score": 2.5,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "trade_central",
+        "name": "850 hPa trades, central Pacific",
+        "as_of": "Aug 2026",
+        "raw": -6.3,
+        "standard_score": 2.5,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "darwin",
+        "name": "Darwin sea level pressure",
+        "as_of": "Aug 2026",
+        "raw": 2.6,
+        "standard_score": 2.4,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "trade_west",
+        "name": "850 hPa trades, western Pacific",
+        "as_of": "Aug 2026",
+        "raw": -4.8,
+        "standard_score": 2.0,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "trade_east",
+        "name": "850 hPa trades, eastern Pacific",
+        "as_of": "Aug 2026",
+        "raw": -3.7,
+        "standard_score": 2.0,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "soi",
+        "name": "Southern Oscillation Index",
+        "as_of": "Aug 2026",
+        "raw": -1.8,
+        "standard_score": 1.1,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "olr",
+        "name": "OLR, date line (160E-160W)",
+        "as_of": "Aug 2026",
+        "raw": -14.9,
+        "standard_score": 1.0,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "zwnd200",
+        "name": "200 hPa zonal wind, east Pacific",
+        "as_of": "Aug 2026",
+        "raw": -5.0,
+        "standard_score": 1.0,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "tahiti",
+        "name": "Tahiti sea level pressure",
+        "as_of": "Aug 2026",
+        "raw": 0.7,
+        "standard_score": -0.6,
+        "supports_el_nino": false,
+        "stale": false
+      }
+    ],
+    "mjo": {
+      "date": "2026-08-26",
+      "enhanced_longitude": "160E",
+      "amplitude": 3.36,
+      "constructive": true
+    }
+  },
+  "forecast": {
+    "skill_source": "cross-validated hindcast over 77 years",
+    "peak": {
+      "season": "SON 2026",
+      "lead": 3,
+      "mean": 2.28043509203444,
+      "low": 1.4921483215002738,
+      "high": 3.068721862568606
+    },
+    "peak_probability": {
+      "1.0": 0.9813167433591552,
+      "1.5": 0.8977499882626088,
+      "2.0": 0.6757807665210467,
+      "2.5": 0.3605572949184319
+    },
+    "analog_weights": {
+      "1997-98": 2.663548230792226,
+      "1965-66": 2.1699864480314006,
+      "2023-24": 1.962819473839651,
+      "1972-73": 1.9578221226836128
+    },
+    "projections": [
+      {
+        "lead": 1,
+        "season": "JAS 2026",
+        "mean": 2.163867108015383,
+        "low": 1.5360235352398286,
+        "high": 2.7917106807909375,
+        "sigma": 0.4898904281956573,
+        "methods": {
+          "persistence": 1.7572402095819406,
+          "recharge": 2.665682283475549,
+          "analog": 2.0712191346155464
+        },
+        "method_spread": 0.9084420738936085
+      },
+      {
+        "lead": 2,
+        "season": "ASO 2026",
+        "mean": 2.130158219138221,
+        "low": 1.5860459138908127,
+        "high": 2.6742705243856295,
+        "sigma": 0.4245570421718231,
+        "methods": {
+          "persistence": 1.699601547903977,
+          "recharge": 2.2748727172261067,
+          "analog": 2.283006750588305
+        },
+        "method_spread": 0.5834052026843282
+      },
+      {
+        "lead": 3,
+        "season": "SON 2026",
+        "mean": 2.28043509203444,
+        "low": 1.4921483215002738,
+        "high": 3.068721862568606,
+        "sigma": 0.6150801892432631,
+        "methods": {
+          "persistence": 1.6579295378870438,
+          "recharge": 2.5796419599285247,
+          "analog": 2.443025513071311
+        },
+        "method_spread": 0.921712422041481
+      },
+      {
+        "lead": 4,
+        "season": "OND 2026",
+        "mean": 2.2455177306208682,
+        "low": 1.4023631577111093,
+        "high": 3.088672303530627,
+        "sigma": 0.6578921449046183,
+        "methods": {
+          "persistence": 1.6241837271480484,
+          "recharge": 2.5200652032575004,
+          "analog": 2.4234421752405706
+        },
+        "method_spread": 0.895881476109452
+      },
+      {
+        "lead": 5,
+        "season": "NDJ 2026",
+        "mean": 2.1847487047960983,
+        "low": 1.2486279906438353,
+        "high": 3.1208694189483612,
+        "sigma": 0.7304312688453987,
+        "methods": {
+          "persistence": 1.6007329679493978,
+          "recharge": 2.5837597839848208,
+          "analog": 2.2604990932682627
+        },
+        "method_spread": 0.983026816035423
+      },
+      {
+        "lead": 6,
+        "season": "DJF 2027",
+        "mean": 1.9736992845174623,
+        "low": 1.064806304332695,
+        "high": 2.8825922647022297,
+        "sigma": 0.7091861580717599,
+        "methods": {
+          "persistence": 1.5535524901398847,
+          "recharge": 2.3357174567661816,
+          "analog": 1.9795374635725111
+        },
+        "method_spread": 0.7821649666262969
+      },
+      {
+        "lead": 7,
+        "season": "JFM 2027",
+        "mean": 1.5988396323621183,
+        "low": 0.7777819918957037,
+        "high": 2.419897272828533,
+        "sigma": 0.6406504685287254,
+        "methods": {
+          "persistence": 1.4752503774169763,
+          "recharge": 1.6566290318537447,
+          "analog": 1.6321669392881355
+        },
+        "method_spread": 0.18137865443676837
+      },
+      {
+        "lead": 8,
+        "season": "FMA 2027",
+        "mean": 1.2366195377878175,
+        "low": 0.3726376126169404,
+        "high": 2.1006014629586947,
+        "sigma": 0.6741432000396981,
+        "methods": {
+          "persistence": 1.3255365588978656,
+          "recharge": 1.2587138639982403,
+          "analog": 1.1713153371135927
+        },
+        "method_spread": 0.1542212217842729
+      },
+      {
+        "lead": 9,
+        "season": "MAM 2027",
+        "mean": 0.911562374932881,
+        "low": 0.012054581464237768,
+        "high": 1.8110701684015242,
+        "sigma": 0.7018631347289662,
+        "methods": {
+          "persistence": 1.0034879490687139,
+          "recharge": 0.9590385951217395,
+          "analog": 0.8280593395190463
+        },
+        "method_spread": 0.17542860954966755
+      }
+    ],
+    "notes": [
+      "6 candidate analog(s) were dropped for being too dissimilar to the current trajectory.",
+      "This event is running warmer than every analog at the same stage, by +0.32 to +0.55 degC. The analog members are shifted by that gap; without the shift they would understate the projection."
+    ]
+  },
+  "skill": {
+    "sample_years": 77,
+    "useful_horizon_months": 8,
+    "barrier_seasons": [
+      "MJJ",
+      "JJA",
+      "JAS",
+      "ASO"
+    ],
+    "barrier_drop": 0.4913523726681524,
+    "weights": {
+      "analog": 0.45,
+      "persistence": 0.2579215177352143,
+      "recharge": 0.2920784822647857
+    },
+    "by_lead": [
+      {
+        "lead": 1,
+        "rmse": 0.1835098941002755,
+        "correlation": 0.9735472001655384,
+        "bias": -0.030247097486848167,
+        "n": 846,
+        "by_method": {
+          "persistence": 0.18679072767382968,
+          "recharge": 0.2643112333600525
+        }
+      },
+      {
+        "lead": 2,
+        "rmse": 0.30847734832220935,
+        "correlation": 0.9219010070536784,
+        "bias": -0.03163608098695777,
+        "n": 845,
+        "by_method": {
+          "persistence": 0.3398910772540613,
+          "recharge": 0.355249305095771
+        }
+      },
+      {
+        "lead": 3,
+        "rmse": 0.4073514354499504,
+        "correlation": 0.858735941989882,
+        "bias": -0.032536559052160095,
+        "n": 844,
+        "by_method": {
+          "persistence": 0.4564578319468544,
+          "recharge": 0.436433856173263
+        }
+      },
+      {
+        "lead": 4,
+        "rmse": 0.4818414360743445,
+        "correlation": 0.7956786535358592,
+        "bias": -0.03219455964259454,
+        "n": 843,
+        "by_method": {
+          "persistence": 0.539862532829786,
+          "recharge": 0.5058026761337426
+        }
+      },
+      {
+        "lead": 5,
+        "rmse": 0.5403188024175299,
+        "correlation": 0.7363790415066941,
+        "bias": -0.029712345478533672,
+        "n": 842,
+        "by_method": {
+          "persistence": 0.6041191256015189,
+          "recharge": 0.5498801483677612
+        }
+      },
+      {
+        "lead": 6,
+        "rmse": 0.5916075540814233,
+        "correlation": 0.6747142355119818,
+        "bias": -0.029792656742929167,
+        "n": 841,
+        "by_method": {
+          "persistence": 0.6584453882974242,
+          "recharge": 0.6037291165253984
+        }
+      },
+      {
+        "lead": 7,
+        "rmse": 0.6341990765956319,
+        "correlation": 0.6134063098766757,
+        "bias": -0.030726523271808453,
+        "n": 840,
+        "by_method": {
+          "persistence": 0.7033992830917434,
+          "recharge": 0.6515436666109327
+        }
+      },
+      {
+        "lead": 8,
+        "rmse": 0.669718603480302,
+        "correlation": 0.5520509460185887,
+        "bias": -0.03037229743616024,
+        "n": 839,
+        "by_method": {
+          "persistence": 0.7398125248526728,
+          "recharge": 0.6880860416539433
+        }
+      },
+      {
+        "lead": 9,
+        "rmse": 0.6963605823346397,
+        "correlation": 0.4971334156814786,
+        "bias": -0.029556311029789367,
+        "n": 838,
+        "by_method": {
+          "persistence": 0.766096365615262,
+          "recharge": 0.7145653967088725
+        }
+      }
+    ],
+    "correlation_by_target_season": {
+      "JJA": 0.3807643251551741,
+      "JAS": 0.37488126041349584,
+      "ASO": 0.4172821574095684,
+      "SON": 0.5819833652336074,
+      "OND": 0.7345307022016041,
+      "NDJ": 0.8441237185730972,
+      "DJF": 0.8655432634165195,
+      "JFM": 0.8634265053322482,
+      "FMA": 0.8051675813086235,
+      "MAM": 0.6781725145659175,
+      "AMJ": 0.4628952169771463,
+      "MJJ": 0.37419089074836714
+    }
+  },
+  "analogs": [
+    {
+      "event": "1997-98",
+      "rmse": 0.2754,
+      "peak": 2.37,
+      "peak_season": "NDJ 1997",
+      "seasons_to_peak": 7,
+      "tier": "Very Strong El Nino"
+    },
+    {
+      "event": "1965-66",
+      "rmse": 0.3608,
+      "peak": 1.82,
+      "peak_season": "OND 1965",
+      "seasons_to_peak": 5,
+      "tier": "Strong El Nino"
+    },
+    {
+      "event": "2023-24",
+      "rmse": 0.4095,
+      "peak": 1.99,
+      "peak_season": "NDJ 2023",
+      "seasons_to_peak": 6,
+      "tier": "Strong El Nino"
+    },
+    {
+      "event": "1972-73",
+      "rmse": 0.4108,
+      "peak": 1.84,
+      "peak_season": "OND 1972",
+      "seasons_to_peak": 5,
+      "tier": "Strong El Nino"
+    }
+  ],
+  "alerts": [
+    {
+      "code": "record_season",
+      "level": "critical",
+      "title": "Warmest JJA on record",
+      "detail": "+1.80 degC is the highest JJA ONI in 77 years of record.",
+      "kind": "state",
+      "value": 1.8,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    },
+    {
+      "code": "forecast_very_strong",
+      "level": "warning",
+      "title": "Projected to peak in very strong territory",
+      "detail": "Ensemble peak +2.28 degC at SON 2026, 68% probability of exceeding +2.0 degC.",
+      "kind": "state",
+      "value": 2.28043509203444,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    },
+    {
+      "code": "oni_ge_1.5",
+      "level": "warning",
+      "title": "ONI at or above +1.5 degC - Strong El Nino",
+      "detail": "JJA 2026 ONI is +1.80 degC. Strong El Nino by the peak-ONI convention.",
+      "kind": "state",
+      "value": 1.8,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    },
+    {
+      "code": "recharge_during_event",
+      "level": "warning",
+      "title": "Heat content still rising during an active event",
+      "detail": "WWV is +0.253 x10^14 m3 per month and still climbing while the surface anomaly is already large. Events normally begin discharging by this stage; continued recharge means the event has not yet spent its fuel.",
+      "kind": "change",
+      "value": 0.25302733333333327,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    },
+    {
+      "code": "walker_coupled",
+      "level": "warning",
+      "title": "Ocean and atmosphere are coupled",
+      "detail": "Composite atmospheric index +1.57 sigma, with 89% of indicators in agreement.",
+      "kind": "state",
+      "value": 1.567391304347826,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    },
+    {
+      "code": "wwv_top5",
+      "level": "warning",
+      "title": "Warm water volume in the top five on record",
+      "detail": "Rank 2 of 560 months at +3.46 x10^14 m3.",
+      "kind": "state",
+      "value": 3.459717,
+      "is_new": true,
+      "first_seen": "2026-09-22T19:35:31+00:00"
+    },
+    {
+      "code": "episode_forming",
+      "level": "watch",
+      "title": "El Nino conditions present, episode not yet formal",
+      "detail": "3 consecutive seasons at or above +0.5 degC. El Nino conditions present for 3 consecutive season(s); 2 more needed before NOAA logs this as a formal episode.",
+      "kind": "state",
+      "value": 3.0,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    },
+    {
+      "code": "momentum_building",
+      "level": "watch",
+      "title": "Still intensifying",
+      "detail": "ONI rose +0.41 degC from the previous season (intensifying rapidly).",
+      "kind": "change",
+      "value": 0.41000000000000014,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    },
+    {
+      "code": "oni_ge_0.5",
+      "level": "watch",
+      "title": "ONI at or above +0.5 degC - El Nino threshold",
+      "detail": "JJA 2026 ONI is +1.80 degC. Strong El Nino by the peak-ONI convention.",
+      "kind": "state",
+      "value": 1.8,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    },
+    {
+      "code": "oni_ge_1.0",
+      "level": "watch",
+      "title": "ONI at or above +1.0 degC - Moderate El Nino",
+      "detail": "JJA 2026 ONI is +1.80 degC. Strong El Nino by the peak-ONI convention.",
+      "kind": "state",
+      "value": 1.8,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    },
+    {
+      "code": "westerly_forcing",
+      "level": "watch",
+      "title": "Repeated westerly wind forcing over the warm pool",
+      "detail": "4 months in the last year averaged strongly westerly at 850 hPa in the western Pacific, which is how downwelling Kelvin waves get launched.",
+      "kind": "state",
+      "value": 4.0,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    },
+    {
+      "code": "method_disagreement",
+      "level": "info",
+      "title": "Forecast methods disagree at the projected peak",
+      "detail": "Method spread is 0.92 degC at SON 2026: analog +2.44, persistence +1.66, recharge +2.58. Treat the central value with more caution than usual.",
+      "kind": "state",
+      "value": 0.921712422041481,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    },
+    {
+      "code": "roni_divergence",
+      "level": "info",
+      "title": "ONI and RONI diverging",
+      "detail": "ONI +1.80 against RONI +1.36, a gap of +0.44 degC. The tropical-mean background accounts for that much of the raw anomaly, so RONI is the fairer comparison with events before the 2000s.",
+      "kind": "state",
+      "value": 0.43999999999999995,
+      "is_new": false,
+      "first_seen": "2026-09-17T17:52:39+00:00"
+    }
+  ],
+  "alerts_cleared": [
+    "wwv_record"
+  ],
+  "impacts": [
+    {
+      "area": "Maritime Continent",
+      "region": "Indonesia and Malaysia",
+      "effect": "Suppressed rainfall; elevated peatland and forest fire risk",
+      "window": "Jun-Feb",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Maritime Continent",
+      "region": "Eastern Australia",
+      "effect": "Below-average rainfall, higher fire danger",
+      "window": "Jun-Feb",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Maritime Continent",
+      "region": "Philippines",
+      "effect": "Rainfall deficit and delayed monsoon onset",
+      "window": "Sep-Apr",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Africa",
+      "region": "Southern Africa",
+      "effect": "Rainfall failure during the main growing season",
+      "window": "Dec-Mar",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Africa",
+      "region": "Equatorial East Africa",
+      "effect": "Enhanced short rains, flooding and landslides",
+      "window": "Oct-Dec",
+      "polarity": "wet",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Africa",
+      "region": "Ethiopian highlands and Sudan",
+      "effect": "Weak Kiremt rains",
+      "window": "Jun-Sep",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "South America",
+      "region": "Northern South America",
+      "effect": "Rainfall deficit",
+      "window": "Dec-Mar",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "South America",
+      "region": "Northeast Brazil",
+      "effect": "Failure of the main rainy season",
+      "window": "Feb-May",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "South America",
+      "region": "Southern Brazil, Uruguay, northeast Argentina",
+      "effect": "Above-average rainfall and flooding",
+      "window": "Nov-Feb",
+      "polarity": "wet",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Central America",
+      "region": "Central American Dry Corridor",
+      "effect": "Delayed onset and mid-summer drought",
+      "window": "May-Aug",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "North America",
+      "region": "US Gulf Coast and Southeast",
+      "effect": "Wetter and stormier than normal",
+      "window": "Dec-Mar",
+      "polarity": "wet",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "North America",
+      "region": "Canada and the northern United States",
+      "effect": "Milder winter",
+      "window": "Dec-Feb",
+      "polarity": "hot",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Global systems",
+      "region": "Atlantic hurricane season",
+      "effect": "Suppressed activity",
+      "window": "Aug-Oct",
+      "polarity": "storm",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "east-pacific"
+    },
+    {
+      "area": "Global systems",
+      "region": "Eastern and central Pacific hurricanes",
+      "effect": "Enhanced activity, tracking further west",
+      "window": "Jul-Oct",
+      "polarity": "storm",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Global systems",
+      "region": "Pacific island states",
+      "effect": "Rainfall redistribution and a shifted cyclone belt",
+      "window": "Nov-Apr",
+      "polarity": "storm",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Maritime Continent",
+      "region": "Papua New Guinea highlands",
+      "effect": "Drought and, at altitude, damaging frost",
+      "window": "Aug-Feb",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "South America",
+      "region": "Coastal Peru and Ecuador",
+      "effect": "Extreme coastal rainfall, flooding and debris flows",
+      "window": "Dec-Apr",
+      "polarity": "wet",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 1.0,
+      "flavour": "east-pacific"
+    },
+    {
+      "area": "South America",
+      "region": "Peruvian anchoveta fishery",
+      "effect": "Thermocline deepens and the fishery collapses",
+      "window": "Nov-May",
+      "polarity": "marine",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 1.0,
+      "flavour": "east-pacific"
+    },
+    {
+      "area": "Global systems",
+      "region": "Pacific and Indian Ocean coral reefs",
+      "effect": "Mass bleaching from accumulated heat stress",
+      "window": "Dec-Jun",
+      "polarity": "marine",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "Global systems",
+      "region": "Global mean surface temperature",
+      "effect": "Elevated for roughly a year, peaking after the event",
+      "window": "Dec-Nov",
+      "polarity": "hot",
+      "likelihood": "likely",
+      "confidence": "high",
+      "oni_threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "Central America",
+      "region": "Caribbean",
+      "effect": "Drier than normal dry season",
+      "window": "Dec-Apr",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "North America",
+      "region": "US Pacific Northwest and Ohio Valley",
+      "effect": "Drier and milder than normal",
+      "window": "Dec-Mar",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "oni_threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Southeast Asia",
+      "region": "Mekong basin and Thailand",
+      "effect": "Reduced river flow and dry-season water stress",
+      "window": "Nov-May",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "oni_threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "Africa",
+      "region": "Rift Valley fever risk, East Africa",
+      "effect": "Outbreak conditions following heavy rain",
+      "window": "Nov-Mar",
+      "polarity": "health",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "oni_threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "Africa",
+      "region": "Highland malaria, East Africa and Andes",
+      "effect": "Transmission at unusual altitude",
+      "window": "Dec-May",
+      "polarity": "health",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "oni_threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "North America",
+      "region": "California and the US Southwest",
+      "effect": "Tilt toward a wetter winter, strongest in the south",
+      "window": "Dec-Mar",
+      "polarity": "wet",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "oni_threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "Global systems",
+      "region": "Western North Pacific typhoons",
+      "effect": "Formation shifts southeast; longer, more intense tracks",
+      "window": "Aug-Dec",
+      "polarity": "storm",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "oni_threshold": 1.0,
+      "flavour": "any"
+    }
+  ],
+  "footprints": [
+    {
+      "region": "Indonesia and Malaysia",
+      "scope": "regional",
+      "anchor": [
+        118.0,
+        -1.75
+      ],
+      "boxes": [
+        [
+          95.0,
+          141.0,
+          -11.0,
+          7.5
+        ]
+      ]
+    },
+    {
+      "region": "Papua New Guinea highlands",
+      "scope": "regional",
+      "anchor": [
+        145.5,
+        -6.25
+      ],
+      "boxes": [
+        [
+          140.0,
+          151.0,
+          -10.0,
+          -2.5
+        ]
+      ]
+    },
+    {
+      "region": "Eastern Australia",
+      "scope": "regional",
+      "anchor": [
+        146.0,
+        -27.0
+      ],
+      "boxes": [
+        [
+          138.0,
+          154.0,
+          -39.0,
+          -15.0
+        ]
+      ]
+    },
+    {
+      "region": "Philippines",
+      "scope": "regional",
+      "anchor": [
+        121.75,
+        12.0
+      ],
+      "boxes": [
+        [
+          116.5,
+          127.0,
+          4.5,
+          19.5
+        ]
+      ]
+    },
+    {
+      "region": "Mekong basin and Thailand",
+      "scope": "regional",
+      "anchor": [
+        103.5,
+        15.5
+      ],
+      "boxes": [
+        [
+          97.0,
+          110.0,
+          8.0,
+          23.0
+        ]
+      ]
+    },
+    {
+      "region": "India and Pakistan",
+      "scope": "regional",
+      "anchor": [
+        78.0,
+        20.5
+      ],
+      "boxes": [
+        [
+          66.0,
+          90.0,
+          7.0,
+          34.0
+        ]
+      ]
+    },
+    {
+      "region": "Southern Africa",
+      "scope": "regional",
+      "anchor": [
+        26.5,
+        -25.0
+      ],
+      "boxes": [
+        [
+          12.0,
+          41.0,
+          -35.0,
+          -15.0
+        ]
+      ]
+    },
+    {
+      "region": "Equatorial East Africa",
+      "scope": "regional",
+      "anchor": [
+        40.5,
+        0.0
+      ],
+      "boxes": [
+        [
+          32.0,
+          49.0,
+          -6.0,
+          6.0
+        ]
+      ]
+    },
+    {
+      "region": "Ethiopian highlands and Sudan",
+      "scope": "regional",
+      "anchor": [
+        33.0,
+        13.0
+      ],
+      "boxes": [
+        [
+          23.0,
+          43.0,
+          6.0,
+          20.0
+        ]
+      ]
+    },
+    {
+      "region": "Rift Valley fever risk, East Africa",
+      "scope": "regional",
+      "anchor": [
+        42.5,
+        3.5
+      ],
+      "boxes": [
+        [
+          33.0,
+          52.0,
+          -5.0,
+          12.0
+        ]
+      ]
+    },
+    {
+      "region": "Highland malaria, East Africa and Andes",
+      "scope": "regional",
+      "anchor": [
+        34.0,
+        0.0
+      ],
+      "boxes": [
+        [
+          28.0,
+          40.0,
+          -5.0,
+          5.0
+        ],
+        [
+          -79.0,
+          -65.0,
+          -18.0,
+          8.0
+        ]
+      ]
+    },
+    {
+      "region": "Coastal Peru and Ecuador",
+      "scope": "regional",
+      "anchor": [
+        -78.25,
+        -8.0
+      ],
+      "boxes": [
+        [
+          -82.0,
+          -74.5,
+          -18.0,
+          2.0
+        ]
+      ]
+    },
+    {
+      "region": "Peruvian anchoveta fishery",
+      "scope": "basin",
+      "anchor": [
+        -77.0,
+        -12.0
+      ],
+      "boxes": [
+        [
+          -84.0,
+          -70.0,
+          -20.0,
+          -4.0
+        ]
+      ]
+    },
+    {
+      "region": "Northern South America",
+      "scope": "regional",
+      "anchor": [
+        -67.0,
+        5.25
+      ],
+      "boxes": [
+        [
+          -76.0,
+          -58.0,
+          -2.0,
+          12.5
+        ]
+      ]
+    },
+    {
+      "region": "Northeast Brazil",
+      "scope": "regional",
+      "anchor": [
+        -39.5,
+        -9.0
+      ],
+      "boxes": [
+        [
+          -45.0,
+          -34.0,
+          -16.0,
+          -2.0
+        ]
+      ]
+    },
+    {
+      "region": "Southern Brazil, Uruguay, northeast Argentina",
+      "scope": "regional",
+      "anchor": [
+        -53.5,
+        -28.5
+      ],
+      "boxes": [
+        [
+          -60.0,
+          -47.0,
+          -35.0,
+          -22.0
+        ]
+      ]
+    },
+    {
+      "region": "Central American Dry Corridor",
+      "scope": "regional",
+      "anchor": [
+        -87.5,
+        14.5
+      ],
+      "boxes": [
+        [
+          -92.0,
+          -83.0,
+          11.5,
+          17.5
+        ]
+      ]
+    },
+    {
+      "region": "Caribbean",
+      "scope": "regional",
+      "anchor": [
+        -72.5,
+        16.5
+      ],
+      "boxes": [
+        [
+          -85.0,
+          -60.0,
+          9.5,
+          23.5
+        ]
+      ]
+    },
+    {
+      "region": "US Gulf Coast and Southeast",
+      "scope": "regional",
+      "anchor": [
+        -88.0,
+        30.75
+      ],
+      "boxes": [
+        [
+          -100.0,
+          -76.0,
+          25.0,
+          36.5
+        ]
+      ]
+    },
+    {
+      "region": "California and the US Southwest",
+      "scope": "regional",
+      "anchor": [
+        -114.25,
+        36.5
+      ],
+      "boxes": [
+        [
+          -124.5,
+          -104.0,
+          31.0,
+          42.0
+        ]
+      ]
+    },
+    {
+      "region": "US Pacific Northwest and Ohio Valley",
+      "scope": "regional",
+      "anchor": [
+        -120.5,
+        45.5
+      ],
+      "boxes": [
+        [
+          -125.0,
+          -116.0,
+          42.0,
+          49.0
+        ],
+        [
+          -90.0,
+          -78.0,
+          36.0,
+          42.5
+        ]
+      ]
+    },
+    {
+      "region": "Canada and the northern United States",
+      "scope": "regional",
+      "anchor": [
+        -95.0,
+        53.0
+      ],
+      "boxes": [
+        [
+          -130.0,
+          -60.0,
+          44.0,
+          62.0
+        ]
+      ]
+    },
+    {
+      "region": "Atlantic hurricane season",
+      "scope": "basin",
+      "anchor": [
+        -55.0,
+        20.0
+      ],
+      "boxes": [
+        [
+          -90.0,
+          -20.0,
+          8.0,
+          32.0
+        ]
+      ]
+    },
+    {
+      "region": "Eastern and central Pacific hurricanes",
+      "scope": "basin",
+      "anchor": [
+        -115.0,
+        15.0
+      ],
+      "boxes": [
+        [
+          -140.0,
+          -90.0,
+          8.0,
+          22.0
+        ]
+      ]
+    },
+    {
+      "region": "Western North Pacific typhoons",
+      "scope": "basin",
+      "anchor": [
+        145.0,
+        15.0
+      ],
+      "boxes": [
+        [
+          120.0,
+          170.0,
+          5.0,
+          25.0
+        ]
+      ]
+    },
+    {
+      "region": "Pacific and Indian Ocean coral reefs",
+      "scope": "basin",
+      "anchor": [
+        160.0,
+        -7.0
+      ],
+      "boxes": [
+        [
+          140.0,
+          180.0,
+          -20.0,
+          6.0
+        ],
+        [
+          -180.0,
+          -150.0,
+          -20.0,
+          6.0
+        ],
+        [
+          40.0,
+          80.0,
+          -15.0,
+          6.0
+        ],
+        [
+          145.0,
+          155.0,
+          -24.0,
+          -10.0
+        ]
+      ]
+    },
+    {
+      "region": "Global mean surface temperature",
+      "scope": "global",
+      "anchor": [
+        0.0,
+        0.0
+      ],
+      "boxes": [
+        [
+          -180.0,
+          180.0,
+          -90.0,
+          90.0
+        ]
+      ]
+    },
+    {
+      "region": "Pacific island states",
+      "scope": "basin",
+      "anchor": [
+        167.5,
+        -11.5
+      ],
+      "boxes": [
+        [
+          155.0,
+          180.0,
+          -25.0,
+          2.0
+        ],
+        [
+          -180.0,
+          -155.0,
+          -25.0,
+          2.0
+        ]
+      ]
+    }
+  ],
+  "spatial": {
+    "fields": {
+      "sst_map": {
+        "as_of": "2026-09-07",
+        "age_days": 15,
+        "rows": 61,
+        "cols": 201,
+        "coverage": 0.8427
+      },
+      "sst_global": {
+        "as_of": "2026-09-07",
+        "age_days": 15,
+        "rows": 53,
+        "cols": 144,
+        "coverage": 0.732
+      },
+      "sst_hov": {
+        "as_of": "2026-09-06",
+        "age_days": 16,
+        "rows": 71,
+        "cols": 81,
+        "coverage": 1.0
+      },
+      "ssh_map": {
+        "as_of": "2026-03-25",
+        "age_days": 181,
+        "rows": 21,
+        "cols": 69,
+        "coverage": 0.9013
+      },
+      "ssh_hov": {
+        "as_of": "2026-03-21",
+        "age_days": 185,
+        "rows": 47,
+        "cols": 81,
+        "coverage": 1.0
+      },
+      "section": {
+        "as_of": "2026-08",
+        "age_days": 52,
+        "rows": 31,
+        "cols": 21,
+        "coverage": 0.9677
+      },
+      "section_anomaly": {
+        "as_of": "2026-08",
+        "age_days": 52,
+        "rows": 31,
+        "cols": 21,
+        "coverage": 0.9677
+      },
+      "iso_hov": {
+        "as_of": "2026-08",
+        "age_days": 52,
+        "rows": 16,
+        "cols": 8,
+        "coverage": 0.9688
+      },
+      "iso_hov_anomaly": {
+        "as_of": "2026-08",
+        "age_days": 52,
+        "rows": 16,
+        "cols": 8,
+        "coverage": 0.9688
+      }
+    },
+    "box_means_from_map": {
+      "nino4": 1.041,
+      "nino34": 2.88,
+      "nino3": 3.673,
+      "nino12": 4.582
+    },
+    "warm_pool_east_edge": 281.125,
+    "equatorial_isotherm_20c": [
+      {
+        "longitude": 165.0,
+        "depth_m": 161.06173633255932,
+        "as_of": "2026-08"
+      },
+      {
+        "longitude": 180.0,
+        "depth_m": 163.7248545763348,
+        "as_of": "2026-08"
+      },
+      {
+        "longitude": 190.0,
+        "depth_m": 172.81401494767323,
+        "as_of": "2026-08"
+      },
+      {
+        "longitude": 205.0,
+        "depth_m": 166.1181119705868,
+        "as_of": "2026-08"
+      },
+      {
+        "longitude": 220.0,
+        "depth_m": 168.4482048102746,
+        "as_of": "2026-08"
+      },
+      {
+        "longitude": 235.0,
+        "depth_m": 144.8724031626046,
+        "as_of": "2026-08"
+      },
+      {
+        "longitude": 250.0,
+        "depth_m": 132.61801781202547,
+        "as_of": "2026-08"
+      },
+      {
+        "longitude": 265.0,
+        "depth_m": 109.25231892676017,
+        "as_of": "2026-08"
+      }
+    ],
+    "thermocline_mesh": {
+      "as_of": "2026-09-01",
+      "age_days": 21,
+      "nodes": 37
+    },
+    "notes": []
+  },
+  "cpc_discussion": {
+    "issued": "10 September 2026",
+    "status": "El Nino Advisory",
+    "synopsis": "El Nino is strengthening, with a greater than 90% chance of a very strong event during the Northern Hemisphere fall and winter 2026-27.",
+    "body": "El Nino strengthened further over the past month, with sea surface temperature anomalies exceeding +3.0\u00b0C in the eastern equatorial Pacific [Fig. 1] . Except for the Nino-4 index, which decreased to +0.1\u00b0C in August, values in the other Nino indices increased, reaching +1.8\u00b0C in Nino-3.4, +2.5\u00b0C in Nino-3, and +3.4\u00b0C in Nino-1+2 [Fig. 2] . The equatorial subsurface temperature index (average from 180\u00b0-100\u00b0W) remained steady during August [Fig. 3] , reflecting a deeper-than-average thermocline [Fig. 4] . Subsurface temperatures continued to be significantly above average, with widespread anomalies in excess of +10.0\u00b0C at depth. Low-level westerly wind anomalies and upper-level easterly wind anomalies extended from the western to the east-central equatorial Pacific. Enhanced convection and rainfall persisted from the central to the eastern Pacific, while anomalies remained suppressed over Indonesia [Fig. 5] . The traditional and equatorial Southern Oscillation indices remained negative. Collectively, the coupled ocean-atmosphere system reflected a strengthening El Nino.\n\nThe CPC Official ENSO outlook , which synthesizes multiple models from North America and abroad, indicates El Nino will continue to strengthen through the end of the year [Figs. 6 -7 -8] . During the October-December 2026 season, there is a 75% chance of a historic event that would exceed the strength of previous El Nino events dating back to 1950 (+2.5\u00b0C or more for a 3-month RONI value ). With an event of this magnitude, the chances of experiencing impacts consistent with El Nino are larger, though not guaranteed (see CPC outlooks for probabilities of seasonal anomalies). In summary, El Nino is strengthening, with a greater than 90% chance of a very strong event during the Northern Hemisphere fall and winter 2026-27.",
+    "next_update": "8 October 2026"
+  },
+  "feeds": {
+    "oni": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt"
+    },
+    "roni": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/RONI.ascii.txt"
+    },
+    "weekly_sst": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/wksst9120.for"
+    },
+    "monthly_sst": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/sstoi.indices"
+    },
+    "rel_weekly_sst": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/rel_wksst9120.txt"
+    },
+    "rel_monthly_sst": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/rel_mthsst9120.txt"
+    },
+    "nino34_detrended": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/detrend.nino34.ascii.txt"
+    },
+    "nino34_relative": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/Rnino34.ascii.txt"
+    },
+    "wwv": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.pmel.noaa.gov/tao/wwv/data/wwv.dat"
+    },
+    "wwv_west": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.pmel.noaa.gov/tao/wwv/data/wwv_west.dat"
+    },
+    "soi": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/soi"
+    },
+    "eqsoi": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/reqsoi.for"
+    },
+    "darwin": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/darwin"
+    },
+    "tahiti": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/tahiti"
+    },
+    "olr": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/olr"
+    },
+    "olr_central": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/cpolr.mth.91-20.ascii"
+    },
+    "trade_central": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/cpac850"
+    },
+    "trade_west": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/wpac850"
+    },
+    "trade_east": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/epac850"
+    },
+    "zwnd200": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/zwnd200"
+    },
+    "mjo": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/products/precip/CWlink/daily_mjo_index/proj_norm_order.ascii"
+    },
+    "qbo30": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/qbo.u30.index"
+    },
+    "qbo50": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/qbo.u50.index"
+    },
+    "atlantic": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/sstoi.atl.indices"
+    },
+    "mei": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://psl.noaa.gov/enso/mei/data/meiv2.data"
+    },
+    "discussion": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:19+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/products/analysis_monitoring/enso_advisory/ensodisc.shtml"
+    },
+    "sst_pacific": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:20+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.csv?anom%5Blast%5D%5B%280.0%29%5D%5B%28-30%29:4:%2830%29%5D%5B%28100%29:4:%28300%29%5D,sst%5Blast%5D%5B%280.0%29%5D%5B%28-30%29:4:%2830%29%5D%5B%28100%29:4:%28300%29%5D"
+    },
+    "sst_global": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:20+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.csv?anom%5Blast%5D%5B%280.0%29%5D%5B%28-66%29:10:%2866%29%5D%5B%280%29:10:%28358%29%5D"
+    },
+    "sst_hovmoller": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:20+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.csv?anom%5B%282025-05-01%29:7:last%5D%5B%280.0%29%5D%5B%28-2%29:8:%282%29%5D%5B%28120%29:8:%28280%29%5D"
+    },
+    "tao_temperature": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:20+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonT.csv?time,longitude,depth,T_20&latitude%3E=-0.6&latitude%3C=0.6"
+    },
+    "tao_isotherm": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:20+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonIso.csv?time,longitude,ISO_6&latitude%3E=-0.6&latitude%3C=0.6"
+    },
+    "tao_mesh": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:20+00:00",
+      "error": null,
+      "url": "https://data.pmel.noaa.gov/pmel/erddap/tabledap/pmelTaoDyIso.csv?time,latitude,longitude,ISO_6&time%3E=2026-08-01"
+    },
+    "ssh_pacific": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:21+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day_Lon0360.csv?sla%5Blast%5D%5B%28-25%29:10:%2825%29%5D%5B%28120%29:10:%28290%29%5D"
+    },
+    "ssh_hovmoller": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-09-22T19:35:21+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day_Lon0360.csv?sla%5B%282025-05-01%29:7:last%5D%5B%28-2%29:8:%282%29%5D%5B%28120%29:8:%28280%29%5D"
+    }
+  }
+}

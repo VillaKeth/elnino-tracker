@@ -1,0 +1,7 @@
+Weekly Relative SST data starts week centered on 9Sept1981
+
+                Nino1+2      Nino3      Nino34     Nino4
+ Week             SSTA       SSTA       SSTA       SSTA
+ 09SEP1981        -0.3       -0.1        0.0        0.0
+ 02SEP2026         3.9        2.7        1.8        0.1
+ 09SEP2026         3.7        2.8        2.0       -0.1
