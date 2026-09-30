@@ -71,7 +71,9 @@ Exit codes are meaningful, so this can be driven from a scheduler:
 | 2 | could not run at all (no data and no cache) |
 | 3 | ran, but the analysis was degraded by feed or parse failures — a missing RONI or ONI among them |
 
-On Windows, double-click **`update.bat`** to refresh and open the dashboard.
+On Windows, double-click **`update.bat`** to refresh and open the dashboard, or
+**`publish.bat`** to refresh and put the run up as the site (see *Publishing the
+site*).
 
 ---
 
@@ -1503,6 +1505,7 @@ Every run is written to `data/elnino.db` (SQLite, stdlib):
 
 ```
 track.py                 CLI entry point, exit codes, watch loop, storm desk server
+publish.py               puts output/ up as the site on GitHub Pages, under the site's name
 elnino/sources.py        43-feed registry, parallel fetch, retry, cache + archive
 elnino/parsers.py        one parser per NOAA format, each with its quirks documented
 elnino/classify.py       episodes, ranking, scale, flavour, analogs, power index
@@ -1544,7 +1547,7 @@ elnino/worldmap.py       the map: street maps, El Nino's composites and tiles, E
                          what a point is told, Google on request, the geocoder
 elnino/thennow.py        then and now: its sources, every month's RONI season, the events,
                          the bar, and the script that enters a place and compares two dates
-tests/                   1009 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1031 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -1598,13 +1601,66 @@ never has to distinguish "missing" from "not applicable".
 
 ## Scheduling a daily refresh
 
-Not set up automatically. To have Windows refresh it every morning at 07:30:
+Not set up automatically. To have Windows refresh it every morning at 07:30, from a
+Command Prompt (the quoting is cmd's, not PowerShell's):
 
-```powershell
+```bat
 schtasks /create /tn "El Nino Tracker" /tr "\"%LOCALAPPDATA%\Programs\Python\Python310\python.exe\" \"%USERPROFILE%\Desktop\elnino-tracker\track.py\" --quiet" /sc daily /st 07:30
 ```
 
-Adjust the Python path to match `where python`.
+Adjust the Python path to match `where python`. To keep the published site fresh
+as well, have the task run `publish.bat /scheduled` instead, which runs the
+tracker, publishes the run and never waits for a key (`/f` replaces the task
+above):
+
+```bat
+schtasks /create /f /tn "El Nino Tracker" /tr "\"%USERPROFILE%\Desktop\elnino-tracker\publish.bat\" /scheduled" /sc daily /st 07:30
+```
+
+`publish.bat` runs the `python` that `where python` finds first.
+
+---
+
+## Publishing the site
+
+The pages are published at **<https://villaketh.github.io/elnino-tracker/>**: the
+dashboard, with the storm desk, the map, the atlas and both JSON files beside it,
+served by GitHub Pages from this repository's `gh-pages` branch. To put the last
+run there:
+
+```
+python publish.py                 # publish the pages output/ holds now
+python publish.py --dry-run       # lay the site out and check it; push nothing
+python publish.py --allow-older   # publish even though the site shows a later run
+```
+
+or double-click **`publish.bat`**, which runs the tracker and then publishes it. A
+run with open alerts (exit 1) or failed feeds (exit 3) is published, and its pages
+say so; a run that could not happen publishes nothing. `publish.bat` exits with
+the run's own code once it is published, 2 when the tracker did not run, and 4
+when it ran but publishing failed; `publish.bat /scheduled` does the same without
+waiting for a key, for Task Scheduler (see *Scheduling a daily refresh*).
+
+Each publish replaces `gh-pages` with one commit holding exactly that run's pages,
+byte for byte, as `output/` keeps no history either. The commit is made under the
+site's own name and GitHub no-reply address, never this machine's git identity,
+in a repository sealed off from this machine's git setup, so no personal address,
+hook, signature or ignore rule reaches the public repository. Before anything is
+pushed, the publish refuses a run with a page missing, empty, cut off or
+unreadable; a page naming this machine's home folder in any spelling (either
+slash, any case, %-escaped, with or without the drive); and a run older than the
+one the site already shows, unless `--allow-older` says so. `main` and `master`
+are never published over. The push goes only over HTTPS (an address, or an
+`insteadOf` rewrite, that turns it to SSH or anything else is refused), with the
+credential git has for GitHub (`gh auth setup-git` hands it the GitHub CLI's
+login), so the account `gh auth status` shows must be able to write to the
+repository; without a credential the push fails at once rather than waiting on a
+password prompt. GitHub serves the new pages a minute or two after the push.
+
+Served from GitHub, the pages draw everything the local ones do (*Maps, imagery
+and search*, under *Data sources*), OpenStreetMap included, which refuses a page
+opened from a file. The site's data are the run's: the imagery under the storms is
+live, but the storms, the outlooks and the ENSO state are as that run found them.
 
 ---
 
@@ -1614,7 +1670,7 @@ Adjust the Python path to match `where python`.
 python -m unittest discover -s tests -v
 ```
 
-1009 tests, no network required. They cover:
+1031 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -1816,6 +1872,19 @@ python -m unittest discover -s tests -v
 - **the server**: it refuses `..` however it is spelled, lists no directory,
   marks every page no-cache, answers `/` with the desk, names the map's address
   beside it, and listens beyond this machine only when `--lan` says so;
+- **publishing**, against a local bare repository (skipped without git): the site
+  opens on the dashboard, carries `.nojekyll` and goes up byte for byte; the
+  commit is made under the site's name whatever git identity this machine sets,
+  and none of this machine's hooks, signing, commit encoding, ignore rules or git
+  environment reaches it; each publish leaves one commit and names its run; `main`
+  and `master` are never published over, and an address turned away from HTTPS is
+  refused; a page missing, empty, cut off or unreadable, a `latest.json` with no
+  run time, or a page naming the home folder in any of its spellings stops the
+  publish with nothing pushed, while a folder only named like it does not; a run
+  older than the site's needs `--allow-older`; `--dry-run` says which run it
+  checked and pushes nothing; a refused publish exits 2; and `publish.bat`
+  publishes exactly the runs that happened, exits 2 or 4 when the tracker or the
+  publish failed, and never waits when scheduled;
 - **a full offline run** end to end, then every report section, the 78-column and
   ASCII-only guarantees, dashboard self-containment, a table view for every
   chart, all eight spatial panels and both cyclone cards reaching the page, the

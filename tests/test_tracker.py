@@ -10,6 +10,7 @@ import dataclasses
 import http.client
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -6787,6 +6788,276 @@ class TestExitCodes(unittest.TestCase):
     def test_the_windows_updater_does_not_call_open_alerts_a_failure(self):
         script = (ROOT / "update.bat").read_text(encoding="utf-8")
         self.assertNotRegex(script, r"(?im)^\s*if\s+errorlevel\s+1\b")
+
+    def test_the_windows_publisher_publishes_a_run_with_open_alerts(self):
+        script = (ROOT / "publish.bat").read_text(encoding="utf-8")
+        self.assertNotRegex(script, r"(?im)^\s*if\s+errorlevel\s+1\b")
+        self.assertIn("python publish.py", script)
+
+    def test_the_windows_publisher_never_waits_on_a_schedule(self):
+        script = (ROOT / "publish.bat").read_text(encoding="utf-8")
+        pauses = re.findall(r"(?im)^.*\bpause\b.*$", script)
+        self.assertTrue(pauses)
+        for line in pauses:
+            self.assertRegex(line, r'(?i)^\s*if /i not "%~1"=="/scheduled" pause\s*$')
+
+    @unittest.skipUnless(sys.platform == "win32", "publish.bat is for Windows")
+    def test_the_windows_publisher_publishes_exactly_the_runs_that_happened(self):
+        # publish.bat itself, run by cmd.exe, against a track.py and a
+        # publish.py that only exit with the codes they are handed.
+        with tempfile.TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            shutil.copyfile(ROOT / "publish.bat", here / "publish.bat")
+            (here / "track.py").write_text(
+                "import os, sys\nsys.exit(int(os.environ['TRACK']))\n", encoding="utf-8")
+            (here / "publish.py").write_text(
+                "import os, pathlib, sys\npathlib.Path('published').write_text('yes')\n"
+                "sys.exit(int(os.environ['PUBLISH']))\n", encoding="utf-8")
+            path = os.pathsep.join([str(Path(sys.executable).parent), os.environ.get("PATH", "")])
+            for track, publish, code, published in ((0, 0, 0, True), (1, 0, 1, True), (3, 0, 3, True),
+                                                    (2, 0, 2, False), (5, 0, 2, False), (1, 2, 4, True)):
+                with self.subTest(track=track, publish=publish):
+                    (here / "published").unlink(missing_ok=True)
+                    env = dict(os.environ, PATH=path, TRACK=str(track), PUBLISH=str(publish))
+                    done = subprocess.run(["cmd", "/d", "/c", str(here / "publish.bat"), "/scheduled"],
+                                          env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                          timeout=120)
+                    self.assertEqual(done.returncode, code)
+                    self.assertEqual((here / "published").exists(), published)
+
+
+@unittest.skipUnless(shutil.which("git"), "publishing needs git")
+class TestPublish(unittest.TestCase):
+    """publish.py: the pages of the last run, put up as the site on GitHub Pages."""
+
+    RUN_AT = "2026-09-30T19:59:20+00:00"
+    SITE = [".nojekyll", "atlas.html", "dashboard.html", "index.html",
+            "latest.json", "map.html", "storms.html", "storms.json"]
+
+    def setUp(self):
+        import publish
+
+        self.publish = publish
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.nobody = self.tmp / "home" / "nobody"
+        self.out = self.tmp / "output"
+        self.out.mkdir()
+        for name in ("dashboard.html", "storms.html", "map.html", "atlas.html"):
+            self._page(name, f"<!-- {name} --></html>")
+        self._page("storms.json", "{}")
+        self._run(self.RUN_AT)
+        self.remote = self.tmp / "site.git"
+        self._git("init", "-q", "--bare", str(self.remote))
+
+    def _page(self, name, text):
+        (self.out / name).write_bytes(text.encode("utf-8"))
+
+    def _run(self, run_at):
+        self._page("latest.json", json.dumps({"run_at": run_at}))
+
+    def _git(self, *args):
+        done = subprocess.run(["git", *args], check=True, capture_output=True, text=True)
+        return done.stdout.strip()
+
+    def _published(self, *args):
+        return self._git("--git-dir", str(self.remote), *args)
+
+    def _published_bytes(self, spec):
+        return subprocess.run(["git", "--git-dir", str(self.remote), "cat-file", "blob", spec],
+                              check=True, capture_output=True).stdout
+
+    def _publish(self, **kwargs):
+        kwargs.setdefault("home", self.nobody)
+        return self.publish.publish(self.out, remote=str(self.remote), **kwargs)
+
+    def _refused(self, pattern, **kwargs):
+        with self.assertRaisesRegex(self.publish.PublishError, pattern):
+            self._publish(**kwargs)
+        self.assertEqual(self._published("for-each-ref"), "")
+
+    def _config(self, name, *settings):
+        path = self.tmp / name
+        for key, value in settings:
+            self._git("config", "--file", str(path), key, value)
+        return {"GIT_CONFIG_GLOBAL": str(path)}
+
+    def test_the_site_opens_on_the_dashboard(self):
+        site = self.tmp / "site"
+        site.mkdir()
+        self.assertEqual(self.publish.lay_out(self.out, site, home=self.nobody), self.RUN_AT)
+        self.assertEqual(sorted(path.name for path in site.iterdir()), self.SITE)
+        self.assertEqual((site / "index.html").read_bytes(), (self.out / "dashboard.html").read_bytes())
+
+    def test_a_run_missing_a_page_is_not_published(self):
+        (self.out / "map.html").unlink()
+        self._refused("map.html")
+
+    def test_an_empty_or_cut_off_page_is_not_published(self):
+        for name, text, said in (("storms.html", " \r\n", "storms.html is empty"),
+                                 ("atlas.html", "<html><body>half a pa", "atlas.html is cut off"),
+                                 ("storms.json", '{"storms": [', "storms.json is cut off"),
+                                 ("latest.json", '{"schema": 9}', "latest.json gives no run time"),
+                                 ("latest.json", '{"run_at": "yesterday"}', "latest.json gives no run time")):
+            with self.subTest(page=name, text=text):
+                kept = (self.out / name).read_bytes()
+                self._page(name, text)
+                self._refused(said)
+                (self.out / name).write_bytes(kept)
+
+    def test_an_unreadable_page_exits_as_could_not_publish(self):
+        read = Path.read_bytes
+
+        def locked(path):
+            if path.name == "storms.html":
+                raise PermissionError(13, "The process cannot access the file", str(path))
+            return read(path)
+
+        with mock.patch.object(Path, "read_bytes", locked), mock.patch("sys.stderr") as err:
+            code = self.publish.main(["--out", str(self.out), "--remote", str(self.remote)])
+        self.assertEqual(code, 2)
+        self.assertIn("storms.html could not be read",
+                      "".join(str(call.args[0]) for call in err.write.call_args_list))
+
+    def test_a_page_naming_this_machine_s_home_is_not_published(self):
+        home = self.tmp / "home" / "someone"
+        self._page("storms.json", json.dumps({"cache": str(home / "data")}))
+        self._page("atlas.html", f'<a href="file:///{home.as_posix()}/x"></a></html>')
+        self._refused("atlas.html.*storms.json", home=home)
+
+    def test_the_home_folder_is_found_in_any_spelling(self):
+        from urllib.parse import quote
+
+        home = self.tmp / "home" / "some one"
+        text, posix = str(home), home.as_posix()
+        drive = home.drive.rstrip(":").lower()
+        tail = posix[len(home.drive):]
+        spellings = {
+            "as written": text,
+            "upper case": text.upper(),
+            "forward slashes": posix,
+            "escaped once": json.dumps(text),
+            "escaped twice": json.dumps(json.dumps(text)),
+            "a file address": "file:///" + quote(posix),
+            "Git Bash": f"/{drive}{tail}" if drive else posix,
+            "a network path": "\\\\host\\" + (f"{drive}$" if drive else "share") + tail.replace("/", "\\"),
+        }
+        for how, spelled in spellings.items():
+            with self.subTest(how):
+                self._page("map.html", f"<p>{spelled}</p></html>")
+                self._refused("map.html", home=home)
+
+    def test_a_folder_named_only_like_home_does_not_stop_the_publish(self):
+        self._page("map.html", f"<p>{self.tmp / 'home' / 'someone'}</p></html>")
+        self._publish(home=self.tmp / "home" / "some")
+        self.assertEqual(self._published("rev-list", "--count", "gh-pages"), "1")
+
+    def test_the_site_goes_up_under_its_own_name_not_this_machine_s(self):
+        work = {"GIT_AUTHOR_NAME": "Someone", "GIT_AUTHOR_EMAIL": "someone@work.example",
+                "GIT_COMMITTER_NAME": "Someone", "GIT_COMMITTER_EMAIL": "someone@work.example"}
+        with mock.patch.dict(os.environ, work):
+            self._publish()
+        name, email = self.publish.IDENTITY
+        self.assertEqual(self._published("log", "-1", "--format=%an <%ae>|%cn <%ce>", "gh-pages"),
+                         f"{name} <{email}>|{name} <{email}>")
+
+    def test_nothing_of_this_machine_s_git_setup_goes_up_with_the_site(self):
+        hooks = self.tmp / "hooks"
+        hooks.mkdir()
+        hook = hooks / "commit-msg"
+        hook.write_bytes(b'#!/bin/sh\necho "Signed-off-by: Someone <someone@work.example>" >> "$1"\n')
+        hook.chmod(0o755)
+        refuse = hooks / "pre-push"
+        refuse.write_bytes(b"#!/bin/sh\nexit 1\n")
+        refuse.chmod(0o755)
+        work = self._config("work.gitconfig", ("core.hooksPath", hooks.as_posix()),
+                            ("commit.gpgsign", "true"), ("gpg.format", "ssh"),
+                            ("user.signingkey", (self.tmp / "no-such-key").as_posix()),
+                            ("i18n.commitEncoding", "ISO-8859-1"))
+        with mock.patch.dict(os.environ, work):
+            self._publish()
+        commit = self._published("cat-file", "-p", "gh-pages")
+        self.assertNotIn("gpgsig", commit)
+        self.assertNotIn("someone@work.example", commit)
+        self.assertNotRegex(commit, r"(?m)^encoding ")
+
+    def test_the_site_goes_up_byte_for_byte(self):
+        page = b"<html>\r\n<body>crlf</body>\r\n</html>\r\n"
+        (self.out / "storms.html").write_bytes(page)
+        with mock.patch.dict(os.environ, self._config("crlf.gitconfig", ("core.autocrlf", "true"))):
+            self._publish()
+        self.assertEqual(self._published_bytes("gh-pages:storms.html"), page)
+
+    def test_an_address_turned_away_from_https_is_refused(self):
+        rewrite = self._config("rewrite.gitconfig",
+                               ("url.ssh://git@example.invalid/site.git.insteadOf", str(self.remote)))
+        with mock.patch.dict(os.environ, rewrite):
+            self._refused("not allowed")
+
+    def test_git_s_own_environment_does_not_steer_the_publish(self):
+        elsewhere = self.tmp / "elsewhere.git"
+        self._git("init", "-q", "--bare", str(elsewhere))
+        steer = {"GIT_DIR": str(elsewhere), "GIT_INDEX_FILE": str(self.tmp / "index"),
+                 "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "commit.gpgsign", "GIT_CONFIG_VALUE_0": "true",
+                 "GIT_CONFIG_KEY_1": "user.signingkey", "GIT_CONFIG_VALUE_1": str(self.tmp / "no-such-key")}
+        with mock.patch.dict(os.environ, steer):
+            self._publish()
+            self.assertEqual(self.publish._environment()["GIT_TERMINAL_PROMPT"], "0")
+        self.assertEqual(self._git("--git-dir", str(elsewhere), "for-each-ref"), "")
+        self.assertEqual(self._published("ls-tree", "--name-only", "gh-pages").split(), self.SITE)
+
+    def test_a_page_a_global_ignore_rule_would_drop_is_still_published(self):
+        xdg = self.tmp / "xdg"
+        (xdg / "git").mkdir(parents=True)
+        (xdg / "git" / "ignore").write_text("*.json\n.nojekyll\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(xdg)}):
+            self._publish()
+        self.assertEqual(self._published("ls-tree", "--name-only", "gh-pages").split(), self.SITE)
+
+    def test_each_publish_replaces_the_branch_with_one_commit(self):
+        self._publish()
+        self._page("dashboard.html", "<!-- the next run --></html>")
+        self._publish()
+        self.assertEqual(self._published("rev-list", "--count", "gh-pages"), "1")
+        self.assertEqual(self._published("show", "gh-pages:index.html"), "<!-- the next run --></html>")
+        self.assertEqual(self._published("ls-tree", "--name-only", "gh-pages").split(), self.SITE)
+
+    def test_a_run_older_than_the_site_s_is_not_published_unless_asked(self):
+        self._publish()
+        older = "2026-09-29T21:55:00+00:00"
+        self._run(older)
+        with self.assertRaisesRegex(self.publish.PublishError, "older"):
+            self._publish()
+        with mock.patch("sys.stderr"):
+            self.assertEqual(self.publish.main(["--out", str(self.out), "--remote", str(self.remote),
+                                                "--dry-run"]), 2)
+        self.assertIn(self.RUN_AT, self._published("show", "gh-pages:latest.json"))
+        self._publish(allow_older=True)
+        self.assertIn(older, self._published("show", "gh-pages:latest.json"))
+
+    def test_the_commit_names_the_run_it_publishes(self):
+        self.assertEqual(self._publish(), self.RUN_AT)
+        self.assertIn(self.RUN_AT, self._published("log", "-1", "--format=%s", "gh-pages"))
+
+    def test_a_code_branch_is_never_published_over(self):
+        for branch in ("main", "master"):
+            with self.assertRaises(self.publish.PublishError):
+                self._publish(branch=branch)
+        self.assertEqual(self._published("for-each-ref"), "")
+
+    def test_a_dry_run_says_which_run_and_pushes_nothing(self):
+        with mock.patch("sys.stdout") as said:
+            code = self.publish.main(["--out", str(self.out), "--remote", str(self.remote), "--dry-run"])
+        self.assertEqual(code, 0)
+        self.assertRegex("".join(str(call.args[0]) for call in said.write.call_args_list),
+                         r"30 Sep 2026 19:59 UTC \(.* old\)")
+        self.assertEqual(self._published("for-each-ref"), "")
+
+    def test_a_refused_publish_exits_as_could_not_publish(self):
+        (self.out / "atlas.html").unlink()
+        with mock.patch("sys.stderr"):
+            self.assertEqual(self.publish.main(["--out", str(self.out), "--remote", str(self.remote)]), 2)
 
 
 class TestServe(unittest.TestCase):
