@@ -16,7 +16,8 @@ from .classify import Assessment, intensity_tier
 from .parsers import MonthValue, SeasonValue, WeekObservation
 from .sources import Fetched
 
-from . import alerts, fields, geo, globe, panels, space3d
+from . import (alerts, atlas, atlasview, cyclones, fields, geo, globe, impacts,
+               panels, space3d, stormdesk, stormfury, storms, worldmap)
 from .svg import (  # noqa: F401 - re-exported for the panel modules
     BAND_STATUS,
     DARK,
@@ -26,22 +27,30 @@ from .svg import (  # noqa: F401 - re-exported for the panel modules
     _legend,
     esc,
     nice_ticks,
+    prose,
     table,
+    tick_text,
 )
 
 
-# --- chart 1: ONI / RONI seasonal trace -------------------------------------
-def chart_oni(oni: list[SeasonValue], roni: list[SeasonValue], seasons: int = 66) -> str:
-    recent_oni = oni[-seasons:]
-    lookup = {(s.season, s.year): s.value for s in roni}
+# --- chart 1: the official index and the legacy one -------------------------
+def chart_oni(official: list[SeasonValue], legacy: list[SeasonValue],
+              name: str = "RONI", legacy_name: str = "ONI", seasons: int = 66) -> str:
+    """The official index (RONI since February 2026) with the legacy ONI beside it.
+
+    The official index takes the first series colour here as it does on the
+    forecast chart, so it is the same line wherever it appears.
+    """
+    recent = official[-seasons:]
+    lookup = {(s.season, s.year): s.value for s in legacy}
     plot = Plot(760, 330, (24, 92, 44, 52))
 
-    values = [s.value for s in recent_oni] + [
-        lookup[(s.season, s.year)] for s in recent_oni if (s.season, s.year) in lookup
+    values = [s.value for s in recent] + [
+        lookup[(s.season, s.year)] for s in recent if (s.season, s.year) in lookup
     ]
     low, high = min(values + [-0.6]), max(values + [0.6])
     pad = (high - low) * 0.14
-    plot.domain(0, len(recent_oni) - 1, low - pad, high + pad)
+    plot.domain(0, len(recent) - 1, low - pad, high + pad)
     plot.gridlines(nice_ticks(low - pad, high + pad, 6))
 
     # El Nino / La Nina threshold bands, drawn as recessive washes.
@@ -58,7 +67,7 @@ def chart_oni(oni: list[SeasonValue], roni: list[SeasonValue], seasons: int = 66
 
     # x-axis: one tick per calendar year
     seen: set[int] = set()
-    for index, item in enumerate(recent_oni):
+    for index, item in enumerate(recent):
         if item.year not in seen:
             seen.add(item.year)
             x = plot.sx(index)
@@ -72,26 +81,28 @@ def chart_oni(oni: list[SeasonValue], roni: list[SeasonValue], seasons: int = 66
             ("M" if i == 0 else "L") + f"{x:.1f} {y:.1f}" for i, (x, y) in enumerate(points)
         )
 
-    oni_points = [(plot.sx(i), plot.sy(s.value)) for i, s in enumerate(recent_oni)]
-    roni_points = [
+    official_points = [(plot.sx(i), plot.sy(s.value)) for i, s in enumerate(recent)]
+    legacy_points = [
         (plot.sx(i), plot.sy(lookup[(s.season, s.year)]))
-        for i, s in enumerate(recent_oni)
+        for i, s in enumerate(recent)
         if (s.season, s.year) in lookup
     ]
 
+    if legacy_points:
+        plot.add(
+            f'<path d="{path_for(legacy_points)}" fill="none" stroke="var(--s2)" '
+            f'stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />'
+        )
     plot.add(
-        f'<path d="{path_for(roni_points)}" fill="none" stroke="var(--s2)" stroke-width="2" '
-        f'stroke-linejoin="round" stroke-linecap="round" />'
-    )
-    plot.add(
-        f'<path d="{path_for(oni_points)}" fill="none" stroke="var(--s1)" stroke-width="2" '
-        f'stroke-linejoin="round" stroke-linecap="round" />'
+        f'<path d="{path_for(official_points)}" fill="none" stroke="var(--s1)" '
+        f'stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />'
     )
 
     # end markers with 2px surface ring, and selective direct labels
     for points, colour, label, value in (
-        (roni_points, "var(--s2)", "RONI", lookup.get((recent_oni[-1].season, recent_oni[-1].year))),
-        (oni_points, "var(--s1)", "ONI", recent_oni[-1].value),
+        (legacy_points, "var(--s2)", legacy_name,
+         lookup.get((recent[-1].season, recent[-1].year))),
+        (official_points, "var(--s1)", name, recent[-1].value),
     ):
         if not points or value is None:
             continue
@@ -105,16 +116,19 @@ def chart_oni(oni: list[SeasonValue], roni: list[SeasonValue], seasons: int = 66
             f'{esc(label)} {value:+.2f}</text>'
         )
 
-    for index, item in enumerate(recent_oni):
+    for index, item in enumerate(recent):
         extra = ""
         key = (item.season, item.year)
         if key in lookup:
-            extra = f"RONI {lookup[key]:+.2f} °C"
-        plot.add(_hit(plot.sx(index), plot.sy(item.value), item.label, f"ONI {item.value:+.2f} °C", extra))
+            extra = f"{legacy_name} {lookup[key]:+.2f} °C (legacy)"
+        plot.add(_hit(plot.sx(index), plot.sy(item.value), item.label,
+                      f"{name} {item.value:+.2f} °C · {intensity_tier(item.value)}",
+                      extra))
 
     return plot.svg(
-        "ONI and RONI seasonal trace",
-        "Three-month running Nino-3.4 anomaly (ONI) and the tropical-mean-adjusted RONI.",
+        f"{name} and {legacy_name} seasonal trace" if legacy else f"{name} seasonal trace",
+        f"Three-month Nino-3.4 index: {name}, the official one, "
+        + (f"with the legacy {legacy_name} beside it." if legacy else "on its own."),
     )
 
 
@@ -184,7 +198,7 @@ def chart_regions(assessment: Assessment) -> str:
         x = plot.sx(tick)
         plot.add(
             f'<text x="{x:.1f}" y="{plot.h - plot.bottom + 20:.1f}" text-anchor="middle" '
-            f'class="tick">{tick:+.1f}</text>'
+            f'class="tick">{tick_text(tick)}</text>'
         )
     return plot.svg(
         "Weekly Nino-region SST anomalies",
@@ -301,10 +315,11 @@ def chart_analogs(assessment: Assessment) -> str:
         for index, value in enumerate(values):
             plot.add(
                 _hit(plot.sx(index), plot.sy(value), name,
-                     f"ONI {value:+.2f} °C", f"season {index} after onset")
+                     f"{assessment.index_name} {value:+.2f} °C",
+                     f"season {index} after onset")
             )
 
-    # Events that finish at a similar ONI put their end-labels on top of each other.
+    # Events that finish at a similar value put their end-labels on top of each other.
     # Push them apart to a minimum gap and connect each back to its own line with a
     # leader, so a nudged label never looks like it belongs to its neighbour.
     ends.sort(key=lambda e: e[1])
@@ -370,8 +385,9 @@ def power_meter(assessment: Assessment) -> str:
   <div class="meter-scale"><span>0</span><span>50</span><span>100</span></div>
   <div class="comps">{''.join(rows)}</div>
   <p class="note">Derived diagnostic of this tracker, not a NOAA product. Weighted blend of
-  amplitude (ONI/RONI vs the +2.5 °C historic bar), ocean&ndash;atmosphere coupling,
-  basin-wide spatial scale, and rate of change.</p>
+  amplitude ({esc(assessment.index_name)} against +2.5 °C, a level RONI has not reached
+  since 1950), ocean&ndash;atmosphere coupling, basin-wide spatial scale, and rate of
+  change.</p>
 </div>"""
 
 
@@ -434,7 +450,15 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
 .rowlabel {{ fill: var(--ink2); font-size: 12px; font-family: var(--font); }}
 .barvalue, .endlabel {{ fill: var(--ink); font-size: 12px; font-weight: 600;
   font-family: var(--font); }}
+/* A map label over tracks: text ink, and a halo of the map's own ground so
+   a line or a marker under it does not cut through the letters. */
+.placename {{ fill: var(--ink); font-weight: 600; }}
+.halo {{ paint-order: stroke; stroke: var(--plane); stroke-width: 3px;
+  stroke-linejoin: round; }}
 .band-note, .axistitle {{ fill: var(--muted); font-size: 11px; font-family: var(--font); }}
+/* The field is one path per colour class rather than a rectangle per cell,
+   so the crisp-edge hint lives on the group instead of on every element. */
+.cellfill path {{ shape-rendering: crispEdges; }}
 .hit {{ cursor: crosshair; outline: none; }}
 .hit:focus-visible {{ stroke: var(--ink); stroke-width: 2; }}
 .legend {{ display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0 2px;
@@ -477,6 +501,8 @@ table {{ border-collapse: collapse; width: 100%; font-size: 0.82rem;
 th, td {{ text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border);
   white-space: nowrap; }}
 th:first-child, td:first-child {{ text-align: left; }}
+th.lbl, td.lbl {{ text-align: left; }}
+th.txt, td.txt {{ white-space: normal; text-align: left; min-width: 16em; }}
 th {{ color: var(--ink2); font-weight: 600; }}
 .prose p {{ font-size: 0.88rem; color: var(--ink2); margin: 0 0 10px; }}
 .sources {{ list-style: none; padding: 0; margin: 0; font-size: 0.8rem; }}
@@ -623,6 +649,9 @@ footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
 .rampticks {{ display: flex; justify-content: space-between; margin-top: 3px; }}
 .ramptick {{ font-size: 0.66rem; color: var(--muted);
   font-variant-numeric: tabular-nums; }}
+/* A bar whose labels are placed at their values rather than spread out. */
+.rampscale {{ display: block; position: relative; height: 1.2em; }}
+.rampscale .ramptick {{ position: absolute; top: 0; white-space: nowrap; }}
 
 /* Rotatable scenes. */
 /* Scene labels are drawn after the geometry, and haloed, so an axis tick that
@@ -715,49 +744,143 @@ __GLOBE__
 """.replace("__SCENES__", space3d.SCENE_JS).replace("__GLOBE__", globe.js())
 
 
+# --- the storm desk ------------------------------------------------------------
+# storms.html and storms.json are written beside this page, so the paths are
+# relative to it.
+STORM_DESK = {"page": "storms.html", "data": "storms.json", "schema": stormdesk.SCHEMA}
+
+
+def _counted(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+def outlook_json(state) -> list:
+    """NHC's and JTWC's formation areas, as storms.json carries them."""
+    tier = getattr(state, "cyclones", None)
+    return [stormdesk._area(area) for area in (getattr(tier, "outlook", None) or [])]
+
+
+def storm_desk_card(state) -> str:
+    """The way into storms.html, and what is on it at this run."""
+    tier = getattr(state, "cyclones", None)
+    live = tier.active if tier is not None and tier.available else ()
+    areas = list(getattr(tier, "outlook", None) or [])
+    invests = tuple(getattr(tier, "invests", None) or ())
+
+    counts = [_counted(len(live), "live storm", "live storms") if live
+              else "No live tropical cyclones at this run"]
+    if areas:
+        counts.append(_counted(len(areas), "formation area", "formation areas"))
+    if invests:
+        counts.append(_counted(len(invests), "invest", "invests"))
+
+    named = []
+    for storm in live:
+        now = storm.latest
+        label = now.label[:1].upper() + now.label[1:] if now else ""
+        named.append(f"<li><strong>{esc(storm.title)}</strong> &middot; "
+                     f"{esc(label) + ' &middot; ' if label else ''}"
+                     f"advisories from {esc(stormdesk.centre_name(storm))}</li>")
+    for area in areas:
+        if area.chance_7day is not None:
+            odds = ("" if area.chance_2day is None else f"{area.chance_2day}% in 2 days, "
+                    ) + f"{area.chance_7day}% in 7 days"
+        else:
+            formation = getattr(area, "formation", None)
+            odds = f"{area.potential or 'unrated'} potential" + (
+                ", " + stormdesk._alert_words(formation.until if formation else "",
+                                              getattr(state, "run_at", None))
+                if area.alert else "")
+        named.append(f"<li>Formation, {esc(area.centre)}: {esc(area.label)} "
+                     f"&middot; {esc(odds)}</li>")
+    for storm in invests:
+        named.append(f"<li>{esc(storm.title)} &middot; an invest: "
+                     "tracked, not yet a tropical cyclone</li>")
+    listed = f'<ul class="reasons">{"".join(named)}</ul>' if named else ""
+
+    return f"""<section class="card" id="storm-desk">
+  <h2>Storm desk</h2>
+  <p class="caption">{" &middot; ".join(counts)}</p>
+  <p class="prose"><a class="bigalink" href="{STORM_DESK['page']}">Open the storm
+    desk &rarr;</a> Every live storm on the newest satellite frame, drawn at
+    the time that frame was taken, with its forecast track, cone and wind
+    field. Zoom to the eye, swipe between imagery layers, loop the last two
+    hours, and move the forecast forward to see the places each wind
+    threshold reaches. Each storm's Protect tab has its watches and warnings,
+    wind speed probabilities, peak surge, and what to do for people and for
+    animals.</p>
+  <p class="prose">Every storm is also on the <a href="map.html">El Ni&ntilde;o
+    map</a>, over street maps and satellite.</p>
+  {listed}
+</section>"""
+
+
 def render(state) -> str:
     """The whole system state as one self-contained HTML file."""
     a = state.assessment
     oni = state.series.get("oni") or []
     roni = state.series.get("roni") or []
+    official = a.index_series
+    legacy = oni if a.index_name == "RONI" else []
     weeks = state.series.get("weeks") or []
     discussion = state.discussion or {}
     fetches = state.fetched
     now = datetime.now(timezone.utc).strftime("%d %b %Y %H:%M UTC")
-    roni_map = {(s.season, s.year): s.value for s in roni}
+    legacy_map = {(s.season, s.year): s.value for s in legacy}
 
     # --- hero + tiles --------------------------------------------------------
+    index_title = ("Relative Oceanic Nino Index" if a.index_name == "RONI"
+                   else "Oceanic Nino Index")
+    index_role = ("CPC&rsquo;s official index since February 2026"
+                  if a.index_name == "RONI"
+                  else "standing in: RONI, the official index, did not arrive")
+    rank = a.index_ranking
+    rank_note = (
+        f"#{rank.rank_season} of {rank.total_season} among all {esc(rank.season)} "
+        f"seasons since 1950 &middot; #{rank.rank_all} of {rank.total_all} overall "
+        f"&middot; " if rank else ""
+    )
     hero = f"""
 <section class="hero">
   <div>
-    <div class="hero-label">Oceanic Nino Index &mdash; {esc(a.oni_latest.label)}</div>
-    <div class="hero-fig">{a.oni_latest.value:+.2f}<span class="hero-unit"> °C</span></div>
-    <div class="hero-tier">{esc(a.oni_tier)}</div>
-    <div class="hero-note">#{a.ranking.rank_season} of {a.ranking.total_season} among all
-      {esc(a.ranking.season)} seasons since 1950 &middot; #{a.ranking.rank_all} of
-      {a.ranking.total_all} overall</div>
+    <div class="hero-label">{index_title} &mdash; {esc(a.index_latest.label)}</div>
+    <div class="hero-fig">{a.index_latest.value:+.2f}<span class="hero-unit"> °C</span></div>
+    <div class="hero-tier">{esc(a.index_tier)}</div>
+    <div class="hero-note">{rank_note}{index_role}</div>
   </div>
   {power_meter(a)}
 </section>"""
 
     tiles: list[str] = []
-    if a.roni_latest:
+    if a.index_name == "RONI" and a.oni_latest:
         tiles.append(
-            f'<div class="tile"><div class="t-label">RONI ({esc(a.roni_latest.label)})</div>'
-            f'<div class="t-value">{a.roni_latest.value:+.2f}</div>'
-            f'<div class="t-note">trend-adjusted &middot; {esc(a.roni_tier or "")}</div></div>'
+            f'<div class="tile"><div class="t-label">Legacy ONI ({esc(a.oni_latest.label)})</div>'
+            f'<div class="t-value">{a.oni_latest.value:+.2f}</div>'
+            f'<div class="t-note">pre-2026 index &middot; {esc(a.oni_tier)}</div></div>'
+        )
+    elif a.index_name == "RONI":
+        tiles.append(
+            '<div class="tile"><div class="t-label">Legacy ONI</div>'
+            '<div class="t-value">&mdash;</div>'
+            '<div class="t-note">did not arrive this run</div></div>'
         )
     if a.latest_week:
-        tiles.append(
-            f'<div class="tile"><div class="t-label">Nino-3.4 weekly</div>'
-            f'<div class="t-value">{a.latest_week.nino34_anom:+.2f}</div>'
-            f'<div class="t-note">week ending {esc(a.latest_week.label)}</div></div>'
-        )
-        tiles.append(
-            f'<div class="tile"><div class="t-label">Nino-1+2 weekly</div>'
-            f'<div class="t-value">{a.latest_week.nino12_anom:+.2f}</div>'
-            f'<div class="t-note">eastern Pacific / coastal</div></div>'
-        )
+        regions = {r.key: r for r in a.scale.regions} if a.scale else {}
+        relative = bool(a.scale and a.scale.basis == "relative")
+        for key, label, note in (
+            ("nino34", "Nino-3.4 weekly", f"week ending {esc(a.latest_week.label)}"),
+            ("nino12", "Nino-1+2 weekly", "eastern Pacific / coastal"),
+        ):
+            region = regions.get(key)
+            if region is None:
+                continue
+            if relative and region.traditional is not None:
+                note += f" &middot; relative; traditional {region.traditional:+.2f}"
+            tiles.append(
+                f'<div class="tile"><div class="t-label">{label}</div>'
+                f'<div class="t-value">{region.anomaly:+.2f}</div>'
+                f'<div class="t-note">{note}</div></div>'
+            )
     if a.coupling.soi is not None:
         tiles.append(
             f'<div class="tile"><div class="t-label">SOI (3-month mean)</div>'
@@ -790,9 +913,9 @@ def render(state) -> str:
     peak = state.forecast.peak if state.forecast else None
     if peak:
         tiles.append(
-            f'<div class="tile"><div class="t-label">Projected peak</div>'
+            f'<div class="tile"><div class="t-label">Projected {esc(a.index_name)} peak</div>'
             f'<div class="t-value">{peak.mean:+.2f}</div>'
-            f'<div class="t-note">{esc(peak.label)} &middot; '
+            f'<div class="t-note">{esc(peak.label)} &middot; 80% range '
             f'{peak.low:+.2f} to {peak.high:+.2f}</div></div>'
         )
 
@@ -821,6 +944,23 @@ def render(state) -> str:
     # the same ocean, and a reader who has turned the planet around once knows
     # what the slices are slices of.
     cards.append(globe.card(state))
+    # Storms next, before any of the slower-moving geometry. A reader who
+    # opens this page because something has formed should not have to scroll
+    # past a thermocline section to find out where it is going.
+    cards.append(storms.tracks_card(state))
+    # The storm desk straight after the map it goes further than: every
+    # basin, live imagery, and what each warning centre has issued.
+    cards.append(storm_desk_card(state))
+    cards.append(storms.season_card(state))
+    # STORMFURY last of the three, because it only makes sense once the reader
+    # has seen what tracking actually delivers.
+    cards.append(storms.fury_card(state))
+    # The map, then the atlas, after the storms and before the ocean geometry:
+    # they are the panels that answer "and what about here", which is the
+    # question a reader arrives with and the rest of the page never quite
+    # addresses. The map goes down to the street; the atlas keeps the record.
+    cards.append(worldmap.card(state))
+    cards.append(atlasview.card(state))
     if sp.sst_map is not None:
         cards.append(fields.sst_map(sp.sst_map, sp.box_means, sp.warm_pool))
     if sp.mesh is not None:
@@ -832,19 +972,30 @@ def render(state) -> str:
         cards.append(fields.global_map(sp.sst_global))
     cards.append(space3d.phase_spiral(state))
 
-    recent = oni[-66:]
+    recent = official[-66:]
+    name = a.index_name
+    legend = [(f"{name} (official, tropical mean removed)", "var(--s1)")]
+    columns = ["Season", f"{name} °C", f"Classification ({name}, as printed)"]
+    if legacy:
+        legend.append(("ONI (legacy)", "var(--s2)"))
+        columns.insert(2, "ONI °C (legacy)")
+
+    def season_row(s: SeasonValue) -> list[str]:
+        row = [s.label, f"{s.value:+.2f}", intensity_tier(s.value)]
+        if legacy:
+            key = (s.season, s.year)
+            row.insert(2, f"{legacy_map[key]:+.2f}" if key in legacy_map else "n/a")
+        return row
+
     cards.append(
         f"""<section class="card">
-  <h2>Intensity &mdash; ONI and RONI</h2>
-  <p class="caption">{esc(a.episode_status)}</p>
-  {chart_oni(oni, roni)}
-  {_legend([("ONI (Nino-3.4 anomaly)", "var(--s1)"), ("RONI (trend-adjusted)", "var(--s2)")])}
-  {table("ONI and RONI by season (most recent 24)",
-         ["Season", "ONI °C", "RONI °C", "Classification"],
-         [[s.label, f"{s.value:+.2f}",
-           f"{roni_map[(s.season, s.year)]:+.2f}" if (s.season, s.year) in roni_map else "n/a",
-           intensity_tier(s.value)]
-          for s in reversed(recent[-24:])])}
+  <h2>Intensity &mdash; {esc(name)}{" and the legacy ONI" if legacy else ""}</h2>
+  <p class="caption">{prose(a.episode_status)} Tiers follow the one-decimal value CPC
+    prints: +1.46 reads +1.5, Strong.</p>
+  {chart_oni(official, legacy, name)}
+  {_legend(legend)}
+  {table(f"{name} by season (most recent 24)", columns,
+         [season_row(s) for s in reversed(recent[-24:])])}
 </section>"""
     )
 
@@ -854,27 +1005,44 @@ def render(state) -> str:
   <h2>Scale &mdash; spatial extent across the Nino regions</h2>
   <p class="caption">Week ending {esc(a.latest_week.label)} &middot;
     {a.scale.active_regions} of 4 regions at or above +0.5 °C &middot; {esc(a.scale.flavour)}
-    (Nino-1+2 minus Nino-4 = {a.scale.flavour_index:+.2f} °C)</p>
+    (Nino-1+2 minus Nino-4 = {a.scale.flavour_index:+.2f} °C) &middot;
+    {"relative anomalies, tropical mean removed, as CPC now quotes them"
+     if a.scale.basis == "relative" else "traditional anomalies"}</p>
   {chart_regions(a)}
   {_legend([("warm anomaly", "var(--warm)"), ("cool anomaly", "var(--cool)")])}
   {table("Nino-region weekly values",
-         ["Region", "Anomaly °C", "SST °C", "At threshold"],
-         [[r.label, f"{r.anomaly:+.2f}", f"{r.sst:.1f}", "yes" if r.active else "no"]
+         ["Region", f"{a.scale.basis.capitalize()} anomaly °C", "Traditional anomaly °C",
+          "SST °C", "At threshold"],
+         [[r.label, f"{r.anomaly:+.2f}",
+           "n/a" if r.traditional is None else f"{r.traditional:+.2f}",
+           f"{r.sst:.1f}", "yes" if r.active else "no"]
           for r in a.scale.regions])}
 </section>"""
         )
 
     if len(weeks) > 2:
         shown = weeks[-104:]
+        relative_by_week = {
+            when: regions.get("nino34")
+            for when, regions in (state.series.get("rel_weeks") or [])
+        }
+
+        def relative_cell(week) -> str:
+            value = relative_by_week.get(week.week_ending)
+            return "n/a" if value is None else f"{value:+.2f}"
+
         cards.append(
             f"""<section class="card">
   <h2>Weekly Nino-3.4 trajectory</h2>
-  <p class="caption">Last {len(shown)} weeks &middot; the highest-frequency official view of the
-    index region</p>
+  <p class="caption">Last {len(shown)} weeks of the traditional weekly anomaly, against a fixed
+    1991&ndash;2020 base &middot; the relative value CPC now quotes, with the tropical mean
+    taken out, is beside it in the table</p>
   {chart_weekly(weeks)}
   {table("Weekly Nino-3.4 (most recent 16 weeks)",
-         ["Week ending", "Nino-3.4 anomaly °C", "SST °C", "Nino-1+2 anomaly °C"],
-         [[w.label, f"{w.nino34_anom:+.2f}", f"{w.nino34_sst:.1f}", f"{w.nino12_anom:+.2f}"]
+         ["Week ending", "Relative anomaly °C", "Traditional anomaly °C", "SST °C",
+          "Nino-1+2 traditional °C"],
+         [[w.label, relative_cell(w), f"{w.nino34_anom:+.2f}", f"{w.nino34_sst:.1f}",
+           f"{w.nino12_anom:+.2f}"]
           for w in reversed(shown[-16:])])}
 </section>"""
         )
@@ -882,7 +1050,7 @@ def render(state) -> str:
     if a.analogs:
         analog_rows = [
             [an.episode.name, f"{an.rmse:.3f}", f"{an.peak_value:+.2f}", an.peak_label,
-             str(an.seasons_to_peak), an.tier]
+             f"{an.seasons_to_peak:+d}", an.tier]
             for an in a.analogs
         ]
         legend_items = [(a.episode.name + " (now)", "var(--s1)")] if a.episode else []
@@ -891,13 +1059,15 @@ def render(state) -> str:
         cards.append(
             f"""<section class="card">
   <h2>Closest historical analogs</h2>
-  <p class="caption">Past events matched on their first {a.seasons_at_threshold} season(s) above
+  <p class="caption">Past events matched on their first {a.seasons_at_threshold}
+    season{'s' if a.seasons_at_threshold != 1 else ''} above
     +0.5 °C, aligned on onset. Analogs describe how comparable events evolved &mdash; they are
     not a forecast.</p>
   {chart_analogs(a)}
   {_legend(legend_items)}
   {table("Analog events",
-         ["Event", "Fit (RMSE °C)", "Peak ONI", "Peak season", "Seasons to peak", "Classification"],
+         ["Event", "Fit (RMSE °C)", f"Peak {a.index_name}", "Peak season",
+          "Seasons from this stage to its peak", "Classification"],
          analog_rows)}
 </section>"""
         )
@@ -911,7 +1081,8 @@ def render(state) -> str:
 
     momentum_rows = []
     if a.momentum.season_delta is not None:
-        momentum_rows.append(["ONI change vs previous season", f"{a.momentum.season_delta:+.2f} °C"])
+        momentum_rows.append([f"{a.index_name} change vs previous season",
+                              f"{a.momentum.season_delta:+.2f} °C"])
     if a.momentum.weekly_delta is not None:
         momentum_rows.append(
             [f"Nino-3.4 change over {a.momentum.weeks_span} weeks", f"{a.momentum.weekly_delta:+.2f} °C"]
@@ -923,11 +1094,12 @@ def render(state) -> str:
   <h2>Momentum and coupling</h2>
   <p class="caption">Coupling is what turns a warm ocean into global teleconnections; without a
     Walker-circulation response the anomaly stays local.</p>
-  {table("Momentum and coupling diagnostics", ["Diagnostic", "Value"], momentum_rows)}
+  {table("Momentum and coupling diagnostics", ["Diagnostic", "Value"],
+         momentum_rows, expanded=True)}
 </section>"""
     )
 
-    source_items = []
+    source_items, pills = [], []
     for fetched in fetches.values():
         if fetched.error:
             pill, status = "fail", "fetch failed"
@@ -935,15 +1107,27 @@ def render(state) -> str:
             pill, status = "cache", f"cached {fetched.fetched_at}"
         else:
             pill, status = "live", f"live {fetched.fetched_at}"
+        pills.append(pill)
         source_items.append(
             f'<li><span class="pill {pill}">{esc(status)}</span>'
             f'<span>{esc(fetched.source.agency)} &mdash; {esc(fetched.source.name)}</span>'
             f'<a href="{esc(fetched.source.url)}">{esc(fetched.source.url)}</a></li>'
         )
+    # Say where the numbers came from this run, not where they would come
+    # from on a good day: an offline run is every feed out of the cache.
+    came = []
+    if pills.count("live"):
+        came.append(f"{pills.count('live')} fetched live this run")
+    if pills.count("cache"):
+        came.append(f"{pills.count('cache')} read from the local cache, each "
+                    "stamped with when it was fetched")
+    if pills.count("fail"):
+        came.append(f"{pills.count('fail')} failed with no cache to fall back on")
     cards.append(
         f"""<section class="card">
   <h2>Data provenance</h2>
-  <p class="caption">Every number on this page is pulled directly from these feeds at run time.</p>
+  <p class="caption">Every number on this page comes from these feeds:
+    {"; ".join(came)}.</p>
   <ul class="sources">{''.join(source_items)}</ul>
 </section>"""
     )
@@ -960,13 +1144,14 @@ def render(state) -> str:
             f'<div class="banner" '
             f'data-status="{"critical" if worst == alerts.CRITICAL else "serious"}">'
             f'<span class="banner-level">{esc(worst.upper())}</span>'
-            f'<span>{esc(same[0].title)}{trailer}</span></div>'
+            f'<span>{prose(same[0].title)}{trailer}</span></div>'
         )
     degraded = ""
     if state.warnings:
         degraded = (
             f'<div class="banner" data-status="warning"><span class="banner-level">DATA</span>'
-            f'<span>Analysis degraded: {len(state.warnings)} feed or parse problem(s). '
+            f'<span>Analysis degraded: {len(state.warnings)} feed or parse '
+            f'problem{"s" if len(state.warnings) != 1 else ""}. '
             f'See data provenance below.</span></div>'
         )
     cpc_status = discussion.get("status") or ""
@@ -978,8 +1163,8 @@ def render(state) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23eb6834'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23fcd8c6'/%3E%3C/svg%3E">
-<title>El Nino Tracker &mdash; {esc(a.oni_latest.label)}</title>
-<style>{_css()}{fields.ramp_css()}{globe.css()}</style>
+<title>El Nino Tracker &mdash; {esc(a.index_latest.label)}</title>
+<style>{_css()}{fields.ramp_css()}{globe.css()}{storms.css()}{storms.fury_css()}</style>
 </head>
 <body>
 <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute"><defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="transparent"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--surface)" stroke-width="2.4"/></pattern></defs></svg>
@@ -1008,6 +1193,26 @@ def render(state) -> str:
 </html>"""
 
 
+def _fix_json(fix) -> dict | None:
+    """One ATCF fix in the units a consumer expects rather than the ones it
+    was stored in: decimal degrees, east and north positive."""
+    if fix is None:
+        return None
+    return {
+        "time_utc": (f"{fix.stamp[:4]}-{fix.stamp[4:6]}-{fix.stamp[6:8]}T"
+                     f"{fix.stamp[8:10]}:00:00Z" if len(fix.stamp) == 10
+                     else fix.stamp),
+        "lead_hours": fix.tau,
+        "lat": fix.lat,
+        "lon": fix.lon,
+        "wind_kt": fix.wind,
+        "pressure_mb": fix.pressure,
+        "stage": fix.stage,
+        "category": fix.category,
+        "intensity": fix.label,
+    }
+
+
 def payload(state) -> dict:
     """Machine-readable snapshot, so the tracker can feed other tools.
 
@@ -1026,23 +1231,34 @@ def payload(state) -> dict:
     return {
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_at": state.run_at,
-        "schema": 4,
+        "schema": 9,
         "headline": a.headline,
         "cpc_status": a.status or None,
         "degraded": state.degraded,
         "warnings": list(state.warnings),
-        "oni": {"season": a.oni_latest.label, "value": a.oni_latest.value, "tier": a.oni_tier},
+        # The index everything is classified on: RONI, or ONI standing in.
+        "index": {
+            "name": a.index_name, "season": a.index_latest.label,
+            "value": a.index_latest.value, "tier": a.index_tier,
+        },
+        "oni": ({"season": a.oni_latest.label, "value": a.oni_latest.value,
+                 "tier": a.oni_tier} if a.oni_latest else None),
         "roni": (
             {"season": a.roni_latest.label, "value": a.roni_latest.value, "tier": a.roni_tier}
             if a.roni_latest else None
         ),
         "episode_status": a.episode_status,
         "seasons_at_threshold": a.seasons_at_threshold,
-        "ranking": {
-            "rank_all": a.ranking.rank_all, "total_all": a.ranking.total_all,
-            "rank_in_season": a.ranking.rank_season, "total_in_season": a.ranking.total_season,
-            "season": a.ranking.season,
-        },
+        "ranking": (
+            {
+                "index": a.index_name,
+                "rank_all": a.index_ranking.rank_all, "total_all": a.index_ranking.total_all,
+                "rank_in_season": a.index_ranking.rank_season,
+                "total_in_season": a.index_ranking.total_season,
+                "season": a.index_ranking.season,
+            }
+            if a.index_ranking else None
+        ),
         "weekly": (
             {
                 "week_ending": a.latest_week.week_ending.isoformat(),
@@ -1055,8 +1271,10 @@ def payload(state) -> dict:
             {
                 "flavour": a.scale.flavour, "flavour_index": a.scale.flavour_index,
                 "active_regions": a.scale.active_regions, "basin_score": a.scale.basin_score,
+                "basis": a.scale.basis,
                 "regions": [
-                    {"key": r.key, "label": r.label, "anomaly": r.anomaly, "sst": r.sst}
+                    {"key": r.key, "label": r.label, "anomaly": r.anomaly,
+                     "traditional": r.traditional, "sst": r.sst}
                     for r in a.scale.regions
                 ],
             }
@@ -1131,6 +1349,7 @@ def payload(state) -> dict:
                     for threshold, value in sorted(forecast.peak_probability.items())
                 },
                 "analog_weights": forecast.analog_weights,
+                "weights": forecast.weights,
                 "projections": [
                     {
                         "lead": p.lead, "season": p.label, "mean": p.mean,
@@ -1147,6 +1366,7 @@ def payload(state) -> dict:
             {
                 "sample_years": skill.sample_years,
                 "useful_horizon_months": skill.horizon,
+                "useful_horizon_is_lower_bound": skill.horizon_is_lower_bound,
                 "barrier_seasons": skill.barrier_seasons,
                 "barrier_drop": skill.barrier_drop,
                 "weights": skill.weights,
@@ -1168,6 +1388,7 @@ def payload(state) -> dict:
         "alerts": [
             {"code": al.code, "level": al.level, "title": al.title, "detail": al.detail,
              "kind": al.kind, "value": al.value, "is_new": al.is_new,
+             "escalated_from": al.escalated_from,
              "first_seen": al.first_seen}
             for al in state.alert_set.alerts
         ],
@@ -1176,8 +1397,15 @@ def payload(state) -> dict:
             {"area": i.link.area, "region": i.link.region, "effect": i.link.effect,
              "window": i.link.window, "polarity": i.link.polarity,
              "likelihood": i.likelihood.strip(), "confidence": i.link.confidence,
-             "oni_threshold": i.link.min_intensity, "flavour": i.link.flavour}
+             "threshold": i.link.min_intensity, "flavour": i.link.flavour}
             for i in state.impacts.active
+        ],
+        "impacts_watch": [
+            {"area": i.link.area, "region": i.link.region, "effect": i.link.effect,
+             "likelihood": i.likelihood.strip(), "confidence": i.link.confidence,
+             "threshold": i.link.min_intensity, "needs": i.needs,
+             "flavour": i.link.flavour}
+            for i in state.impacts.watch
         ],
         # The same catalogue keyed by coordinate, so a consumer of this file can
         # answer "what does this event do at my location" without the globe.
@@ -1186,6 +1414,149 @@ def payload(state) -> dict:
              "boxes": [[b.lon0, b.lon1, b.lat0, b.lat1] for b in f.boxes]}
             for f in geo.FOOTPRINTS
         ],
+        # Storms: the part of this file that changes between two runs an hour
+        # apart. Positions are decimal degrees, east and north positive, which
+        # is not the convention ATCF stores them in - a consumer should never
+        # have to know that 1015W means -101.5.
+        "cyclones": {
+            "as_of": state.cyclones.as_of or None,
+            "season": state.cyclones.year or None,
+            "through": state.cyclones.through or None,
+            "elnino_seasons": list(state.cyclones.elnino_years),
+            "active": [
+                {
+                    "id": storm.key,
+                    "name": storm.title,
+                    "designation": storm.designation,
+                    "basin": storm.basin,
+                    "basin_name": storm.basin_name,
+                    "advisory": storm.advisory.get("advisory") or None,
+                    "ace": round(storm.ace, 2),
+                    "peak_category": storm.peak_category,
+                    "rapid_intensification_kt_24h": round(storm.rapid[0], 1),
+                    "track_spread_km": (
+                        None if storm.spread_km is None else round(storm.spread_km)
+                    ),
+                    "track_spread_lead_hours": storm.spread_tau,
+                    "ensemble_members": len(storm.ensemble),
+                    "guidance_models": len(storm.guidance),
+                    "current": _fix_json(storm.latest),
+                    "forecast": [
+                        _fix_json(f) for f in storm.forecast
+                        if f.tau <= cyclones.HORIZON
+                    ],
+                    "track": [_fix_json(f) for f in storm.track if f.tau == 0],
+                    "threats": [
+                        {"place": place.name, "country": place.country,
+                         "km": round(gap), "lead_hours": fix.tau,
+                         "wind_kt": fix.wind, "intensity": fix.label}
+                        for gap, fix, place in storm.threats(400.0)
+                        if (fix.wind or 0) >= 34
+                    ],
+                    "notes": list(storm.notes),
+                }
+                for storm in state.cyclones.active
+            ],
+            "seasons": {
+                basin: {
+                    "name": season.name,
+                    "ace": round(season.ace, 1),
+                    "named": season.named,
+                    "hurricanes": season.hurricanes,
+                    "major": season.major,
+                    "normal_ace_to_date": (
+                        None if season.normal_ace is None
+                        else round(season.normal_ace, 1)
+                    ),
+                    "normal_ace_full_season": (
+                        None if season.full_normal_ace is None
+                        else round(season.full_normal_ace, 1)
+                    ),
+                    "elnino_ace_to_date": (
+                        None if season.elnino_ace is None
+                        else round(season.elnino_ace, 1)
+                    ),
+                    "ratio_vs_normal": (
+                        None if season.ace_ratio is None
+                        else round(season.ace_ratio, 3)
+                    ),
+                    "season_elapsed_fraction": (
+                        None if season.elapsed is None else round(season.elapsed, 3)
+                    ),
+                    "storms": len(season.storms),
+                    "verdict": cyclones.verdict(
+                        season, a.index_latest.value,
+                        impacts.flavour_of(a.scale.flavour_index if a.scale else 0.0),
+                    ),
+                }
+                for basin, season in state.cyclones.basins.items()
+            },
+            "notes": list(state.cyclones.notes),
+            "upgrades": list(state.cyclones.upgrades),
+        },
+        # Where the next storms may come from: NHC's and JTWC's formation
+        # areas, with their chances or potentials and when each was issued.
+        "outlook": outlook_json(state),
+        # The page that draws all of the above on live satellite imagery, and
+        # the JSON it re-reads, both beside this file.
+        "storm_desk": dict(STORM_DESK),
+        # STORMFURY, recreated: the criteria as a decision procedure, the
+        # angular-momentum hypothesis computed, and the two measurements that
+        # falsify it. Every number here is derived from the decks above, so a
+        # consumer can re-derive it and should get the same answer.
+        "stormfury": (
+            {
+                "as_of": state.stormfury.as_of or None,
+                "verdict": state.stormfury.verdict,
+                "reasons": list(state.stormfury.reasons),
+                "seedable_layer_km": state.stormfury.layer,
+                "programme": {
+                    "ran": stormfury.PROGRAMME["ran"],
+                    "agencies": stormfury.PROGRAMME["agencies"],
+                    "storms_seeded": stormfury.PROGRAMME["seeded"],
+                },
+                "seeded_storms": [
+                    {"name": h.name, "year": h.year, "dates": h.dates,
+                     "claimed": h.claimed, "outcome": h.outcome}
+                    for h in stormfury.HISTORY
+                ],
+                "assessments": [
+                    {
+                        "id": a.storm_key,
+                        "name": a.title,
+                        "basin": a.basin,
+                        "wind_kt": a.wind_kt,
+                        "rmw_nm": a.rmw_nm,
+                        "lat": a.lat,
+                        "lon": a.lon,
+                        "eligible": a.eligible,
+                        "blocked_by": a.blocked_by,
+                        "unknown": a.unknown,
+                        "criteria": [
+                            {"name": c.name, "passed": c.passed,
+                             "detail": c.detail}
+                            for c in a.criteria
+                        ],
+                        # What the hypothesis predicts if the eyewall could be
+                        # moved outward by each factor. It cannot be.
+                        "momentum": a.momentum,
+                    }
+                    for a in state.stormfury.assessments
+                ],
+                # The hypothesis scored against eyewalls that moved on their
+                # own. A closed-system momentum argument is an upper bound.
+                "relocation_skill": state.stormfury.skill,
+                "natural_eyewall_moves": state.stormfury.moves,
+                # The confound that ended the programme, measured on this
+                # season rather than cited.
+                "natural_swings": {
+                    key: value
+                    for key, value in state.stormfury.swings.items()
+                    if key != "changes"
+                },
+            }
+            if state.stormfury.available else None
+        ),
         "spatial": {
             "fields": {
                 name: {
@@ -1220,6 +1591,7 @@ def payload(state) -> dict:
             ),
             "notes": list(state.spatial.notes),
         },
+        "atlas": _atlas_json(state),
         "cpc_discussion": state.discussion,
         "feeds": {
             key: {
@@ -1229,6 +1601,65 @@ def payload(state) -> dict:
             }
             for key, item in state.fetched.items()
         },
+    }
+
+
+def _atlas_json(state) -> dict | None:
+    """The atlas tier for a consumer: the anchors, with their statistics.
+
+    The grids themselves are not in here. They are a megabyte of vendored
+    constants that have not changed since they were generated and will not
+    change between runs, so a snapshot that repeated them every hour would be
+    mostly the same megabyte over and over. A consumer that wants them imports
+    ``elnino.composite``.
+    """
+    tier = getattr(state, "atlas", None)
+    if tier is None or not tier.available:
+        return None
+
+    def cell(c, ratio: bool) -> dict:
+        out = {
+            "value": None if c.value is None else round(c.value, 3),
+            "neutral_mean": None if c.base is None else round(c.base, 3),
+            "t": None if c.t is None else round(c.t, 2),
+            "t_needed": None if c.crit == float("inf") else c.crit,
+            "significant": c.significant,
+        }
+        # A percentage of a temperature is arithmetic on an interval scale and
+        # means nothing: half a degree on 27 is not "two percent warmer" in any
+        # sense a reader could use. Only rainfall gets one.
+        if ratio:
+            out["percent_of_normal"] = (None if c.percent is None
+                                        else round(c.percent, 1))
+        return out
+
+    return {
+        "method": (
+            "Past El Ninos (RONI >= +1.0) minus neutral years (|RONI| < 0.5), "
+            "per season, per grid cell, since 1979, with each event and each "
+            "neutral year counted once. Welch's t accompanies every "
+            "difference and is judged against each season's own 95% point of "
+            "Student's t. An event under way when the grids were built is "
+            "left out."
+        ),
+        "samples": {season: dict(block) for season, block in tier.samples.items()},
+        "in_progress": list(tier.in_progress),
+        "anchors": [
+            {
+                "title": local.title,
+                "longitude": round(local.lon, 3),
+                "latitude": round(local.lat, 3),
+                "strongest_season": (local.strongest.season
+                                     if local.strongest else None),
+                "seasons": {
+                    item.season: {"precip_mm_day": cell(item.precip, True),
+                                  "air_degc": cell(item.air, False)}
+                    for item in local.seasons
+                },
+                "teleconnections": [link.region for link in local.links],
+            }
+            for local in tier.anchors
+        ],
     }
 
 

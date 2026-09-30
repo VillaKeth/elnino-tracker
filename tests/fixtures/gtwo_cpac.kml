@@ -1,0 +1,165 @@
+<?xml version="1.0" ?>
+<kml xmlns="http://earth.google.com/kml/2.1">
+    <Document>
+        <name>Graphical Tropical Weather Outlook - eastern North Pacific basin - Fri Sep 25 11:40:28 2026</name>
+        <description>
+            <TABLE>
+                <TR><TD><B>Title:</B> Graphical Tropical Weather Outlook for the eastern North Pacific basin, issued: Fri Sep 25 11:40:28 2026</TD></TR>
+                <TR><TD><B>Description:</B>The Graphical Tropical Weather Outlook ...</TD></TR>
+                <TR><TD><B>Date Created:</B> Fri Sep 25 11:40:28 2026 </TD></TR>
+                <TR><TD><B>Created:</B> National Hurricane Center </TD></TR>
+                <TR><TD><B>For More Information: </B><a href="http://www.nhc.noaa.gov">http://www.nhc.noaa.gov</a></TD></TR>
+            </TABLE>
+        </description>
+        <Style id="0">
+            <LineStyle>
+                <color>99e6e6e6</color>
+                <width>2</width>
+            </LineStyle>
+            <PolyStyle>
+                <color>66e6e6e6</color>
+            </PolyStyle>
+        </Style>
+        <Style id="1">
+            <LineStyle>
+                <color>9900e6ff</color>
+                <width>2</width>
+            </LineStyle>
+            <PolyStyle>
+                <color>9900ffff</color>
+            </PolyStyle>
+        </Style>
+        <Style id="2">
+            <LineStyle>
+                <color>990092e6</color>
+                <width>2</width>
+            </LineStyle>
+            <PolyStyle>
+                <color>990092ff</color>
+            </PolyStyle>
+        </Style>
+        <Style id="3">
+            <LineStyle>
+                <color>990000f5</color>
+                <width>2</width>
+            </LineStyle>
+            <PolyStyle>
+                <color>990000e8</color>
+            </PolyStyle>
+        </Style>
+        <Style id="lowx">
+            <IconStyle>
+                <scale>3.0</scale>
+                <Icon>
+                    <href>xl54.png</href>
+                </Icon>
+                <hotSpot x="15" y="17" xunits="pixels" yunits="pixels"/>
+            </IconStyle>
+            <LabelStyle>
+                <scale>1.0</scale>
+            </LabelStyle>
+        </Style>
+        <Style id="zerox">
+            <IconStyle>
+                <scale>3.0</scale>
+                <Icon>
+                    <href>x054.png</href>
+                </Icon>
+                <hotSpot x="15" y="17" xunits="pixels" yunits="pixels"/>
+            </IconStyle>
+            <LabelStyle>
+                <scale>1.0</scale>
+            </LabelStyle>
+        </Style>
+        <Style id="medx">
+            <IconStyle>
+                <scale>3.0</scale>
+                <Icon>
+                    <href>xm54.png</href>
+                </Icon>
+                <hotSpot x="15" y="17" xunits="pixels" yunits="pixels"/>
+            </IconStyle>
+            <LabelStyle>
+                <scale>1.0</scale>
+            </LabelStyle>
+        </Style>
+        <Style id="higx">
+            <IconStyle>
+                <scale>3.0</scale>
+                <Icon>
+                    <href>xh54.png</href>
+                </Icon>
+                <hotSpot x="15" y="17" xunits="pixels" yunits="pixels"/>
+            </IconStyle>
+            <LabelStyle>
+                <scale>1.0</scale>
+            </LabelStyle>
+        </Style>
+        <Placemark>
+            <styleUrl>#2</styleUrl>
+            <Polygon>
+                <outerBoundaryIs>
+                    <LinearRing>
+                        <coordinates>-140.78289271483737,15.382726258684961,0 -140.1914066398834,15.754755756961295,0 -139.54891818716854,16.148651399424708,0 -138.85075069487445,16.550037785339523,0 -138.09222750118306,16.944539513970064,0 -137.2686719442761,17.317781184580664,0 -136.3762952113441,17.65554770662768,0 -135.4267132107946,17.94640546906735,0 -134.44458772692371,18.18127642677824,0 -133.45499253505483,18.351156923820028,0 -132.48300141051143,18.44704330425239,0 -131.55368585949293,18.45993565950772,0 -130.69054980059116,18.38342289282953,0 -129.91279468818988,18.21819926482998,0 -129.23889035287493,17.966167285230014,0 -128.687306625232,17.629229463750544,0 -128.27651333584686,17.20928831011251,0 -128.02270660643217,16.709368085929412,0 -127.91784757847634,16.14444956811698,0 -127.93924557901458,15.536742119795365,0 -128.064006357088,14.90855554086576,0 -128.26923566173772,14.28219963122934,0 -128.53211496750464,13.679925833108914,0 -128.83858862981012,13.117232495182295,0 -129.19140886381274,12.596665028543597,0 -129.5952298807256,12.119303075500033,0 -130.05470589176178,11.6862262783588,0 -130.57449110813434,11.298514279427106,0 -131.15963928278939,10.956366367673072,0 -131.81799054750866,10.653842303428489,0 -132.55857160177217,10.38238735459839,0 -133.39041352960572,10.133437128145802,0 -134.32254741503516,9.898427231033764,0 -135.36342622333646,9.66903312761287,0 -136.49641227888523,9.447340211992456,0 -137.67067437624348,9.249620532380423,0 -138.8329277542724,9.09316409992178,0 -139.92988765183307,8.995260925761539,0 -140.9082693077868,8.973201021044703,0 -141.72525918386066,9.039749674751173,0 -142.38738906675982,9.186349557812491,0 -142.91571289231138,9.398168172456524,0 -143.33128660706043,9.660372152059457,0 -143.6551661575521,9.958128129997474,0 -143.90796394292119,10.276859652374913,0 -144.1005134067625,10.607654458320043,0 -144.23409822619178,10.947131728478334,0 -144.30960437680906,11.292141001240724,0 -144.32791783421433,11.639531814998138,0 -144.2899246748128,11.98615378521919,0 -144.19683406010716,12.32910356493739,0 -144.0508953532136,12.666273166908498,0 -143.85456685316137,12.995714360619724,0 -143.61030685897964,13.315478915558268,0 -143.32057366969755,13.623618601211327,0 -142.98768678026593,13.918668023170873,0 -142.6121608279392,14.205440064076363,0 -142.19324826361415,14.493138177444179,0 -141.73017563888433,14.791055908658635,0 -141.22216950534335,15.108486803104059,0 -140.78289271483737,15.382726258684961,0</coordinates>
+                    </LinearRing>
+                </outerBoundaryIs>
+            </Polygon>
+            <ExtendedData>
+                <Data name="Disturbance">
+                    <value>1</value>
+                </Data>
+                <Data name="2day_percentage">
+                    <value>20%</value>
+                </Data>
+                <Data name="2day_category">
+                    <value>Low</value>
+                </Data>
+                <Data name="7day_percentage">
+                    <value>50%</value>
+                </Data>
+                <Data name="7day_category">
+                    <value>Medium</value>
+                </Data>
+                <Data name="Discussion">
+                    <value>1. Well East-Southeast of the Hawaiian Islands: A broad area of low pressure is forecast to form about 1000 miles east-southeast of the Hawaiian Islands over the weekend. Environmental conditions appear favorable for gradual development of this system, and a tropical depression could form late this weekend or early next week.  The system is forecast to move generally northeastward, remaining well east-southeast of the Hawaiian Islands. 
+ Formation chance through 48 hours...low...20 percent. 
+ Formation chance through 7 days...medium...50 percent. </value>
+                </Data>
+            </ExtendedData>
+        </Placemark>
+        <Placemark>
+            <styleUrl>#medx</styleUrl>
+            <Point>
+                <coordinates>-147.6001686029817,10.41937956632923,0 </coordinates>
+            </Point>
+            <ExtendedData>
+                <Data name="Disturbance">
+                    <value>1</value>
+                </Data>
+                <Data name="2day_percentage">
+                    <value>20%</value>
+                </Data>
+                <Data name="2day_category">
+                    <value>Low</value>
+                </Data>
+                <Data name="7day_percentage">
+                    <value>50%</value>
+                </Data>
+                <Data name="7day_category">
+                    <value>Medium</value>
+                </Data>
+                <Data name="Discussion">
+                    <value>1. Well East-Southeast of the Hawaiian Islands: A broad area of low pressure is forecast to form about 1000 miles east-southeast of the Hawaiian Islands over the weekend. Environmental conditions appear favorable for gradual development of this system, and a tropical depression could form late this weekend or early next week.  The system is forecast to move generally northeastward, remaining well east-southeast of the Hawaiian Islands. 
+ Formation chance through 48 hours...low...20 percent. 
+ Formation chance through 7 days...medium...50 percent. </value>
+                </Data>
+            </ExtendedData>
+        </Placemark>
+        <Placemark>
+            <styleUrl>#2</styleUrl>
+            <LineString>
+                <coordinates>-146.47398395433996,10.453506373863817,0 -146.42091049111724,10.463207974667966,0 -146.36783702789455,10.472909575472118,0 -146.31476356467184,10.482611176276267,0 -146.26169010144915,10.492312777080418,0 -146.20861663822643,10.502014377884567,0 -146.15554317500374,10.511715978688718,0 -146.10246971178103,10.521417579492867,0 -146.04939624855834,10.531119180297019,0 -145.99632278533562,10.540820781101168,0 -145.94324932211293,10.550522381905319,0 -145.89017585889022,10.560223982709468,0 -145.83710239566753,10.56992558351362,0 -145.7840289324448,10.579627184317768,0 -145.73095546922212,10.589328785121918,0 -145.6778820059994,10.599030385926069,0 -145.6248085427767,10.608731986730218,0 -145.571735079554,10.61843358753437,0 -145.5186616163313,10.628135188338518,0 -145.4655881531086,10.63783678914267,0 -145.41251468988588,10.647538389946819,0 -145.3594412266632,10.65723999075097,0 -145.30636776344048,10.66694159155512,0 -145.2532943002178,10.67664319235927,0 -145.20022083699507,10.68634479316342,0 -145.14714737377238,10.69604639396757,0 -145.09407391054967,10.70574799477172,0 -145.04100044732698,10.715449595575869,0 -144.98792698410426,10.72515119638002,0 -144.93485352088155,10.73485279718417,0 -144.88178005765886,10.74455439798832,0 -144.82870659443614,10.75425599879247,0 -144.77563313121345,10.76395759959662,0 -144.72255966799074,10.77365920040077,0 -144.66948620476805,10.783360801204921,0 -144.61641274154533,10.79306240200907,0 -144.56333927832264,10.802764002813221,0 -144.51026581509993,10.81246560361737,0 -144.45719235187724,10.822167204421522,0 -144.40411888865452,10.831868805225671,0 -144.35104542543183,10.84157040602982,0 -144.29797196220912,10.851272006833971,0 -144.24489849898643,10.86097360763812,0 -144.1918250357637,10.870675208442272,0 -144.138751572541,10.880376809246421,0 -144.0856781093183,10.890078410050572,0 -144.0326046460956,10.899780010854721,0 -143.9795311828729,10.909481611658872,0 -143.9264577196502,10.919183212463022,0 -143.8733842564275,10.928884813267173,0 -143.82031079320478,10.938586414071322,0 -143.7672373299821,10.948288014875473,0 -143.71416386675938,10.957989615679622,0 -143.6610904035367,10.967691216483772,0 -143.60801694031397,10.977392817287923,0 -143.55494347709129,10.987094418092072,0 -143.50187001386857,10.996796018896223,0 -143.44879655064585,11.006497619700372,0 -143.39572308742316,11.016199220504523,0 -143.34264962420045,11.025900821308673,0 -143.3001908536223,11.033662101951993,0</coordinates>
+            </LineString>
+        </Placemark>
+    </Document>
+</kml>

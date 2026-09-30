@@ -31,6 +31,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .classify import CP_FLAVOUR, EP_FLAVOUR
+
 # Confidence reflects how consistently the relationship appears across past
 # events, not how severe the outcome is.
 HIGH = "high"
@@ -40,6 +42,12 @@ EMERGING = "weaker / contested"
 # Flavour gating. EP (canonical, east-Pacific) and CP (Modoki, central-Pacific)
 # events teleconnect differently; a few relationships flip almost entirely.
 ANY, EP, CP = "any", "east-pacific", "central-pacific"
+# How much stronger an event of the wrong flavour has to be for a gated link.
+FLAVOUR_PENALTY = 0.75
+# Margins past a link's threshold at which it reads "probable" and "likely".
+# "Probable" is the bar for the outlook itself; below it a link is on watch.
+PROBABLE_MARGIN = 0.4
+LIKELY_MARGIN = 1.0
 
 
 @dataclass(frozen=True)
@@ -50,7 +58,7 @@ class Teleconnection:
     effect: str
     polarity: str  # dry | wet | hot | cold | storm | marine | health
     confidence: str
-    min_intensity: float  # ONI at which this typically becomes evident
+    min_intensity: float  # index value at which this typically becomes evident
     flavour: str
     detail: str
     exposure: str
@@ -60,9 +68,13 @@ class Teleconnection:
 class ActiveImpact:
     link: Teleconnection
     likelihood: str
-    margin: float  # projected peak ONI minus the link's threshold
+    margin: float  # projected peak minus the link's threshold, flavour included
     timing: str
     flavour_note: str = ""
+    # The peak at which the link would reach "probable" and join the outlook,
+    # flavour penalty included. None for a contested link, which is never
+    # rated above "possible" however strong the event.
+    needs: float | None = None
 
     @property
     def severity(self) -> int:
@@ -75,10 +87,11 @@ class ActiveImpact:
 class ImpactAssessment:
     active: list[ActiveImpact]
     watch: list[ActiveImpact]
-    peak_oni: float
+    peak_index: float
     flavour: str
-    by_area: dict[str, list[ActiveImpact]] = field(default_factory=dict)
+    by_area: dict[str, list[ActiveImpact]] = field(default_factory=dict)  # active only
     notes: list[str] = field(default_factory=list)
+    index_name: str = "RONI"
 
 
 CATALOGUE: tuple[Teleconnection, ...] = (
@@ -177,7 +190,7 @@ CATALOGUE: tuple[Teleconnection, ...] = (
         "Extreme coastal rainfall, flooding and debris flows", "wet", HIGH, 1.0, EP,
         "The original El Nino. Requires warmth in Nino-1+2 specifically, which is "
         "why it is gated to east-Pacific events; a central-Pacific event of the same "
-        "ONI may produce very little of it.",
+        "Nino-3.4 strength may produce very little of it.",
         "Huaicos destroying road and bridge links, urban flooding in Piura and "
         "Trujillo, and a sharp rise in waterborne disease.",
     ),
@@ -283,8 +296,10 @@ CATALOGUE: tuple[Teleconnection, ...] = (
     Teleconnection(
         "Pacific and Indian Ocean coral reefs", "Global systems", "Dec-Jun",
         "Mass bleaching from accumulated heat stress", "marine", HIGH, 1.0, ANY,
-        "The 1997-98 and 2014-17 events drove the largest bleaching episodes on "
-        "record. Central and eastern Pacific reefs go first, then the wider basin.",
+        "The 1997-98, 2014-17 and 2023-25 events drove global bleaching "
+        "episodes; the last put more than four fifths of the world's reef area "
+        "under bleaching-level heat stress, the most extensive on record. "
+        "Central and eastern Pacific reefs go first, then the wider basin.",
         "Reef fisheries, coastal protection from wave energy, and ecosystems that "
         "need a decade or more to recover if they recover at all.",
     ),
@@ -311,9 +326,9 @@ def _likelihood(margin: float, confidence: str) -> str:
     """Translate 'how far past the threshold' into words, tempered by confidence."""
     if confidence == EMERGING:
         return "possible" if margin >= 0.5 else "uncertain"
-    if margin >= 1.0:
+    if margin >= LIKELY_MARGIN:
         return "likely"
-    if margin >= 0.4:
+    if margin >= PROBABLE_MARGIN:
         return "probable"
     if margin >= 0.0:
         return "possible"
@@ -322,44 +337,64 @@ def _likelihood(margin: float, confidence: str) -> str:
 
 def flavour_of(flavour_index: float) -> str:
     """EP, CP or mixed, from the Nino-1+2 minus Nino-4 difference."""
-    if flavour_index >= 1.0:
+    if flavour_index >= EP_FLAVOUR:
         return EP
-    if flavour_index <= -0.5:
+    if flavour_index <= CP_FLAVOUR:
         return CP
     return "mixed"
 
 
-def evaluate(link: Teleconnection, oni: float,
+def flavour_words(flavour: str) -> str:
+    """The flavour as a reader writes it, not as the catalogue keys it."""
+    return {EP: "east-Pacific", CP: "central-Pacific"}.get(flavour, flavour)
+
+
+def flavour_penalty(link: Teleconnection, flavour: str) -> float:
+    """How much further an event of this flavour has to go for this link."""
+    if (link.flavour, flavour) in ((EP, CP), (CP, EP)):
+        return FLAVOUR_PENALTY
+    return 0.0
+
+
+def needs(link: Teleconnection, flavour: str) -> float | None:
+    """The index peak at which a link reaches "probable", or None if it never can."""
+    if link.confidence == EMERGING:
+        return None
+    return link.min_intensity + flavour_penalty(link, flavour) + PROBABLE_MARGIN
+
+
+def evaluate(link: Teleconnection, value: float,
              flavour: str) -> tuple[float, str, str]:
-    """Score one relationship at one ONI. Returns margin, likelihood, note.
+    """Score one relationship at one index value. Returns margin, likelihood, note.
 
     Pulled out of ``assess`` so the globe can score the same catalogue at
-    today's ONI as well as at the projected peak without a second copy of the
-    gating rules drifting away from this one.
+    today's value as well as at the projected peak without a second copy of
+    the gating rules drifting away from this one.
     """
-    margin = oni - link.min_intensity
+    margin = value - link.min_intensity - flavour_penalty(link, flavour)
     note = ""
     if link.flavour == EP and flavour == CP:
-        margin -= 0.75
         note = "Gated to east-Pacific events; the current flavour argues against it."
     elif link.flavour == EP and flavour == EP:
         note = "Reinforced by the east-Pacific flavour of this event."
     elif link.flavour == CP and flavour == EP:
-        margin -= 0.75
         note = "Gated to central-Pacific events; this one is not."
     return margin, _likelihood(margin, link.confidence), note
 
 
 def assess(
-    peak_oni: float,
+    peak_index: float,
     flavour_index: float,
-    current_oni: float | None = None,
+    current_index: float | None = None,
     months_to_peak: int | None = None,
+    index_name: str = "RONI",
 ) -> ImpactAssessment:
     """Which teleconnections the projected event puts in play.
 
-    ``flavour_index`` is the Nino-1+2 minus Nino-4 anomaly difference: strongly
-    positive means an east-Pacific event, negative a central-Pacific one.
+    ``peak_index`` is the projected peak of the official index, and the
+    catalogue's thresholds are read against it. ``flavour_index`` is the
+    Nino-1+2 minus Nino-4 anomaly difference: strongly positive means an
+    east-Pacific event, negative a central-Pacific one.
     """
     flavour = flavour_of(flavour_index)
 
@@ -368,12 +403,13 @@ def assess(
     watch: list[ActiveImpact] = []
 
     for link in CATALOGUE:
-        margin, likelihood, flavour_note = evaluate(link, peak_oni, flavour)
+        margin, likelihood, flavour_note = evaluate(link, peak_index, flavour)
         timing = link.window
         if months_to_peak is not None and months_to_peak > 0:
             timing = f"{link.window} (peak expected in ~{months_to_peak} months)"
 
-        impact = ActiveImpact(link, likelihood, margin, timing, flavour_note)
+        impact = ActiveImpact(link, likelihood, margin, timing, flavour_note,
+                              needs(link, flavour))
         if likelihood in ("likely", "probable"):
             active.append(impact)
         elif likelihood in ("possible", "uncertain"):
@@ -382,8 +418,10 @@ def assess(
     active.sort(key=lambda i: -i.severity)
     watch.sort(key=lambda i: -i.severity)
 
+    # The outlook proper, by area. Watch items are listed once, separately,
+    # with what it would take to promote them.
     by_area: dict[str, list[ActiveImpact]] = {}
-    for impact in active + watch:
+    for impact in active:
         by_area.setdefault(impact.link.area, []).append(impact)
 
     if flavour == EP:
@@ -394,7 +432,7 @@ def assess(
     elif flavour == CP:
         notes.append(
             "A central-Pacific (Modoki) event. Coastal South American flooding is "
-            "much less likely than the ONI alone would suggest, and several "
+            f"much less likely than {index_name} alone would suggest, and several "
             "North American patterns shift westward."
         )
     else:
@@ -403,11 +441,11 @@ def assess(
             "reinforced nor discounted."
         )
 
-    if current_oni is not None and current_oni < peak_oni - 0.3:
+    if current_index is not None and current_index < peak_index - 0.3:
         notes.append(
-            f"These are keyed to the PROJECTED peak of {peak_oni:+.1f} degC, not "
-            f"today's {current_oni:+.1f} degC. If the event underperforms the "
-            "forecast, the lower-margin entries drop out first."
+            f"These are keyed to the PROJECTED {index_name} peak of "
+            f"{peak_index:+.2f} degC, not today's {current_index:+.2f} degC. If the "
+            "event underperforms the forecast, the lower-margin entries drop out first."
         )
 
     notes.append(
@@ -419,8 +457,9 @@ def assess(
     return ImpactAssessment(
         active=active,
         watch=watch,
-        peak_oni=peak_oni,
+        peak_index=peak_index,
         flavour=flavour,
         by_area=by_area,
         notes=notes,
+        index_name=index_name,
     )

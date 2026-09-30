@@ -222,6 +222,15 @@ def parse_mei(text: str) -> list[SeasonValue]:
     return out
 
 
+ALERT_PHRASE = re.compile(
+    r"(?i)\b((?:Final\s+)?(?:El Nino|La Nina)\s+(?:Advisory|Watch))\b"
+)
+ALERT_STATUS = re.compile(
+    r"(?i)not active|(?:final\s+)?(?:el nino|la nina)\s+(?:advisory|watch)"
+    r"(?:\s*/\s*(?:final\s+)?(?:el nino|la nina)\s+(?:advisory|watch))*"
+)
+
+
 def parse_discussion(text: str) -> dict[str, str]:
     """Strip the CPC discussion page down to its issue date, status and prose."""
     body = re.sub(r"(?is)<(script|style).*?</\1>", " ", text)
@@ -271,12 +280,26 @@ def parse_discussion(text: str) -> dict[str, str]:
             next_update = match.group(1).strip()
             break
 
+    # CPC states the status on one labelled line, and it can say things a
+    # keyword search reads wrongly: "Final El Nino Advisory" contains "El Nino
+    # Advisory", "Not Active" contains nothing, and a transition carries two
+    # statuses at once. So the labelled line is read first and whole.
     status = ""
-    for line in lines:
-        match = re.search(r"(?i)\b(El Nino|La Nina)\s+(Advisory|Watch|Warning|Final Advisory)\b", line)
-        if match:
-            status = f"{match.group(1)} {match.group(2)}"
-            break
+    for index, line in enumerate(lines):
+        match = re.search(r"(?i)ENSO Alert System Status:?\s*(.*)$", line)
+        if not match:
+            continue
+        text = match.group(1).strip() or (
+            lines[index + 1].strip() if index + 1 < len(lines) else "")
+        if ALERT_STATUS.fullmatch(text):
+            status = re.sub(r"\s*/\s*", " / ", text).title()
+        break
+    if not status:
+        for line in lines:
+            match = ALERT_PHRASE.search(line)
+            if match:
+                status = re.sub(r"\s+", " ", match.group(1)).title()
+                break
     if not status and synopsis:
         lowered = synopsis.lower()
         if "el nin" in lowered:

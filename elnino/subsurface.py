@@ -210,8 +210,10 @@ def analyse(
         if east_anomaly > 0.5 and west.anomaly < 0.5:
             notes.append(
                 "Heat content is concentrated in the eastern half of the basin "
-                "with the west already drawn down - the classic late-stage "
-                "signature of a strong east-Pacific event."
+                "with the west drawn down: the thermocline tilt of a mature "
+                "east-Pacific event. The tilt moves with the surface warming "
+                "rather than ahead of it, so it marks the event's strength now; "
+                "how much fuel is left is the basin-wide total and its tendency."
             )
 
     # Normalise both variables before taking a phase angle.

@@ -162,7 +162,7 @@ def _interpolate_mesh(mesh: Mesh) -> tuple[list[float], list[float], list[list[d
 
 
 def thermocline(mesh: Mesh, width: int = 620, height: int = 430) -> str:
-    """The 20 C isotherm as a rotatable surface over the equatorial Pacific."""
+    """The 20 °C isotherm as a rotatable surface over the equatorial Pacific."""
     lons, lats, grid = _interpolate_mesh(mesh)
     if len(lons) < 3:
         return ""
@@ -257,7 +257,7 @@ def thermocline(mesh: Mesh, width: int = 620, height: int = 430) -> str:
     )
     return f"""<section class="card">
   <h2>The thermocline, in three dimensions</h2>
-  <p class="caption">Depth of the 20 C isotherm across the TAO/TRITON array, as of
+  <p class="caption">Depth of the 20 °C isotherm across the TAO/TRITON array, as of
     {esc(mesh.as_of)}. Longitude runs west to east, latitude across, and the surface
     height is depth, so the sheet you are looking at is the top of the cold water.
     {esc(scale_note)}{tilt}
@@ -272,7 +272,7 @@ def thermocline(mesh: Mesh, width: int = 620, height: int = 430) -> str:
     </div>
     <div class="chart">{body}</div>
   </div>
-  {table('20 C isotherm depth in metres, by mooring',
+  {table('20 °C isotherm depth in metres, by mooring',
          ['latitude'] + [lon_name(l) for l in lons], rows)}
 </section>"""
 
@@ -391,13 +391,13 @@ def _render_scene(payload: dict, yaw: float, pitch: float, width: int, height: i
         parts.append(
             f'<polygon points="{path}" fill="var(--{quad["c"]})" '
             f'stroke="var(--surface)" stroke-width="0.5" class="hit" '
-            f'data-label="20 C isotherm" data-value="{esc(quad["t"])}"/>'
+            f'data-label="20 °C isotherm" data-value="{esc(quad["t"])}"/>'
         )
     parts.extend(labels)
 
     return (
         f'<svg viewBox="0 0 {width} {height}" role="img" class="scene-svg" '
-        f'aria-label="Three dimensional surface of the 20 C isotherm depth">'
+        f'aria-label="Three dimensional surface of the 20 °C isotherm depth">'
         f"<title>Thermocline depth surface</title>"
         f"<desc>Rotatable surface showing the depth of the 20 degree Celsius isotherm "
         f"across longitude and latitude in the equatorial Pacific.</desc>"
@@ -430,7 +430,7 @@ def phase_spiral(state, width: int = 620, height: int = 430) -> str:
         z = index / max(len(track) - 1, 1) * 2.0 - 1.0
         points.append({
             "p": [round(x, 4), round(y, 4), round(z, 4)],
-            "t": f"{label}: SST {point.sst:+.2f} C, heat {point.heat:+.2f}",
+            "t": f"{label}: Nino-3.4 {point.sst:+.2f} °C, WWV {point.heat:+.2f} × 10¹⁴ m³",
             "label": label,
         })
 
@@ -477,7 +477,7 @@ def phase_spiral(state, width: int = 620, height: int = 430) -> str:
     <div class="chart">{body}</div>
   </div>
   {table('phase trajectory, newest first',
-         ['month', 'Nino-3.4 anomaly (degC)', 'warm water volume anomaly'], rows)}
+         ['month', 'Nino-3.4 anomaly (°C)', 'warm water volume anomaly'], rows)}
 </section>"""
 
 
@@ -655,7 +655,7 @@ SCENE_JS = r"""
         }).join(' ');
         out.push('<polygon points="' + pts2 + '" fill="var(--' + quads[n].c +
           ')" stroke="var(--surface)" stroke-width="0.5" class="hit" ' +
-          'data-label="20 C isotherm" data-value="' + esc(quads[n].t) + '"/>');
+          'data-label="20 °C isotherm" data-value="' + esc(quads[n].t) + '"/>');
       }
     }
     var svg = scene.querySelector('svg');

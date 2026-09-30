@@ -17,6 +17,8 @@ reachable by colour alone.
 from __future__ import annotations
 
 import html
+import math
+import re
 
 # --- palette ---------------------------------------------------------------
 LIGHT = {
@@ -46,6 +48,86 @@ BAND_STATUS = {
 
 def esc(text: object) -> str:
     return html.escape(str(text), quote=True)
+
+
+# The model's sentences are written once, in ASCII, for the report and the
+# console as well as the page; these are its unit spellings and the signs the
+# page's own charts and tiles use for them.
+_PAGE_UNITS = (
+    (re.compile(r"degC"), "&deg;C"),
+    (re.compile(r" x10\^14 m3\b"), " \u00d7 10\u00b9\u2074 m\u00b3"),
+    (re.compile(r"(\d) sigma\b"), "\\1\u03c3"),
+)
+
+
+def tick_text(value: float, fmt: str = "{:+.1f}") -> str:
+    """An axis label. Zero is unsigned whatever the format: a "+0.0" at the
+    zero line reads as a direction it does not have."""
+    if abs(value) < 1e-9:
+        return fmt.format(0.0).lstrip("+-")
+    return fmt.format(value)
+
+
+def prose(text: object) -> str:
+    """Escape one of the model's sentences for the page, with its units signed.
+
+    Kept apart from ``esc``, which also carries JSON into data attributes,
+    where rewriting a substring would rewrite the data.
+    """
+    out = esc(text)
+    for spelling, sign in _PAGE_UNITS:
+        out = spelling.sub(sign, out)
+    return out
+
+
+# --- label geometry ----------------------------------------------------------
+# An average glyph is about six tenths of the font size wide in the UI stack;
+# the boxes below are estimates for keeping labels apart, not a text layout.
+EM = 0.6
+
+
+def label_box(x: float, y: float, text: str, size: float,
+              anchor: str = "start") -> tuple[float, float, float, float]:
+    """The box a label covers: left, top, right, bottom, in plot units."""
+    width = EM * size * len(text)
+    left = (x - width / 2 if anchor == "middle"
+            else x - width if anchor == "end" else x)
+    return (left, y - 0.8 * size, left + width, y + 0.25 * size)
+
+
+def boxes_clear(box, taken) -> bool:
+    """Whether a box overlaps none of the boxes already taken."""
+    return not any(box[0] < t[2] and t[0] < box[2]
+                   and box[1] < t[3] and t[1] < box[3] for t in taken)
+
+
+def crosses(box, segment, pad: float = 0.0) -> bool:
+    """Whether a straight segment passes through a box grown by ``pad``.
+
+    Liang-Barsky clipping: the segment is cut against each edge in turn, and
+    it crosses the box if anything of it survives all four cuts.
+    """
+    left, top = box[0] - pad, box[1] - pad
+    right, bottom = box[2] + pad, box[3] + pad
+    x1, y1, x2, y2 = segment
+    dx, dy = x2 - x1, y2 - y1
+    enter, leave = 0.0, 1.0
+    for p, q in ((-dx, x1 - left), (dx, right - x1),
+                 (-dy, y1 - top), (dy, bottom - y1)):
+        if p == 0:
+            if q < 0:
+                return False
+            continue
+        t = q / p
+        if p < 0:
+            if t > leave:
+                return False
+            enter = max(enter, t)
+        else:
+            if t < enter:
+                return False
+            leave = min(leave, t)
+    return enter <= leave
 
 
 class Plot:
@@ -90,7 +172,7 @@ class Plot:
             )
             self.add(
                 f'<text x="{self.left - 8:.1f}" y="{y + 4:.1f}" text-anchor="end" '
-                f'class="tick">{esc(fmt.format(tick))}</text>'
+                f'class="tick">{esc(tick_text(tick, fmt))}</text>'
             )
 
     def svg(self, title: str, desc: str) -> str:
@@ -102,27 +184,59 @@ class Plot:
         )
 
 
+def map_plot(width: int, pad: tuple[int, int, int, int],
+             lon_span: float, lat_span: float) -> Plot:
+    """A plot for a latitude-longitude map, at the map's true shape.
+
+    The frame's height follows from its width and the map's extent, so a
+    degree of latitude is drawn as long as a degree of longitude - the plate
+    carree every gridded product is published on. A fixed frame stretches
+    the map to fit instead, and a stretched map turns a storm heading
+    west-north-west into one heading north-west.
+    """
+    top, right, bottom, left = pad
+    plot_w = width - left - right
+    return Plot(width, round(plot_w * lat_span / lon_span) + top + bottom, pad)
+
+
 def nice_ticks(low: float, high: float, count: int = 6) -> list[float]:
-    """Round tick values covering [low, high]."""
+    """Round tick values covering [low, high].
+
+    The step is the smallest of 1, 2, 2.5, 5 or 10 times a power of ten that is
+    at least the requested spacing, and the first candidate is the multiple of
+    that step at or below ``low``.
+
+    Two things here are less obvious than they look. The decade comes from a
+    logarithm rather than the digit count of ``int(raw)``, which collapses to
+    zero for every spacing below one and used to pin the decade at 0.1 for all
+    of them: a domain of +/-0.003 then asked for a 0.01 step, no multiple of
+    which lies inside it, and the axis came back with a single tick. And the
+    first candidate is a floor rather than a truncation, which rounds toward
+    zero and so lands *inside* a negative domain - which is why an axis from
+    -0.35 to -0.05 used to lose its leftmost tick.
+    """
     span = high - low
     if span <= 0:
         return [low]
     raw = span / max(1, count)
-    magnitude = 10 ** (len(f"{int(abs(raw))}") - 1) if abs(raw) >= 1 else 0.1
-    for step in (0.1, 0.2, 0.25, 0.5, 1.0, 2.0, 2.5, 5.0, 10.0):
-        if step * magnitude >= raw:
-            step = step * magnitude
+    magnitude = 10.0 ** math.floor(math.log10(raw))
+    step = magnitude
+    for multiple in (1.0, 2.0, 2.5, 5.0, 10.0):
+        step = multiple * magnitude
+        if step >= raw:
             break
-    else:
-        step = magnitude
-    start = step * (int(low / step) - 1)
+    # A tick is kept only if it is inside the domain, because one drawn past
+    # the plot floor collides with the axis label row underneath it; the
+    # tolerance is there so a boundary tick is not lost to binary rounding.
     ticks: list[float] = []
-    value = start
+    value = math.floor(low / step) * step
+    edge = step * 1e-9
     while value <= high + step:
-        # Stay strictly inside the domain: a tick drawn past the plot floor
-        # collides with the x-axis label row underneath it.
-        if low <= value <= high:
-            ticks.append(round(value, 6))
+        if low - edge <= value <= high + edge:
+            # Adding zero because -0.0 survives round() and formats as
+            # "-0.00", which is a tick label claiming a sign that zero has not
+            # got. It reached the page.
+            ticks.append(round(value, 10) + 0.0)
         value += step
     return ticks or [low, high]
 
@@ -137,13 +251,44 @@ def _hit(x: float, y: float, label: str, value: str, extra: str = "") -> str:
 
 
 # --- tables ------------------------------------------------------------------
-def table(caption: str, headers: list[str], rows: list[list[str]]) -> str:
-    head = "".join(f"<th>{esc(h)}</th>" for h in headers)
+# Characters past which a table cell is a sentence rather than a value, and
+# the look of a value: a number, signed or not, or the mark for a missing one.
+TEXT_CELL = 40
+_NUMBER = re.compile(r"[+\-\u2212]?\.?\d")
+_MISSING = {"", "-", "\u2014", "n/a"}
+
+
+def _column_class(values: list[str]) -> str:
+    """"txt" for a column of sentences, "lbl" for words, "" for numbers."""
+    if any(len(v) > TEXT_CELL for v in values):
+        return "txt"
+    if all(_NUMBER.match(v) or v in _MISSING for v in values):
+        return ""
+    return "lbl"
+
+
+def table(caption: str, headers: list[str], rows: list[list[str]],
+          expanded: bool = False) -> str:
+    """A table behind a disclosure: folded when it is the twin of a chart,
+    expanded when it is the only thing its card shows."""
+    # Numbers align right, on one line; words align left, and a column of
+    # sentences wraps as well.
+    kinds = [_column_class([str(row[i]) for row in rows if i < len(row)])
+             for i in range(len(headers))]
+
+    def cell(tag: str, i: int, value: object) -> str:
+        kind = kinds[i] if i < len(kinds) else ""
+        mark = f' class="{kind}"' if kind else ""
+        return f"<{tag}{mark}>{prose(value)}</{tag}>"
+
+    head = "".join(cell("th", i, h) for i, h in enumerate(headers))
     body = "".join(
-        "<tr>" + "".join(f"<td>{esc(cell)}</td>" for cell in row) + "</tr>" for row in rows
+        "<tr>" + "".join(cell("td", i, value) for i, value in enumerate(row)) + "</tr>"
+        for row in rows
     )
     return (
-        f'<details class="tableview"><summary>Table view &mdash; {esc(caption)}</summary>'
+        f'<details class="tableview"{" open" if expanded else ""}>'
+        f"<summary>Table view &mdash; {prose(caption)}</summary>"
         f'<div class="tablewrap"><table><thead><tr>{head}</tr></thead>'
         f"<tbody>{body}</tbody></table></div></details>"
     )

@@ -226,7 +226,7 @@ def tilt(depths, ends: int = 2):
     between runs for no oceanographic reason at all.
     """
     known = [d for d in depths if d is not None]
-    if len(known) < 2 * ends:
+    if ends < 1 or len(known) < 2 * ends:
         return None
     west = sum(known[:ends]) / ends
     east = sum(known[-ends:]) / ends
@@ -429,14 +429,14 @@ def section(text: str, anomaly: bool = False) -> Field:
         x=SECTION_LONS, y=SECTION_DEPTHS,
         values=tuple(tuple(r) for r in grid),
         label=f"Equatorial Pacific {what}",
-        units="degrees C", x_name="longitude", y_name="depth",
+        units="°C", x_name="longitude", y_name="depth",
         as_of=stamp[:7],
         note=f"TAO/TRITON moorings at {', '.join(_lon_name(l) for l in moorings)}",
     )
 
 
 def iso_hovmoller(text: str, months: int = 24, anomaly: bool = False) -> Field:
-    """20 C isotherm depth, time by longitude.
+    """20 °C isotherm depth, time by longitude.
 
     This is the cleanest available picture of Kelvin wave propagation: a
     downwelling wave appears as a band of deepened thermocline sloping from
@@ -479,7 +479,7 @@ def iso_hovmoller(text: str, months: int = 24, anomaly: bool = False) -> Field:
                 value -= sum(base) / len(base)
             grid[index][lon_at[lon]] = value
 
-    what = "20 C isotherm depth anomaly" if anomaly else "20 C isotherm depth"
+    what = "20 °C isotherm depth anomaly" if anomaly else "20 °C isotherm depth"
     return Field(
         x=tuple(lons), y=tuple(float(i) for i in range(len(stamps))),
         values=tuple(tuple(r) for r in grid),
@@ -532,7 +532,7 @@ def thermocline_mesh(text: str, iso_text: str | None = None) -> Mesh:
         nodes.append(MeshNode(lat=lat, lon=lon, height=height, anomaly=anomaly))
 
     return Mesh(
-        nodes=tuple(nodes), label="20 C isotherm depth", units="m",
+        nodes=tuple(nodes), label="20 °C isotherm depth", units="m",
         as_of=max(stamps) if stamps else "",
         note="Mean of the last fortnight of daily values at each mooring.",
     )
@@ -592,7 +592,15 @@ def box_mean(grid: Field, box: Box) -> float | None:
             continue
         cos = math.cos(math.radians(lat))
         for col, lon in enumerate(grid.x):
-            if not box.lon0 <= lon % 360.0 <= box.lon1:
+            east = lon % 360.0
+            # A box given west-of-east in 0..360 is an ordinary interval; one
+            # given the other way round has wrapped past 360, and is the union
+            # of the two pieces either side of the seam. Testing it as an
+            # ordinary interval makes it the empty set, so a box over the
+            # dateline used to return None and the panel above it a dash.
+            inside = (box.lon0 <= east <= box.lon1 if box.lon0 <= box.lon1
+                      else east >= box.lon0 or east <= box.lon1)
+            if not inside:
                 continue
             value = grid.values[row][col]
             if value is not None:
@@ -602,24 +610,41 @@ def box_mean(grid: Field, box: Box) -> float | None:
 
 
 def warm_pool_edge(grid: Field, threshold: float = 28.0) -> float | None:
-    """Longitude of the eastern edge of the 28 C warm pool on the equator.
+    """Longitude of the eastern edge of the 28 °C warm pool on the equator.
 
     Only meaningful on an absolute SST field. The eastward march of this edge
     is one of the clearest single numbers for how far the event has displaced
     the Pacific convection centre.
+
+    The edge is where the pool ends: walking east from the warmest equatorial
+    water of the open western Pacific, 130E to 160W, the last column still at
+    the threshold before the first one below it. Warm water further east that
+    the pool does not reach is not its edge: on 8 September 2026 the coastal
+    cells off Colombia were above 28 °C at 79W while the pool itself ended near
+    109W, and taking the easternmost warm column anywhere put the edge on the
+    coast. The walk does not start west of 130E, where coastal cells in the
+    Maritime Continent run warmer than the open ocean and the Maluku Sea
+    upwells below 28 °C. A column with no ocean in it - land on the equator -
+    does not end the pool.
     """
-    equator = [
-        (abs(lat), row) for row, lat in enumerate(grid.y) if abs(lat) <= 2.5
-    ]
-    if not equator:
-        return None
-    rows = [row for _, row in sorted(equator)]
-    last_warm = None
+    rows = [row for row, lat in enumerate(grid.y) if abs(lat) <= 2.5]
+    profile = []
     for col, lon in enumerate(grid.x):
         values = [grid.values[r][col] for r in rows if grid.values[r][col] is not None]
-        if values and sum(values) / len(values) >= threshold:
-            last_warm = lon
-    return last_warm
+        if values:
+            profile.append((lon, sum(values) / len(values)))
+    west = [pair for pair in profile if 130.0 <= pair[0] < 200.0] or profile
+    if not west:
+        return None
+    core = max(west, key=lambda pair: pair[1])
+    if core[1] < threshold:
+        return None
+    edge = core[0]
+    for lon, mean in profile[profile.index(core) + 1:]:
+        if mean < threshold:
+            break
+        edge = lon
+    return edge
 
 
 # --- contouring -------------------------------------------------------------

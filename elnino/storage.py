@@ -160,15 +160,18 @@ def upsert_alert(
     """Record an alert. Returns True only the first time it is raised.
 
     That return value is what stops a daily run from re-announcing a condition
-    that has been true for a month.
+    that has been true for a month. A standing alert's level and title are
+    brought up to date - a cyclone threat that went from a watch to a strike
+    used to stay logged as the watch it was first raised as.
     """
     row = conn.execute(
         "SELECT id FROM alerts WHERE code = ? AND cleared_at IS NULL", (code,)
     ).fetchone()
     if row:
         conn.execute(
-            "UPDATE alerts SET last_seen = ?, value = ?, detail = ? WHERE id = ?",
-            (seen_at, value, detail, row["id"]),
+            "UPDATE alerts SET last_seen = ?, value = ?, detail = ?, level = ?, "
+            "title = ? WHERE id = ?",
+            (seen_at, value, detail, level, title, row["id"]),
         )
         conn.commit()
         return False

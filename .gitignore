@@ -11,7 +11,11 @@ data/elnino.db
 
 # Generated output: regenerate with `python track.py`.
 output/dashboard.html
+output/atlas.html
 output/latest.json
+output/storms.html
+output/storms.json
+output/map.html
 
 # Python
 __pycache__/

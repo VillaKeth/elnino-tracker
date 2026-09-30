@@ -1,0 +1,135 @@
+<?xml version="1.0" ?>
+<kml xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns="http://earth.google.com/kml/2.1">
+    <Document>
+        <name>Graphical Tropical Weather Outlook - North Atlantic basin - Fri Sep 25 11:40:21 2026</name>
+        <description>
+            <TABLE>
+                <TR><TD><B>Title:</B> Graphical Tropical Weather Outlook for the North Atlantic basin, issued: Fri Sep 25 11:40:21 2026</TD></TR>
+                <TR><TD><B>Tropical cyclone formation is not expected during the next 7 days.</B></TD></TR>
+                <TR><TD><B>Description:</B>The Graphical Tropical Weather Outlook ...</TD></TR>
+                <TR><TD><B>Date Created:</B> Fri Sep 25 11:40:21 2026 </TD></TR>
+                <TR><TD><B>Created:</B> National Hurricane Center </TD></TR>
+                <TR><TD><B>For More Information: </B><a href="http://www.nhc.noaa.gov">http://www.nhc.noaa.gov</a></TD></TR>
+            </TABLE>
+        </description>
+        <Style id="0">
+            <LineStyle>
+                <color>99e6e6e6</color>
+                <width>2</width>
+            </LineStyle>
+            <PolyStyle>
+                <color>66e6e6e6</color>
+            </PolyStyle>
+        </Style>
+        <Style id="1">
+            <LineStyle>
+                <color>9900e6ff</color>
+                <width>2</width>
+            </LineStyle>
+            <PolyStyle>
+                <color>9900ffff</color>
+            </PolyStyle>
+        </Style>
+        <Style id="2">
+            <LineStyle>
+                <color>990092e6</color>
+                <width>2</width>
+            </LineStyle>
+            <PolyStyle>
+                <color>990092ff</color>
+            </PolyStyle>
+        </Style>
+        <Style id="3">
+            <LineStyle>
+                <color>990000f5</color>
+                <width>2</width>
+            </LineStyle>
+            <PolyStyle>
+                <color>990000e8</color>
+            </PolyStyle>
+        </Style>
+        <Style id="lowx">
+            <IconStyle>
+                <scale>3.0</scale>
+                <Icon>
+                    <href>xl54.png</href>
+                </Icon>
+                <hotSpot x="15" y="17" xunits="pixels" yunits="pixels"/>
+            </IconStyle>
+            <LabelStyle>
+                <scale>1.0</scale>
+            </LabelStyle>
+        </Style>
+        <Style id="zerox">
+            <IconStyle>
+                <scale>3.0</scale>
+                <Icon>
+                    <href>x054.png</href>
+                </Icon>
+                <hotSpot x="15" y="17" xunits="pixels" yunits="pixels"/>
+            </IconStyle>
+            <LabelStyle>
+                <scale>1.0</scale>
+            </LabelStyle>
+        </Style>
+        <Style id="medx">
+            <IconStyle>
+                <scale>3.0</scale>
+                <Icon>
+                    <href>xm54.png</href>
+                </Icon>
+                <hotSpot x="15" y="17" xunits="pixels" yunits="pixels"/>
+            </IconStyle>
+            <LabelStyle>
+                <scale>1.0</scale>
+            </LabelStyle>
+        </Style>
+        <Style id="higx">
+            <IconStyle>
+                <scale>3.0</scale>
+                <Icon>
+                    <href>xh54.png</href>
+                </Icon>
+                <hotSpot x="15" y="17" xunits="pixels" yunits="pixels"/>
+            </IconStyle>
+            <LabelStyle>
+                <scale>1.0</scale>
+            </LabelStyle>
+        </Style>
+        <LookAt>
+            <longitude>-50.0</longitude>
+            <latitude>25.0</latitude>
+            <altitude>9000000.0</altitude>
+            <range>9000000.0</range>
+            <gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+        </LookAt>
+        <Placemark>
+            <name>Tropical cyclone formation is not expected</name>
+            <Style>
+                <IconStyle>
+                    <scale>0.0</scale>
+                </IconStyle>
+                <LabelStyle>
+                    <scale>6.0</scale>
+                </LabelStyle>
+            </Style>
+            <Point>
+                <coordinates>-50.0,25.0,1000</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark>
+            <name>during the next 7 days.</name>
+            <Style>
+                <IconStyle>
+                    <scale>0.0</scale>
+                </IconStyle>
+                <LabelStyle>
+                    <scale>6.0</scale>
+                </LabelStyle>
+            </Style>
+            <Point>
+                <coordinates>-50.0,22.0,1000</coordinates>
+            </Point>
+        </Placemark>
+    </Document>
+</kml>

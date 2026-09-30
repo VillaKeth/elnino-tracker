@@ -1,0 +1,298 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<kml xmlns='http://earth.google.com/kml/2.1'>
+<Document>
+<name>Hurricane Nolo (Advisory #20) - Watch/Warnings</name>
+    <description>
+        <TABLE>
+            <TR><TD><B>Title:</B> Tropical Cyclone Watch/Warnings for EP152026 (Advisory #20)</TD></TR>
+            <TR><TD><B>Description:</B>The official watch/warning in KML format is an experimental product produced by the National Hurricane Center.  Coastal areas placed under tropical cyclone watches or warnings are delimited by specific geographical locations known as "breakpoints" (e.g., a hurricane warning is in effect from breakpoint "A" to breakpoint "B").  This file consists of one or more lines connecting the breakpoints delimiting any current watches or warnings. </TD></TR>
+            <TR><TD><B>Date Created:</B> 09-25-2026 - 14:53 UTC </TD></TR>
+            <TR><TD><B>Created:</B> National Hurricane Center </TD></TR>
+            <TR><TD><B>Disclaimer:</B>The official watch/warning in KML format is an experimental product.</TD></TR>
+            <TR><TD><B>For More Information: </B><a href="https://www.nhc.noaa.gov">https://www.nhc.noaa.gov</a></TD></TR>
+        </TABLE>
+    </description>
+        <Style id="TWR">
+                <LineStyle>
+                        <color>ffff0055</color>
+                        <width>3</width>
+                </LineStyle>
+                <PolyStyle>
+                        <color>ffff0055</color>
+                </PolyStyle>
+        </Style>
+        <Style id="TWA">
+                <LineStyle>
+                        <color>ff22e2f7</color>
+                        <width>3</width>
+                </LineStyle>
+                <PolyStyle>
+                        <color>ff22e2f7</color>
+                </PolyStyle>
+        </Style>
+        <Style id="HWA">
+                <LineStyle>
+                        <color>99ffaaff</color>
+                        <width>8</width>
+                </LineStyle>
+                <PolyStyle>
+                        <color>99ffaaff</color>
+                </PolyStyle>
+        </Style>
+        <Style id="HWR">
+                <LineStyle>
+                        <color>990000ff</color>
+                        <width>8</width>
+                </LineStyle>
+                <PolyStyle>
+                        <color>990000ff</color>
+                </PolyStyle>
+        </Style>
+    <Placemark>
+      <name>Tropical Storm Watch</name>
+        <styleUrl>#TWA</styleUrl>
+        <LineString>
+                <coordinates>
+-155.97,20.76,0 -156.62,21.04,0 -156.69,20.87,0 -156.36,20.55,0 -155.97,20.76,0 
+                </coordinates>
+        </LineString>
+        <ExtendedData>
+            <Data name="timezone">
+                <value>HST</value>
+            </Data>
+            <Data name="stormType">
+                <value>HU</value>
+            </Data>
+            <Data name="advisoryDate">
+                <value>500 AM HST Fri Sep 25 2026</value>
+            </Data>
+            <Data name="basin">
+                <value>EP</value>
+            </Data>
+            <Data name="fcstpd">
+                <value>120</value>
+            </Data>
+            <Data name="storm">
+                <value>Hurricane Nolo</value>
+            </Data>
+            <Data name="atcfid">
+                <value>EP152026</value>
+            </Data>
+            <Data name="advisoryNum">
+                <value>20</value>
+            </Data>
+            <Data name="stormNum">
+                <value>15</value>
+            </Data>
+            <Data name="stormName">
+                <value>Nolo</value>
+            </Data>
+        </ExtendedData>
+    </Placemark>
+    <Placemark>
+      <name>Tropical Storm Watch</name>
+        <styleUrl>#TWA</styleUrl>
+        <LineString>
+                <coordinates>
+-156.63,21.1,0 -157.42,21.17,0 
+                </coordinates>
+        </LineString>
+        <ExtendedData>
+            <Data name="timezone">
+                <value>HST</value>
+            </Data>
+            <Data name="stormType">
+                <value>HU</value>
+            </Data>
+            <Data name="advisoryDate">
+                <value>500 AM HST Fri Sep 25 2026</value>
+            </Data>
+            <Data name="basin">
+                <value>EP</value>
+            </Data>
+            <Data name="fcstpd">
+                <value>120</value>
+            </Data>
+            <Data name="storm">
+                <value>Hurricane Nolo</value>
+            </Data>
+            <Data name="atcfid">
+                <value>EP152026</value>
+            </Data>
+            <Data name="advisoryNum">
+                <value>20</value>
+            </Data>
+            <Data name="stormNum">
+                <value>15</value>
+            </Data>
+            <Data name="stormName">
+                <value>Nolo</value>
+            </Data>
+        </ExtendedData>
+    </Placemark>
+    <Placemark>
+      <name>Tropical Storm Watch</name>
+        <styleUrl>#TWA</styleUrl>
+        <LineString>
+                <coordinates>
+-157.1,20.98,0 -156.78,20.67,0 
+                </coordinates>
+        </LineString>
+        <ExtendedData>
+            <Data name="timezone">
+                <value>HST</value>
+            </Data>
+            <Data name="stormType">
+                <value>HU</value>
+            </Data>
+            <Data name="advisoryDate">
+                <value>500 AM HST Fri Sep 25 2026</value>
+            </Data>
+            <Data name="basin">
+                <value>EP</value>
+            </Data>
+            <Data name="fcstpd">
+                <value>120</value>
+            </Data>
+            <Data name="storm">
+                <value>Hurricane Nolo</value>
+            </Data>
+            <Data name="atcfid">
+                <value>EP152026</value>
+            </Data>
+            <Data name="advisoryNum">
+                <value>20</value>
+            </Data>
+            <Data name="stormNum">
+                <value>15</value>
+            </Data>
+            <Data name="stormName">
+                <value>Nolo</value>
+            </Data>
+        </ExtendedData>
+    </Placemark>
+    <Placemark>
+      <name>Tropical Storm Watch</name>
+        <styleUrl>#TWA</styleUrl>
+        <LineString>
+                <coordinates>
+-156.8,20.48,0 -156.45,20.6,0 
+                </coordinates>
+        </LineString>
+        <ExtendedData>
+            <Data name="timezone">
+                <value>HST</value>
+            </Data>
+            <Data name="stormType">
+                <value>HU</value>
+            </Data>
+            <Data name="advisoryDate">
+                <value>500 AM HST Fri Sep 25 2026</value>
+            </Data>
+            <Data name="basin">
+                <value>EP</value>
+            </Data>
+            <Data name="fcstpd">
+                <value>120</value>
+            </Data>
+            <Data name="storm">
+                <value>Hurricane Nolo</value>
+            </Data>
+            <Data name="atcfid">
+                <value>EP152026</value>
+            </Data>
+            <Data name="advisoryNum">
+                <value>20</value>
+            </Data>
+            <Data name="stormNum">
+                <value>15</value>
+            </Data>
+            <Data name="stormName">
+                <value>Nolo</value>
+            </Data>
+        </ExtendedData>
+    </Placemark>
+    <Placemark>
+      <name>Hurricane Watch</name>
+        <styleUrl>#HWA</styleUrl>
+        <LineString>
+                <coordinates>
+-155.87,20.24,0 -156.03,19.76,0 -155.92,19.02,0 -155.65,18.85,0 -154.77,19.57,0 -155.2,20.04,0 -155.86,20.29,0 
+                </coordinates>
+        </LineString>
+        <ExtendedData>
+            <Data name="timezone">
+                <value>HST</value>
+            </Data>
+            <Data name="stormType">
+                <value>HU</value>
+            </Data>
+            <Data name="advisoryDate">
+                <value>500 AM HST Fri Sep 25 2026</value>
+            </Data>
+            <Data name="basin">
+                <value>EP</value>
+            </Data>
+            <Data name="fcstpd">
+                <value>120</value>
+            </Data>
+            <Data name="storm">
+                <value>Hurricane Nolo</value>
+            </Data>
+            <Data name="atcfid">
+                <value>EP152026</value>
+            </Data>
+            <Data name="advisoryNum">
+                <value>20</value>
+            </Data>
+            <Data name="stormNum">
+                <value>15</value>
+            </Data>
+            <Data name="stormName">
+                <value>Nolo</value>
+            </Data>
+        </ExtendedData>
+    </Placemark>
+    <Placemark>
+      <name>Tropical Storm Warning</name>
+        <styleUrl>#TWR</styleUrl>
+        <LineString>
+                <coordinates>
+-155.87,20.24,0 -156.03,19.76,0 -155.92,19.02,0 -155.65,18.85,0 -154.77,19.57,0 -155.2,20.04,0 -155.86,20.29,0 
+                </coordinates>
+        </LineString>
+        <ExtendedData>
+            <Data name="timezone">
+                <value>HST</value>
+            </Data>
+            <Data name="stormType">
+                <value>HU</value>
+            </Data>
+            <Data name="advisoryDate">
+                <value>500 AM HST Fri Sep 25 2026</value>
+            </Data>
+            <Data name="basin">
+                <value>EP</value>
+            </Data>
+            <Data name="fcstpd">
+                <value>120</value>
+            </Data>
+            <Data name="storm">
+                <value>Hurricane Nolo</value>
+            </Data>
+            <Data name="atcfid">
+                <value>EP152026</value>
+            </Data>
+            <Data name="advisoryNum">
+                <value>20</value>
+            </Data>
+            <Data name="stormNum">
+                <value>15</value>
+            </Data>
+            <Data name="stormName">
+                <value>Nolo</value>
+            </Data>
+        </ExtendedData>
+    </Placemark>
+</Document>
+</kml>

@@ -8,16 +8,28 @@ than assumed.
 Two things make this honest rather than decorative:
 
   * Cross-validation by year. The recharge model's coefficients and the
-    persistence autocorrelations are re-estimated with the verification year
-    held out, so a method is never scored on data it was fitted to. In-sample
-    skill for a model with a dozen free parameters would be meaningless.
+    persistence regressions are re-estimated with the start year AND the year
+    after it held out - a nine-month forecast from mid-year verifies in the
+    next calendar year, and a fit that kept those months would be scored on
+    data it was trained on. In-sample skill for a model with a dozen free
+    parameters would be meaningless.
+
+  * The same forecast that is issued. Persistence uses the production
+    regression, the recharge model the production season-averaging, and the
+    analog ensemble the production matching, all started from the moment the
+    start season's value exists: the end of its last month. The ensemble is
+    scored as it is printed - each method weighted by the inverse of its own
+    cross-validated mean squared error.
 
   * Scoring by target season as well as by lead. ENSO forecasts are not
     uniformly skilful: skill collapses for forecasts that must cross boreal
     spring. Reporting only a lead-averaged number would hide the one thing a
     forecaster most needs to know about a given forecast.
 
-The analog method is deliberately NOT scored here - see ANALOG_NOTE.
+All three methods are scored. The analog ensemble used to be left out, as
+too awkward to re-derive at every start date, while carrying 45% of the
+forecast unverified; matched on the calendar it needs nothing re-derived, and
+its weight is now earned the same way as the others'.
 """
 
 from __future__ import annotations
@@ -25,20 +37,18 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from .forecast import _mean, _season_step, fit_recharge, rom_rows
+from .forecast import (
+    DEFAULT_WEIGHTS, _mean, _season_step, analog_projection, calendar_analogs,
+    filter_analogs, fit_recharge, persist, persistence_fit, recharge_seasons,
+    rom_rows, season_months,
+)
 from .parsers import ONI_SEASONS, MonthValue, SeasonValue
 
 MIN_FIT_SAMPLE = 20
 MIN_SCORED = 15  # forecasts needed before a lead's score is worth quoting
 BARRIER_LEAD = 6  # the lead at which the spring barrier is clearest
 
-ANALOG_NOTE = (
-    "The analog ensemble is not scored here. Scoring it would require "
-    "re-deriving the episode catalogue at every historical start date, and a "
-    "version that skipped that step would not be the method actually in use. "
-    "Its members supply the spread of the forecast band; the band's width "
-    "comes from the verified methods."
-)
+METHODS = ("persistence", "recharge", "analog")
 
 
 @dataclass
@@ -76,6 +86,16 @@ class SkillProfile:
                 return skill
         return None
 
+    def lost_at(self) -> LeadSkill | None:
+        """The first lead scored whose correlation falls below the bar."""
+        return next((skill for skill in self.leads if not skill.useful), None)
+
+    @property
+    def horizon_is_lower_bound(self) -> bool:
+        """No lead scored fell below the bar, so skill lasts at least this long:
+        the horizon is where the scoring stopped, not where the skill did."""
+        return bool(self.leads) and self.lost_at() is None
+
 
 def _rmse(errors: list[float]) -> float:
     return math.sqrt(sum(e * e for e in errors) / len(errors)) if errors else 0.0
@@ -92,59 +112,59 @@ def _acc(forecasts: list[float], truths: list[float]) -> float:
     return numerator / denominator if denominator else 0.0
 
 
-def _persistence_rho(
-    series: list[SeasonValue], lead: int, exclude_year: int | None
-) -> dict[str, float]:
-    """Per-target-season lag correlation, optionally holding out one year."""
-    index = {(v.season, v.year): v.value for v in series}
-    buckets: dict[str, list[tuple[float, float]]] = {}
-    for value in series:
-        if exclude_year is not None and value.year == exclude_year:
-            continue
-        target_season, target_year = _season_step(value.season, value.year, lead)
-        if exclude_year is not None and target_year == exclude_year:
-            continue
-        target = index.get((target_season, target_year))
-        if target is None:
-            continue
-        buckets.setdefault(target_season, []).append((value.value, target))
-
-    out: dict[str, float] = {}
-    for season, pairs in buckets.items():
-        if len(pairs) < MIN_FIT_SAMPLE:
-            continue
-        starts = [p[0] for p in pairs]
-        ends = [p[1] for p in pairs]
-        start_mean, end_mean = _mean(starts), _mean(ends)
-        numerator = sum((a - start_mean) * (b - end_mean) for a, b in pairs)
-        denominator = math.sqrt(
-            sum((a - start_mean) ** 2 for a in starts)
-            * sum((b - end_mean) ** 2 for b in ends)
-        )
-        out[season] = numerator / denominator if denominator else 0.0
-    return out
+def _held_out(year: int) -> tuple[int, int]:
+    """The years a hindcast from ``year`` must not be trained on."""
+    return (year, year + 1)
 
 
-def _rom_forecast(model, start_month: int, sst: float, heat: float, leads: int):
-    """Integrate a held-out model forward. Same stepper as the live forecast."""
-    from .forecast import recharge_projection
+def _rom_hindcast(model, sst: dict, heat: dict, start: SeasonValue,
+                  leads: int) -> dict[int, float]:
+    """The recharge forecast as it would have been issued at the end of ``start``.
 
-    return recharge_projection(model, sst, heat, start_month, leads)
+    Initialised at the season's last month - the moment the season's value
+    exists - and averaged into seasons by the routine the live forecast uses,
+    so the score belongs to the forecast actually printed.
+    """
+    last = season_months(start.season, start.year)[-1]
+    return recharge_seasons(model, sst, heat, last, (start.season, start.year), leads)
+
+
+def _analog_hindcast(series: list[SeasonValue], at: int,
+                     leads: int) -> dict[int, float]:
+    """The analog forecast as it would have been issued at ``series[at]``."""
+    members = filter_analogs(calendar_analogs(series, at=at))
+    by_lead, _, _ = analog_projection(series, members, 0, leads,
+                                      current_value=series[at].value)
+    return {lead: sum(v * w for v, w in pairs) / sum(w for _, w in pairs)
+            for lead, pairs in by_lead.items() if pairs}
+
+
+def _combine(methods: dict[str, float], weights: dict[str, float]) -> float:
+    """The ensemble mean exactly as ``forecast.build`` forms it."""
+    active = sum(weights.get(name, 0.0) for name in methods)
+    if active <= 0.0:
+        return _mean(list(methods.values()))
+    return sum(weights.get(name, 0.0) * v for name, v in methods.items()) / active
 
 
 def run(
-    oni: list[SeasonValue],
+    series: list[SeasonValue],
     nino34_monthly: list[MonthValue],
     wwv: list[MonthValue],
     leads: int = 9,
+    index_name: str = "RONI",
 ) -> SkillProfile | None:
-    """Score damped persistence and the recharge oscillator, cross-validated."""
-    if len(oni) < 120:
+    """Score all three methods and their weighted ensemble, cross-validated.
+
+    ``series`` is the official index and ``nino34_monthly`` the monthly series
+    it averages - the same pair the live forecast runs on.
+    """
+    if len(series) < 120:
         return None
 
-    notes: list[str] = [ANALOG_NOTE]
-    oni_index = {(v.season, v.year): v.value for v in oni}
-    years = sorted({v.year for v in oni})
+    notes: list[str] = []
+    truth_index = {(v.season, v.year): v.value for v in series}
+    years = sorted({v.year for v in series})
     rows = rom_rows(nino34_monthly, wwv) if nino34_monthly and wwv else []
     rom_available = len(rows) >= MIN_FIT_SAMPLE * 2
     if not rom_available and nino34_monthly and wwv:
@@ -154,73 +174,89 @@ def run(
     heat_index = {(v.year, v.month): v.value for v in wwv}
 
     # Cache the held-out fits: one per year, reused across every start month.
-    rho_cache: dict[tuple[int, int], dict[str, float]] = {}
+    fit_cache: dict[tuple[int, int], dict[str, tuple[float, float, float]]] = {}
     rom_cache: dict[int, object] = {}
 
-    scored: dict[int, dict[str, list[tuple[float, float]]]] = {
-        lead: {"persistence": [], "recharge": [], "ensemble": []}
-        for lead in range(1, leads + 1)
+    # One record per start and lead: the target season, the truth, and what
+    # each method said. Weights come from the methods' scores, so the
+    # ensemble is formed only once every method has been scored.
+    records: dict[int, list[tuple[str, float, dict[str, float]]]] = {
+        lead: [] for lead in range(1, leads + 1)
     }
-    per_season: dict[str, list[tuple[float, float]]] = {}
 
-    for start in oni:
+    for at, start in enumerate(series):
         # Only verify from a point that has enough record behind it.
         if start.year <= years[0] + 5:
             continue
+
+        track: dict[int, float] = {}
+        if rom_available:
+            if start.year not in rom_cache:
+                rom_cache[start.year] = fit_recharge(
+                    nino34_monthly, wwv, exclude_year=_held_out(start.year), rows=rows
+                )
+            model = rom_cache[start.year]
+            if model:
+                track = _rom_hindcast(model, sst_index, heat_index, start, leads)
+        analog = _analog_hindcast(series, at, leads)
+
         for lead in range(1, leads + 1):
             target_season, target_year = _season_step(start.season, start.year, lead)
-            truth = oni_index.get((target_season, target_year))
+            truth = truth_index.get((target_season, target_year))
             if truth is None:
                 continue
 
             key = (lead, start.year)
-            if key not in rho_cache:
-                rho_cache[key] = _persistence_rho(oni, lead, start.year)
-            rho = rho_cache[key].get(target_season)
-            if rho is None:
+            if key not in fit_cache:
+                fit_cache[key] = persistence_fit(
+                    series, lead, exclude_year=_held_out(start.year)
+                )
+            fit = fit_cache[key].get(target_season)
+            if fit is None:
                 continue
-            persistence = start.value * max(rho, 0.0)
 
-            members: list[tuple[str, float]] = [("persistence", persistence)]
+            methods = {"persistence": persist(fit, start.value)}
+            if lead in track:
+                methods["recharge"] = track[lead]
+            if lead in analog:
+                methods["analog"] = analog[lead]
+            records[lead].append((target_season, truth, methods))
 
-            if rom_available:
-                if start.year not in rom_cache:
-                    rom_cache[start.year] = fit_recharge(
-                        nino34_monthly, wwv, exclude_year=start.year, rows=rows
-                    )
-                model = rom_cache[start.year]
-                centre_month = ONI_SEASONS.index(start.season) + 1
-                sst_now = sst_index.get((start.year, centre_month))
-                heat_now = heat_index.get((start.year, centre_month))
-                if model and sst_now is not None and heat_now is not None:
-                    track = _rom_forecast(model, centre_month, sst_now, heat_now, leads)
-                    if lead in track:
-                        members.append(("recharge", track[lead]))
+    method_mse: dict[str, list[float]] = {name: [] for name in METHODS}
+    method_rmse: dict[int, dict[str, float]] = {}
+    for lead in range(1, leads + 1):
+        if len(records[lead]) < MIN_SCORED:
+            continue
+        method_rmse[lead] = {}
+        for name in METHODS:
+            method_pairs = [(m[name], truth) for _, truth, m in records[lead] if name in m]
+            if len(method_pairs) >= MIN_SCORED:
+                value = _rmse([f - t for f, t in method_pairs])
+                method_rmse[lead][name] = value
+                method_mse[name].append(value * value)
 
-            for name, value in members:
-                scored[lead][name].append((value, truth))
-            ensemble = _mean([value for _, value in members])
-            scored[lead]["ensemble"].append((ensemble, truth))
-
-            if lead == BARRIER_LEAD:
-                per_season.setdefault(target_season, []).append((ensemble, truth))
+    # Inverse-MSE weights, every method on the same footing.
+    verified = {name: _mean(values) for name, values in method_mse.items() if values}
+    inverse = {name: 1.0 / value for name, value in verified.items() if value > 0}
+    if inverse:
+        total = sum(inverse.values())
+        weights = {name: value / total for name, value in inverse.items()}
+    else:
+        weights = dict(DEFAULT_WEIGHTS)
 
     results: list[LeadSkill] = []
-    method_mse: dict[str, list[float]] = {"persistence": [], "recharge": []}
+    per_season: dict[str, list[tuple[float, float]]] = {}
     for lead in range(1, leads + 1):
-        pairs = scored[lead]["ensemble"]
-        if len(pairs) < MIN_SCORED:
+        if lead not in method_rmse:
             continue
+        pairs = [(_combine(m, weights), truth) for _, truth, m in records[lead]]
+        if lead == BARRIER_LEAD:
+            for (season, _, _), pair in zip(records[lead], pairs):
+                per_season.setdefault(season, []).append(pair)
         forecasts = [p[0] for p in pairs]
         truths = [p[1] for p in pairs]
         errors = [f - t for f, t in pairs]
-        by_method = {}
-        for name in ("persistence", "recharge"):
-            method_pairs = scored[lead][name]
-            if len(method_pairs) >= MIN_SCORED:
-                value = _rmse([f - t for f, t in method_pairs])
-                by_method[name] = value
-                method_mse[name].append(value * value)
+        by_method = method_rmse[lead]
         results.append(
             LeadSkill(
                 lead=lead,
@@ -234,20 +270,6 @@ def run(
 
     if not results:
         return None
-
-    # Inverse-MSE weights for the verified methods; the analog ensemble keeps
-    # its default share because it is not scored here.
-    weights = {"analog": 0.45}
-    verified = {
-        name: _mean(values) for name, values in method_mse.items() if values
-    }
-    if verified:
-        inverse = {name: 1.0 / value for name, value in verified.items() if value > 0}
-        total = sum(inverse.values())
-        for name, value in inverse.items():
-            weights[name] = 0.55 * value / total
-    else:
-        weights.update({"persistence": 0.2, "recharge": 0.35})
 
     by_target = {
         season: _acc([p[0] for p in pairs], [p[1] for p in pairs])
@@ -273,8 +295,8 @@ def run(
             break
 
     notes.append(
-        f"Scored over {len(years)} years of ONI with the verification year held "
-        "out of every fit."
+        f"Scored over {len(years)} years of {index_name} with the start year and "
+        "the year after it held out of every fit."
     )
 
     return SkillProfile(

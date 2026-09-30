@@ -24,6 +24,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -69,9 +70,19 @@ def erddap(base: str, query: str) -> str:
 
 # The equatorial strip is requested a few rows wide and meaned when it is
 # shaped, rather than sampled on one row of a quarter-degree product.
-_EQ_STRIP = "[(-2):8:(2)][(120):8:(280)]"
-_PACIFIC = "[(-30):4:(30)][(100):4:(300)]"
-_WORLD = "[(-66):10:(66)][(0):10:(358)]"
+#
+# The strides below are on OISST's native quarter degree. They are the single
+# biggest control on how sharp this system looks, and they were all four times
+# coarser until a reader zoomed the globe in and found square kilometres of
+# ocean painted one colour. A globe that can be zoomed six times has about
+# 0.02 degrees to a pixel at full zoom, so the globe takes the product at its
+# own quarter degree and nothing is interpolated or invented; the flat maps are
+# a fixed size and stay at a half degree, which is already about two pixels to
+# a cell there. Every panel draws a decimated view when it is not zoomed in,
+# which is cheaper than asking for the same field twice at two resolutions.
+_EQ_STRIP = "[(-2):4:(2)][(120):4:(280)]"
+_PACIFIC = "[(-30):2:(30)][(100):2:(300)]"
+_WORLD = "[(-79):1:(79)][(0):1:(359.75)]"
 _TAO_EQ = "&latitude>=-0.6&latitude<=0.6"
 
 
@@ -91,22 +102,25 @@ SOURCES: tuple[Source, ...] = (
     # -- core: the episode-defining indices ---------------------------------
     Source(
         key="oni",
-        name="Oceanic Nino Index (ONI), 3-month running Nino-3.4 anomaly",
+        name="Oceanic Nino Index (ONI, legacy), 3-month running Nino-3.4 anomaly",
         url=f"{CPC}/oni.ascii.txt",
         agency="NOAA CPC",
         cadence="monthly",
         tier="core",
-        note="Official index NOAA uses to declare El Nino / La Nina episodes.",
-        critical=True,
+        note=("Legacy: CPC classified on it until February 2026, when RONI "
+              "replaced it (NWS PIS 26-05). Kept for comparison with the record."),
     ),
     Source(
         key="roni",
-        name="Relative ONI (RONI), ONI minus tropical-mean SST anomaly",
+        name=("Relative ONI (RONI), the official index: Nino-3.4 minus the "
+              "tropical-mean anomaly, rescaled"),
         url=f"{CPC}/RONI.ascii.txt",
         agency="NOAA CPC",
         cadence="monthly",
         tier="core",
-        note="Removes the tropical-wide warming trend; better cross-era comparison.",
+        note=("CPC's official ENSO index since February 2026. Removes the "
+              "tropical-wide warming, so events compare across eras."),
+        critical=True,
     ),
     Source(
         key="weekly_sst",
@@ -371,7 +385,7 @@ SOURCES: tuple[Source, ...] = (
     ),
     Source(
         key="tao_isotherm",
-        name="TAO/TRITON monthly 20 C isotherm depth, equator",
+        name="TAO/TRITON monthly 20 °C isotherm depth, equator",
         url=erddap(
             f"{COASTWATCH}/tabledap/pmelTaoMonIso.csv",
             f"time,longitude,ISO_6{_TAO_EQ}",
@@ -383,7 +397,7 @@ SOURCES: tuple[Source, ...] = (
     ),
     Source(
         key="tao_mesh",
-        name="TAO/TRITON daily 20 C isotherm depth, whole array",
+        name="TAO/TRITON daily 20 °C isotherm depth, whole array",
         url=erddap(
             f"{PMEL}/tabledap/pmelTaoDyIso.csv",
             f"time,latitude,longitude,ISO_6&time>={_since(1)}",
@@ -417,7 +431,181 @@ SOURCES: tuple[Source, ...] = (
         tier="spatial",
         note="Kelvin and Rossby wave tracking, independent of the moorings.",
     ),
+
+    # -- cyclones: what the boundary condition actually produced -------------
+    Source(
+        key="nhc_current",
+        name="NHC active tropical cyclones",
+        url="https://www.nhc.noaa.gov/CurrentStorms.json",
+        agency="NOAA National Hurricane Center",
+        cadence="every advisory cycle",
+        tier="cyclone",
+        note="The index of live storms. Names and ATCF ids for the deck fetches.",
+    ),
+    Source(
+        key="atcf_index",
+        name="ATCF best-track directory listing",
+        url="https://ftp.nhc.noaa.gov/atcf/btk/",
+        agency="NOAA National Hurricane Center",
+        cadence="continuous",
+        tier="cyclone",
+        note="Every storm of the current season, live or finished.",
+    ),
+    Source(
+        key="hurdat_index",
+        name="HURDAT2 best-track archive index",
+        url="https://www.nhc.noaa.gov/data/#hurdat",
+        agency="NOAA National Hurricane Center",
+        cadence="annual",
+        tier="cyclone",
+        note="Scraped for the current filenames, which are renamed every spring.",
+    ),
+
+    # -- formation outlooks and the storms NHC does not warn on --------------
+    Source(
+        key="nhc_outlook_at",
+        name="NHC Graphical Tropical Weather Outlook, Atlantic",
+        url="https://www.nhc.noaa.gov/xgtwo/gtwo_atl.kmz",
+        agency="NOAA National Hurricane Center",
+        cadence="four times a day",
+        tier="cyclone",
+        note="Areas NHC is watching, with the 2-day and 7-day chance of formation.",
+    ),
+    Source(
+        key="nhc_outlook_ep",
+        name="NHC Graphical Tropical Weather Outlook, eastern North Pacific",
+        url="https://www.nhc.noaa.gov/xgtwo/gtwo_pac.kmz",
+        agency="NOAA National Hurricane Center",
+        cadence="four times a day",
+        tier="cyclone",
+        note="Areas NHC is watching, with the 2-day and 7-day chance of formation.",
+    ),
+    Source(
+        key="nhc_outlook_cp",
+        name="CPHC Graphical Tropical Weather Outlook, central North Pacific",
+        url="https://www.nhc.noaa.gov/xgtwo/gtwo_cpac.kmz",
+        agency="NOAA Central Pacific Hurricane Center",
+        cadence="four times a day",
+        tier="cyclone",
+        note="Areas CPHC is watching, with the 2-day and 7-day chance of formation.",
+    ),
+    Source(
+        key="jtwc_rss",
+        name="JTWC tropical cyclone warnings index",
+        url="https://www.metoc.navy.mil/jtwc/rss/jtwc.rss",
+        agency="Joint Typhoon Warning Center",
+        cadence="every warning",
+        tier="cyclone",
+        note="Live warnings for the west Pacific, Indian Ocean and southern hemisphere.",
+    ),
+    Source(
+        key="jtwc_abpw",
+        name="JTWC significant tropical weather advisory, west and south Pacific",
+        url="https://www.metoc.navy.mil/jtwc/products/abpwweb.txt",
+        agency="Joint Typhoon Warning Center",
+        cadence="daily, and when a suspect area changes",
+        tier="cyclone",
+        note="Suspect areas with their potential for a significant tropical cyclone in 24 hours.",
+    ),
+    Source(
+        key="jtwc_abio",
+        name="JTWC significant tropical weather advisory, Indian Ocean",
+        url="https://www.metoc.navy.mil/jtwc/products/abioweb.txt",
+        agency="Joint Typhoon Warning Center",
+        cadence="daily, and when a suspect area changes",
+        tier="cyclone",
+        note="Suspect areas with their potential for a significant tropical cyclone in 24 hours.",
+    ),
 )
+
+# -- dynamic sources ------------------------------------------------------
+# Three feeds cannot live in the registry above because their URLs are not
+# known until something else has been read: a storm's decks depend on which
+# storms exist today, and the HURDAT2 filenames depend on what the index page
+# currently lists. They are built on demand and handed to ``fetch``, which
+# neither knows nor cares whether a Source came from the registry.
+
+ATCF = "https://ftp.nhc.noaa.gov/atcf"
+# Each deck lives in its own directory with its own naming rule, and the three
+# rules disagree: the best track is prefixed and plain, the forecast is
+# unprefixed with its own extension, and the guidance is prefixed and stored
+# gzipped. Getting any of them wrong is a 404, not a parse error.
+DECKS = {
+    "b": (f"{ATCF}/btk/b{{id}}.dat", "best track", "every six hours"),
+    "f": (f"{ATCF}/fst/{{id}}.fst", "official forecast", "every advisory"),
+    "a": (f"{ATCF}/aid_public/a{{id}}.dat.gz", "model guidance", "every six hours"),
+}
+
+
+def deck_source(deck: str, storm_id: str, name: str = "") -> Source:
+    """An ATCF deck for one storm. ``storm_id`` is lower-case, e.g. ep172026."""
+    template, described, cadence = DECKS[deck]
+    label = f"{name} ({storm_id.upper()})" if name else storm_id.upper()
+    return Source(
+        key=f"atcf_{deck}_{storm_id}",
+        name=f"ATCF {deck}-deck, {described}: {label}",
+        url=template.format(id=storm_id),
+        agency="NOAA National Hurricane Center",
+        cadence=cadence,
+        tier="cyclone",
+        note="Per-storm feed, discovered from the active-storm index.",
+    )
+
+
+def hurdat_source(basin: str, filename: str) -> Source:
+    """A HURDAT2 best-track file, whose name is read off the index page."""
+    return Source(
+        key=f"hurdat_{basin.lower()}",
+        name=f"HURDAT2 best track, {basin}",
+        url=f"https://www.nhc.noaa.gov/data/hurdat/{filename}",
+        agency="NOAA National Hurricane Center",
+        cadence="annual",
+        tier="cyclone",
+        note="The climatology this season is measured against.",
+    )
+
+
+# The products NHC issues per storm to protect people, as CurrentStorms.json
+# links them. Their URLs change every advisory, so each is fetched through a
+# source built from the link, and cached under a key that does not.
+PRODUCTS = {
+    "watches": "coastal watches and warnings",
+    "cone": "forecast cone",
+    "surge": "peak storm surge",
+    "winds": "wind speed probabilities",
+    "in_effect": "public advisory",
+}
+
+
+def product_source(kind: str, storm_id: str, url: str, name: str = "") -> Source:
+    """One of a storm's protective products, at the URL the index gives."""
+    label = f"{name} ({storm_id.upper()})" if name else storm_id.upper()
+    return Source(
+        key=f"nhc_{kind}_{storm_id}",
+        name=f"NHC {PRODUCTS[kind]}: {label}",
+        url=url,
+        agency="NOAA National Hurricane Center",
+        cadence="every advisory",
+        tier="cyclone",
+        note="Per-storm product, linked from the active-storm index.",
+    )
+
+
+JTWC_PRODUCTS = "https://www.metoc.navy.mil/jtwc/products"
+
+
+def jtwc_source(filename: str) -> Source:
+    """A JTWC warning's machine-readable file, ``wp2526.tcw``."""
+    return Source(
+        key=f"jtwc_{filename.rsplit('.', 1)[0].lower()}",
+        name=f"JTWC warning {filename}",
+        url=f"{JTWC_PRODUCTS}/{filename}",
+        agency="Joint Typhoon Warning Center",
+        cadence="every six hours",
+        tier="cyclone",
+        note="Per-storm warning, discovered from the JTWC index.",
+    )
+
 
 SOURCES_BY_KEY = {s.key: s for s in SOURCES}
 CRITICAL_KEYS = tuple(s.key for s in SOURCES if s.critical)
@@ -438,6 +626,27 @@ class Fetched:
         return self.error is None and bool(self.text)
 
 
+def decode_payload(payload: bytes, content_encoding: str | None = None) -> str:
+    """The text a download stands for, whatever it was wrapped in.
+
+    Content-Encoding covers a server that compressed the transfer; the magic
+    bytes cover a file that is *stored* gzipped, which is how NHC publishes
+    the a-decks. Without the second check those arrive as binary and parse as
+    nothing. A zip is how NHC publishes its outlooks, cones and warnings - a
+    KMZ, one KML beside its icons - and the KML is the only part read, so it
+    is what the cache keeps, as text like every other feed.
+    """
+    if content_encoding == "gzip" or payload[:2] == b"\x1f\x8b":
+        payload = gzip.GzipFile(fileobj=io.BytesIO(payload)).read()
+    if payload[:4] == b"PK\x03\x04":
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            for name in archive.namelist():
+                if name.lower().endswith(".kml"):
+                    return archive.read(name).decode("utf-8", errors="replace")
+        raise ValueError("zip carries no KML")
+    return payload.decode("utf-8", errors="replace")
+
+
 def _http_get(url: str) -> str:
     """GET a URL, transparently handling gzip and flaky NOAA endpoints."""
     request = urllib.request.Request(
@@ -453,10 +662,8 @@ def _http_get(url: str) -> str:
     for attempt in range(1, RETRIES + 1):
         try:
             with urllib.request.urlopen(request, timeout=TIMEOUT, context=context) as response:
-                payload = response.read()
-                if response.headers.get("Content-Encoding") == "gzip":
-                    payload = gzip.GzipFile(fileobj=io.BytesIO(payload)).read()
-                return payload.decode("utf-8", errors="replace")
+                return decode_payload(response.read(),
+                                      response.headers.get("Content-Encoding"))
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as exc:
             last = exc
             if attempt < RETRIES:
@@ -473,9 +680,15 @@ def fetch(source: Source, raw_dir: Path, offline: bool = False) -> Fetched:
 
     if not offline:
         try:
-            text = _http_get(source.url)
+            # One line ending from here on, and the cache written without
+            # translation. In text mode on Windows every "\n" was written as
+            # "\r\n" and every CRLF a feed sent became "\r\r\n", which read
+            # back as two lines; and the archive's digest, taken over the
+            # text, never matched the translated file, so it was rewritten on
+            # every run.
+            text = _http_get(source.url).replace("\r\n", "\n")
             digest = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
-            cache_path.write_text(text, encoding="utf-8")
+            cache_path.write_text(text, encoding="utf-8", newline="")
             meta_path.write_text(
                 json.dumps(
                     {"url": source.url, "fetched_at": now, "sha256": digest, "bytes": len(text)},
@@ -514,7 +727,7 @@ def _archive(raw_dir: Path, key: str, text: str, digest: str) -> None:
     path = archive_dir / f"{key}_{stamp}.txt"
     if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() == digest:
         return
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="")
 
 
 def fetch_all(

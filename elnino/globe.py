@@ -4,7 +4,8 @@ Every other view in this package answers "how big" or "where in the Pacific".
 This one answers "what does this event do where I am", which is the question
 anyone outside the tropical Pacific actually has. Spin the globe, zoom in, click
 a place: the panel says which catalogued teleconnections cover that point, what
-they do, in which season, how likely at today's ONI and at the projected peak,
+they do, in which season, how likely at today's index value and at the
+projected peak,
 and who is exposed.
 
 Projection
@@ -51,10 +52,10 @@ from __future__ import annotations
 import json
 import math
 
-from . import geo
-from .coastline import COASTLINE
+from . import coastline, cyclones, geo
 from .grids import Field
-from .impacts import CATALOGUE, evaluate, flavour_of
+from .impacts import CATALOGUE, evaluate, flavour_of, flavour_penalty
+from .storms import NEUTRAL, STORM_HUES
 from .svg import esc
 
 # Near hemisphere only. A point within this of the limb is dropped: right at the
@@ -174,19 +175,21 @@ def _pt(point, radius: float, cx: float, cy: float) -> str:
     return f"{cx + point[0] * radius:.1f},{cy - point[1] * radius:.1f}"
 
 
-def _runs(points, radius: float, cx: float, cy: float) -> list[str]:
+def _runs(points, radius: float, cx: float, cy: float,
+          attrs: str = "") -> list[str]:
     """Polylines for a path that goes over the limb and may come back."""
+    head = f"<polyline {attrs} " if attrs else "<polyline "
     out: list[str] = []
     run: list[str] = []
     for point in points:
         if point is None:
             if len(run) > 1:
-                out.append(f'<polyline points="{" ".join(run)}"/>')
+                out.append(f'{head}points="{" ".join(run)}"/>')
             run = []
         else:
             run.append(_pt(point, radius, cx, cy))
     if len(run) > 1:
-        out.append(f'<polyline points="{" ".join(run)}"/>')
+        out.append(f'{head}points="{" ".join(run)}"/>')
     return out
 
 
@@ -209,35 +212,170 @@ def _box_ring(box, lon0: float, lat0: float):
             + _edge(box[0], box[3], box[0], box[2], lon0, lat0))
 
 
+# How many quads the globe may draw in one pass. The field behind it is half a
+# degree - 228,000 cells - and a browser asked to lay out that many polygons
+# stops being a map and becomes a progress bar. So the budget is spent where
+# the reader is looking: work out the window the viewport can actually show,
+# then take the coarsest stride that fills it. Zoomed out that is a decimated
+# view of the field; zoomed six times, where the window is a five-hundredth of
+# the sphere, it is every cell of it. Cost per frame stays flat and detail
+# follows the zoom, which is the opposite of drawing everything and hoping.
+#
+# The ceiling counts cells looked at, not quads drawn: merging equal-coloured
+# runs typically cuts that by ten, so sixty-five thousand buys a one-degree
+# view unzoomed and the field's own half degree from the second zoom step on.
+CELL_BUDGET = 65000
+
+# A merged run is still four straight screen lines, so it cannot be allowed to
+# span enough longitude for the chord to leave the sphere. Six degrees is a
+# dozen cells at half-degree spacing and under a pixel of sag at full zoom.
+MAX_RUN_DEG = 6.0
+
+
+def visible_radius(radius: float, size: float, zoom: float = 1.0) -> float:
+    """Angular radius, in degrees, of the cap the viewport can show.
+
+    In an orthographic projection the whole near hemisphere lands inside one
+    unit of the centre, so the fraction of that unit the viewport covers is the
+    sine of the angle from the centre of view to its edge.
+    """
+    half = (size / 2.0) / max(radius * zoom, 1e-6)
+    if half >= 1.0:
+        return 90.0
+    return math.degrees(math.asin(half))
+
+
+def _reach(lat: float, theta: float) -> float:
+    """How far east and west of centre is visible along one parallel.
+
+    Meridians converge, so a cap of fixed angular radius covers more longitude
+    the further it sits from the equator, and all of it at the pole.
+    """
+    if theta >= 89.0:
+        return 180.0
+    cos = math.cos(math.radians(min(abs(lat), 89.0)))
+    if cos <= 0.02:
+        return 180.0
+    return min(180.0, theta / cos + 2.0)
+
+
+def cell_stride(grid: Field, lat0: float, theta: float,
+                budget: int = CELL_BUDGET) -> int:
+    """Coarsest stride whose visible cell count stays inside the budget."""
+    dlat = abs(grid.y[1] - grid.y[0]) or 1.0
+    dlon = abs(grid.x[1] - grid.x[0]) or 1.0
+    rows = max(1.0, 2.0 * theta / dlat)
+    cols = max(1.0, 2.0 * _reach(lat0, theta) / dlon)
+    return max(1, math.ceil(math.sqrt(rows * cols / max(budget, 1))))
+
+
+def _near(line_bounds, lon0: float, lat0: float, theta: float) -> bool:
+    """Could this polyline's bounding box put anything on screen?
+
+    Latitude is exact. Longitude is only tested for a box narrow enough for the
+    test to mean something - a line spanning half the world is drawn and left to
+    the per-point culling, which is the honest answer and still cheap.
+    """
+    lon_min, lon_max, lat_min, lat_max = line_bounds
+    if lat_min > lat0 + theta + 5.0 or lat_max < lat0 - theta - 5.0:
+        return False
+    if lon_max - lon_min > 170.0:
+        return True
+    nearest_lat = min(max(lat0, lat_min), lat_max)
+    reach = _reach(nearest_lat, theta) + 5.0
+    if reach >= 180.0:
+        return True
+    gap = min(abs(geo.wrap180(lon_min - lon0)), abs(geo.wrap180(lon_max - lon0)))
+    if geo.wrap180(lon_min - lon0) <= 0 <= geo.wrap180(lon_max - lon0):
+        gap = 0.0
+    return gap <= reach
+
+
+_BOUNDS: dict[int, tuple] = {}
+
+
+def _coast_bounds(level: int):
+    """Bounding boxes for one coastline level, worked out once."""
+    hit = _BOUNDS.get(level)
+    if hit is None:
+        hit = tuple(coastline.bounds(line) for line in coastline.lines(level))
+        _BOUNDS[level] = hit
+    return hit
+
+
 def _cells(grid: Field, limit: float, lon0: float, lat0: float,
-           radius: float, cx: float, cy: float) -> list[str]:
-    """The anomaly field as spherical quads over the near hemisphere."""
-    half_lat = (grid.y[1] - grid.y[0]) / 2.0
-    half_lon = (grid.x[1] - grid.x[0]) / 2.0
-    out = []
-    for row in range(grid.rows):
-        south, north = grid.y[row] - half_lat, grid.y[row] + half_lat
-        for col in range(grid.cols):
-            value = grid.values[row][col]
-            if value is None:
-                continue
-            lon = geo.wrap180(grid.x[col])
-            corners = (project(lon - half_lon, south, lon0, lat0),
-                       project(lon + half_lon, south, lon0, lat0),
-                       project(lon + half_lon, north, lon0, lat0),
-                       project(lon - half_lon, north, lon0, lat0))
+           radius: float, cx: float, cy: float, theta: float = 90.0,
+           stride: int = 1) -> list[str]:
+    """The anomaly field as spherical quads over the visible cap.
+
+    Runs of equal colour along a parallel are merged into one quad. The ramp
+    has eleven steps and the ocean is smooth at this spacing, so a row of two
+    hundred cells is typically a few dozen runs: the merge costs one comparison
+    per cell and saves most of the markup.
+    """
+    dlat = grid.y[1] - grid.y[0]
+    dlon = grid.x[1] - grid.x[0]
+    half_lat = dlat / 2.0
+    half_lon = dlon / 2.0
+    run_cap = max(1, int(MAX_RUN_DEG / abs(dlon) / stride))
+    out: list[str] = []
+
+    centre_row = int(round((lat0 - grid.y[0]) / dlat))
+    span_rows = int(theta / abs(dlat)) + 2
+    row_lo = max(0, ((centre_row - span_rows) // stride) * stride)
+    row_hi = min(grid.rows, centre_row + span_rows + 1)
+    centre_col = int(round(((lon0 - grid.x[0]) % 360.0) / dlon))
+
+    for row in range(row_lo, row_hi, stride):
+        south = grid.y[row] - half_lat
+        north = south + dlat * stride
+        span_cols = int(_reach((south + north) / 2.0, theta) / abs(dlon)) + 2
+        start = ((centre_col - span_cols) // stride) * stride
+        stop = centre_col + span_cols + 1
+        run_lo, run_index, run_len = None, None, 0
+
+        def flush(end: int) -> None:
+            if run_lo is None or run_index is None:
+                return
+            west = grid.x[0] + run_lo * dlon - half_lon
+            east = grid.x[0] + (end - stride) * dlon - half_lon + dlon * stride
+            corners = (project(west, south, lon0, lat0),
+                       project(east, south, lon0, lat0),
+                       project(east, north, lon0, lat0),
+                       project(west, north, lon0, lat0))
             if any(corner is None for corner in corners):
-                continue
+                return
             path = " ".join(_pt(corner, radius, cx, cy) for corner in corners)
             out.append(f'<polygon points="{path}" '
-                       f'fill="var(--d{ramp_index(value, limit)})"/>')
+                       f'fill="var(--d{run_index})"/>')
+
+        for step in range(start, stop + stride, stride):
+            index = None
+            if step < stop:
+                value = grid.values[row][step % grid.cols]
+                if value is not None:
+                    index = ramp_index(value, limit)
+            if index != run_index or run_len >= run_cap:
+                flush(step)
+                run_lo, run_index, run_len = step, index, 0
+            run_len += 1
     return out
 
 
 def _coast(lon0: float, lat0: float, radius: float, cx: float,
-           cy: float) -> list[str]:
+           cy: float, level: int = coastline.DEFAULT_LEVEL,
+           theta: float = 90.0) -> list[str]:
+    """The coastline at one level of detail, over the visible cap.
+
+    At full zoom this is a hundred and thirty thousand vertices, nine tenths of
+    them behind the sphere or off the side of the viewport. Rejecting a line on
+    its bounding box before projecting any of it is what keeps a drag smooth.
+    """
     out = []
-    for line in COASTLINE:
+    lines = coastline.lines(level)
+    for box, line in zip(_coast_bounds(level), lines):
+        if not _near(box, lon0, lat0, theta):
+            continue
         out.extend(_runs([project(lon, lat, lon0, lat0) for lon, lat in line],
                          radius, cx, cy))
     return out
@@ -271,7 +409,7 @@ def _zones(links: list[dict], lon0: float, lat0: float, radius: float,
 
 
 # --- the catalogue, scored and given coordinates ----------------------------
-def dossier(peak_oni: float, current_oni: float, flavour_index: float,
+def dossier(peak_index: float, current_index: float, flavour_index: float,
             peak_label: str) -> list[dict]:
     """Every catalogue entry, scored now and at peak, with its geography.
 
@@ -285,8 +423,8 @@ def dossier(peak_oni: float, current_oni: float, flavour_index: float,
         footprint = geo.BY_REGION.get(link.region)
         if footprint is None:
             continue
-        now_margin, now_likelihood, note = evaluate(link, current_oni, flavour)
-        peak_margin, peak_likelihood, _ = evaluate(link, peak_oni, flavour)
+        now_margin, now_likelihood, note = evaluate(link, current_index, flavour)
+        peak_margin, peak_likelihood, _ = evaluate(link, peak_index, flavour)
         out.append({
             "region": link.region,
             "area": link.area,
@@ -298,6 +436,9 @@ def dossier(peak_oni: float, current_oni: float, flavour_index: float,
             "mark": POLARITY_MARK.get(link.polarity, "●"),
             "confidence": link.confidence,
             "threshold": link.min_intensity,
+            # Where it appears for an event of this flavour: a gated link needs
+            # a stronger event of the wrong flavour.
+            "threshold_here": round(link.min_intensity + flavour_penalty(link, flavour), 2),
             "detail": link.detail,
             "exposure": link.exposure,
             "note": note,
@@ -365,6 +506,137 @@ def _table(links: list[dict]) -> str:
 
 
 # --- the card ---------------------------------------------------------------
+# --- live storms on the sphere ----------------------------------------------
+# Marker radius by Saffir-Simpson category. Smaller than the flat track map's
+# markers because here they sit on a busy coloured field rather than on a plain
+# panel, and a large disc would hide the anomaly it is standing on.
+EYE = {0: 3.0, 1: 4.0, 2: 4.6, 3: 5.2, 4: 6.0, 5: 7.0}
+
+
+def hue_for(index: int) -> str:
+    """A storm's colour. Same index, same storm, same hue as the track map."""
+    return STORM_HUES[index] if 0 <= index < len(STORM_HUES) else NEUTRAL
+
+
+def _flat(fixes) -> list[float]:
+    """A track as [lon, lat, lon, lat, ...].
+
+    Flat for the same reason the anomaly field travels as a string: a fifty
+    member ensemble at twenty-one leads is two thousand points, and the bracket
+    pairs alone would be a kilobyte of punctuation in the page.
+    """
+    return [round(value, 2) for fix in fixes for value in (fix.lon, fix.lat)]
+
+
+def _when(stamp: str) -> str:
+    return (f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]} {stamp[8:10]}Z"
+            if len(stamp) == 10 else stamp)
+
+
+def storm_layer(state) -> list[dict]:
+    """Every live storm, with everything its dossier needs already computed.
+
+    Scored and shaped here rather than in the browser, for the same reason the
+    teleconnections are: one copy of the rules, in Python, tested - not a
+    second copy in JavaScript free to drift away from it.
+    """
+    storms = getattr(state, "cyclones", None)
+    if storms is None or not storms.available:
+        return []
+    out = []
+    for index, storm in enumerate(storms.active):
+        now = storm.latest
+        if now is None:
+            continue
+        history = [fix for fix in storm.track if fix.tau == 0]
+        ahead = [fix for fix in storm.forecast if fix.tau <= cyclones.HORIZON]
+        move = storm.translation
+        change, _ = storm.rapid
+        peak = storm.peak
+        land = storm.nearest_land
+        out.append({
+            "id": storm.key,
+            "name": storm.title,
+            "designation": storm.designation,
+            "basin": storm.basin_name,
+            "hue": index if index < len(STORM_HUES) else -1,
+            "track": _flat(history),
+            "ahead": _flat([now] + ahead) if ahead else [],
+            "spread": [_flat([fix for fix in member
+                              if fix.tau <= cyclones.HORIZON])
+                       for member in storm.scatter.values()],
+            "members": len(storm.scatter),
+            "lon": round(now.lon, 2),
+            "lat": round(now.lat, 2),
+            "wind": now.wind or 0,
+            "pressure": now.pressure,
+            "cat": now.category,
+            "short": now.short,
+            "when": _when(now.stamp),
+            "advisory": storm.advisory.get("advisory") or "",
+            "move": (None if move is None
+                     else [round(move[0]), cyclones.bearing_name(move[1])]),
+            "change": round(change),
+            "rapid": storm.intensifying_rapidly,
+            "ace": round(storm.ace, 1),
+            # Peak only when it is above the current intensity: a storm that
+            # is at its own peak right now would otherwise read as having two
+            # separate facts that are the same fact.
+            "peak": (None if peak is None or not peak.wind
+                     or peak.wind <= (now.wind or 0)
+                     else [peak.wind, peak.short, _when(peak.stamp)]),
+            "spread_km": (None if storm.spread_km is None
+                          else round(storm.spread_km)),
+            "spread_tau": storm.spread_tau,
+            "land": (None if land is None
+                     else [land[1].name, land[1].country, round(land[0])]),
+            "steps": [[fix.tau, round(fix.lat, 1), round(fix.lon, 1),
+                       fix.wind or 0, fix.short] for fix in ahead],
+            "threats": [[place.name, place.country, round(gap), fix.tau,
+                         fix.wind or 0, fix.short, cyclones.lead(fix)]
+                        for gap, fix, place in storm.threats(400.0)
+                        if (fix.wind or 0) >= 34][:6],
+        })
+    return out
+
+
+def _arc(flat: list[float], lon0: float, lat0: float):
+    return [project(flat[i], flat[i + 1], lon0, lat0)
+            for i in range(0, len(flat) - 1, 2)]
+
+
+def _storms(layer: list[dict], lon0: float, lat0: float, radius: float,
+            cx: float, cy: float) -> list[str]:
+    """Spread first and undifferentiated, then the tracks, then the eyes.
+
+    Drawing order is the confidence order: the grey scatter is the width of
+    what is known, the coloured line is the middle of it, and the disc is the
+    one position that is measured rather than forecast.
+    """
+    out: list[str] = []
+    for storm in layer:
+        for member in storm["spread"]:
+            out.extend(_runs(_arc(member, lon0, lat0), radius, cx, cy,
+                             'class="tcspread"'))
+    for storm in layer:
+        paint = hue_for(storm["hue"])
+        out.extend(_runs(_arc(storm["track"], lon0, lat0), radius, cx, cy,
+                         f'class="tctrack" style="stroke:{paint}"'))
+        out.extend(_runs(_arc(storm["ahead"], lon0, lat0), radius, cx, cy,
+                         f'class="tcahead" style="stroke:{paint}"'))
+        point = project(storm["lon"], storm["lat"], lon0, lat0)
+        if point is None:
+            continue
+        x, y = cx + point[0] * radius, cy - point[1] * radius
+        out.append(
+            f'<circle class="tcdot" cx="{x:.1f}" cy="{y:.1f}" '
+            f'r="{EYE.get(storm["cat"], 3.0):.1f}" style="fill:{paint}"/>'
+            f'<text class="tcname" x="{x + 12:.1f}" y="{y - 9:.1f}">'
+            f'{esc(storm["name"])}</text>'
+        )
+    return out
+
+
 def card(state, size: int = 640) -> str:
     """The globe panel: spin it, zoom it, click it, read what happens there."""
     spatial = getattr(state, "spatial", None)
@@ -378,13 +650,22 @@ def card(state, size: int = 640) -> str:
     cx = cy = size / 2.0
     lon0, lat0 = HOME
 
+    # The server renders the unzoomed view, so it renders it at the detail an
+    # unzoomed view can carry. Everything past that is the browser's job, and
+    # it asks for the same two numbers with the zoom folded in.
+    theta = visible_radius(radius, size)
+    stride = cell_stride(grid, lat0, theta)
+    level = coastline.level_for(math.degrees(1.0) / radius)
+
     assessment = state.assessment
-    current_oni = assessment.oni_latest.value
+    index_name = assessment.index_name
+    current_index = assessment.index_latest.value
     peak = state.forecast.peak if state.forecast else None
-    peak_oni = state.impacts.peak_oni if state.impacts else current_oni
+    peak_index = state.impacts.peak_index if state.impacts else current_index
     peak_label = peak.label if peak else ""
     flavour_index = assessment.scale.flavour_index if assessment.scale else 0.0
-    links = dossier(peak_oni, current_oni, flavour_index, peak_label)
+    links = dossier(peak_index, current_index, flavour_index, peak_label)
+    layer = storm_layer(state)
 
     payload = {
         "grid": {
@@ -396,19 +677,24 @@ def card(state, size: int = 640) -> str:
         },
         "view": {"lon": lon0, "lat": lat0, "r": radius, "cx": cx, "cy": cy},
         "links": links,
+        "storms": layer,
         "as_of": grid.as_of,
-        "oni": round(current_oni, 2),
-        "peak_oni": round(peak_oni, 2),
+        "index_name": index_name,
+        "index": round(current_index, 2),
+        "peak_index": round(peak_index, 2),
         "peak_label": peak_label,
     }
 
     scene = [
         DEFS,
         f'<circle cx="{cx:.0f}" cy="{cy:.0f}" r="{radius:.1f}" class="ocean"/>',
-        '<g class="cells">', *_cells(grid, limit, lon0, lat0, radius, cx, cy),
+        '<g class="cells">',
+        *_cells(grid, limit, lon0, lat0, radius, cx, cy, theta, stride),
         '</g><g class="grat">', *_graticule(lon0, lat0, radius, cx, cy),
-        '</g><g class="coast">', *_coast(lon0, lat0, radius, cx, cy),
+        '</g><g class="coast">',
+        *_coast(lon0, lat0, radius, cx, cy, level, theta),
         '</g><g class="zones">', *_zones(links, lon0, lat0, radius, cx, cy),
+        '</g><g class="storms">', *_storms(layer, lon0, lat0, radius, cx, cy),
         '</g>',
         f'<circle cx="{cx:.0f}" cy="{cy:.0f}" r="{radius:.1f}" class="limb"/>',
     ]
@@ -423,17 +709,39 @@ def card(state, size: int = 640) -> str:
         f"{esc(POLARITY_MARK[pol])} {esc(name)}</button>"
         for pol, name in POLARITY_NAME.items())
 
-    peak_phrase = (f" and at the projected peak of {peak_oni:+.2f} in "
+    chips = "".join(
+        f'<button type="button" class="gchip tcchip" '
+        f'data-globe-storm="{esc(storm["id"])}" '
+        f'style="--tc:{hue_for(storm["hue"])}"><span class="tcsw"></span>'
+        f'{esc(storm["name"])} {storm["wind"]} kt</button>' for storm in layer)
+    storm_row = (
+        f'<div class="grow"><span class="glabel">Storms</span>{chips}'
+        f'<button type="button" class="gchip on" data-globe-tc="1">'
+        f'Tracks on</button></div>') if layer else ""
+    storm_legend = (
+        '<span class="gl"><span class="glsw gltrack"></span>Best track</span>'
+        '<span class="gl"><span class="glsw glahead"></span>'
+        'Official forecast, to +120 h</span>'
+        '<span class="gl"><span class="glsw glspread"></span>'
+        'Ensemble members</span>'
+    ) if layer else ""
+    storm_phrase = (
+        f" {len(layer)} live storm{'s' if len(layer) != 1 else ''} "
+        f"sit on the sphere with the best track behind, the official forecast "
+        f"ahead and every ensemble member in grey - click one to open it."
+    ) if layer else ""
+
+    peak_phrase = (f" and at the projected peak of {peak_index:+.2f} in "
                    f"{esc(peak_label)}") if peak_label else ""
     return f"""<section class="card wide" id="globe">
   <h2>The planet, and what this event does to it</h2>
   <p class="caption">Sea surface temperature anomaly for {esc(grid.as_of)} painted
   on the sphere, with the {len(links)} catalogued teleconnection regions outlined.
-  <strong>Drag to spin, use &minus;/+ (or ctrl and the wheel) to zoom, click
-  anywhere to open that location.</strong> The panel reports every relationship covering the point
-  you pick, scored at today&rsquo;s ONI of {current_oni:+.2f}{peak_phrase}.</p>
+  <strong>Drag to spin, pinch or use &minus;/+ (or ctrl and the wheel) to
+  zoom, click anywhere to open that location.</strong> The panel reports every relationship covering the point
+  you pick, scored at today&rsquo;s {esc(index_name)} of {current_index:+.2f}{peak_phrase}.{storm_phrase}</p>
   <div class="ramp">
-    <div class="ramplabel">SST anomaly <span class="rampunits">degrees C</span></div>
+    <div class="ramplabel">SST anomaly <span class="rampunits">°C</span></div>
     <div class="rampstrip">{ramp}</div>
     <div class="rampticks"><span class="ramptick">&minus;{limit:.1f}</span>
       <span class="ramptick">0</span>
@@ -449,11 +757,12 @@ def card(state, size: int = 640) -> str:
     <div class="grow"><span class="glabel">Highlight</span>
       <button type="button" class="gchip on" data-globe-pol="">All regions</button>
       {polarities}</div>
+    {storm_row}
   </div>
   <div class="glegend">
     <span class="gl"><span class="glsw glzone"></span>Teleconnection region</span>
     <span class="gl"><span class="glsw gllive"></span>Highlighted, or under the pin</span>
-    <span class="gl"><span class="glsw glnd"></span>Land, or no sea surface reading</span>
+    <span class="gl"><span class="glsw glnd"></span>Land, or no sea surface reading</span>{storm_legend}
   </div>
   <div class="globewrap">
     <div class="globe" data-globe='{esc(json.dumps(payload, separators=(",", ":")))}'>
@@ -462,7 +771,7 @@ def card(state, size: int = 640) -> str:
            teleconnection regions outlined. Click a location for its effects.">
         {''.join(scene)}
       </svg>
-      <p class="ghint">Drag to spin &middot; click to inspect &middot; ctrl and scroll to zoom</p>
+      <p class="ghint">Drag to spin &middot; click to inspect &middot; pinch, or ctrl and scroll, to zoom</p>
     </div>
     <div class="dossier" aria-live="polite">
       <p class="hint">Click anywhere on the globe. The panel will report the sea
@@ -584,6 +893,43 @@ CSS = """
 .dtable th { text-align: left; }
 .dtable td:nth-child(2) { white-space: nowrap; }
 
+/* --- live storms ----------------------------------------------------------- */
+/* Colour here identifies the storm and nothing else - the same hue it wears on
+   the flat track map, so a reader moving between the two panels is not asked
+   to relearn which line is which. Intensity is the marker's size and the words
+   beside it, never the hue. */
+.storms polyline { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.tcspread { stroke: var(--muted); stroke-width: 1; opacity: 0.3; }
+.tctrack { stroke-width: 2.2; }
+.tcahead { stroke-width: 2.2; stroke-dasharray: 7 5; }
+/* A surface ring, because the disc sits on top of a coloured field and two
+   saturated colours meeting with no gap read as one shape. */
+.tcdot { stroke: var(--surface); stroke-width: 2; }
+/* The name in text ink; the eye beside it carries the storm's colour. */
+.tcname { font-size: 0.7rem; font-weight: 700; paint-order: stroke;
+  fill: var(--ink); stroke: var(--surface); stroke-width: 3px;
+  stroke-linejoin: round; }
+.tcchip .tcsw { width: 10px; height: 10px; border-radius: 50%;
+  background: var(--tc); display: inline-block; margin-right: 6px;
+  vertical-align: -1px; }
+.gchip.off { opacity: 0.5; }
+.gltrack, .glahead, .glspread { height: 0; border-radius: 0;
+  border-top: 3px solid var(--s1); }
+.glahead { border-top-style: dashed; }
+.glspread { border-top: 2px solid var(--muted); opacity: 0.55; }
+.tckey { display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+  margin-right: 8px; vertical-align: -1px; }
+.dsub { margin: 14px 0 5px; font-size: 0.72rem; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.tctable { width: 100%; border-collapse: collapse; font-size: 0.76rem;
+  font-variant-numeric: tabular-nums; }
+.tctable th, .tctable td { text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--border); }
+.tctable th { font-weight: 600; color: var(--muted); padding: 2px 8px 4px 0; }
+.tctable td { padding: 3px 8px 3px 0; }
+.tctable .tcnum { text-align: right; padding-right: 14px; }
+.tcwarn { margin: 10px 0 0; font-size: 0.76rem; color: var(--ink2); }
+
 @media (max-width: 1000px) {
   .globewrap { grid-template-columns: 1fr; }
   .dossier { max-height: none; }
@@ -596,15 +942,21 @@ CSS = """
 
 # --- the script -------------------------------------------------------------
 def _coast_js() -> str:
-    """The vendored coastline as flat arrays, one decimal, for the redraw."""
-    lines = [[round(value, 1) for point in line for value in point]
-             for line in COASTLINE]
-    return json.dumps(lines, separators=(",", ":"))
+    """The packed coastline, all four levels, for the browser to unpack.
+
+    The packed form is what is shipped rather than four flattened copies: the
+    levels are a subset relation, so one array with a digit per point is a
+    quarter of the bytes and the browser does the same running sum the Python
+    side does.
+    """
+    return json.dumps([list(pair) for pair in coastline.packed()],
+                      separators=(",", ":"))
 
 
 def js() -> str:
     """Inline script: rotate, zoom, pick, and redraw. No dependencies."""
     return ("var GLOBE_COAST=" + _coast_js() + ";\n"
+            + "var GLOBE_TOL=" + json.dumps(list(coastline.TOLERANCES)) + ";\n"
             + "var GLOBE_DEFS=" + json.dumps(DEFS) + ";\n"
             + GLOBE_JS)
 
@@ -616,6 +968,8 @@ GLOBE_JS = r"""
   var DEFS = GLOBE_DEFS;
 
   function wrap(lon) { return ((lon + 180) % 360 + 360) % 360 - 180; }
+  // A modulo that never returns a negative, which JavaScript's does.
+  function mod(a, n) { return ((a % n) + n) % n; }
   function project(lon, lat, lon0, lat0) {
     var phi = lat * Math.PI / 180, th = (lon - lon0) * Math.PI / 180;
     var p0 = lat0 * Math.PI / 180;
@@ -666,6 +1020,7 @@ GLOBE_JS = r"""
     var view = data.view, g = data.grid;
     var lon0 = view.lon, lat0 = view.lat, zoom = 1;
     var pin = null, filter = "", coarse = false, frame = null;
+    var STORMS = data.storms || [], showStorms = true;
 
     function sample(row, col) {
       var i = CHARS.indexOf(g.data.charAt(row * g.cols + col));
@@ -675,17 +1030,18 @@ GLOBE_JS = r"""
       return (view.cx + p[0] * r).toFixed(1) + "," +
              (view.cy - p[1] * r).toFixed(1);
     }
-    function runs(points, r, out) {
+    function runs(points, r, out, attrs) {
+      var head = attrs ? "<polyline " + attrs + " " : "<polyline ";
       var run = [];
       for (var i = 0; i < points.length; i++) {
         if (!points[i]) {
           if (run.length > 1) {
-            out.push('<polyline points="' + run.join(" ") + '"/>');
+            out.push(head + 'points="' + run.join(" ") + '"/>');
           }
           run = [];
         } else { run.push(pt(points[i], r)); }
       }
-      if (run.length > 1) { out.push('<polyline points="' + run.join(" ") + '"/>'); }
+      if (run.length > 1) { out.push(head + 'points="' + run.join(" ") + '"/>'); }
     }
     function ring(points, r) {
       var out = [];
@@ -719,28 +1075,248 @@ GLOBE_JS = r"""
       return false;
     }
 
+    // --- live storms ------------------------------------------------------
+    // Same geometry, same colours and the same drawing order as the server
+    // rendered pass above, so a drag changes the viewpoint and nothing else.
+    var EYE = { 0: 3, 1: 4, 2: 4.6, 3: 5.2, 4: 6, 5: 7 };
+    function hue(i) { return i >= 0 ? "var(--s" + (i + 1) + ")" : "var(--ink2)"; }
+    function arc(flat) {
+      var out = [];
+      for (var i = 0; i + 1 < flat.length; i += 2) {
+        out.push(project(flat[i], flat[i + 1], lon0, lat0));
+      }
+      return out;
+    }
+    function stormArt(r) {
+      if (!showStorms || !STORMS.length) { return ""; }
+      var out = [], i, j, S, h, p, x, y;
+      // The ensemble is dropped while the globe is in motion for the same
+      // reason the cells coarsen: it is a thousand short segments, and nobody
+      // reads a spread envelope mid-drag.
+      if (!coarse) {
+        for (i = 0; i < STORMS.length; i++) {
+          for (j = 0; j < STORMS[i].spread.length; j++) {
+            runs(arc(STORMS[i].spread[j]), r, out, 'class="tcspread"');
+          }
+        }
+      }
+      for (i = 0; i < STORMS.length; i++) {
+        S = STORMS[i]; h = hue(S.hue);
+        runs(arc(S.track), r, out, 'class="tctrack" style="stroke:' + h + '"');
+        runs(arc(S.ahead), r, out, 'class="tcahead" style="stroke:' + h + '"');
+        p = project(S.lon, S.lat, lon0, lat0);
+        if (!p) { continue; }
+        x = view.cx + p[0] * r; y = view.cy - p[1] * r;
+        out.push('<circle class="tcdot" cx="' + x.toFixed(1) + '" cy="' +
+          y.toFixed(1) + '" r="' + (EYE[S.cat] || 3) + '" style="fill:' + h +
+          '"/><text class="tcname" x="' + (x + 12).toFixed(1) + '" y="' +
+          (y - 9).toFixed(1) + '">' + esc(S.name) + '</text>');
+      }
+      return '<g class="storms">' + out.join("") + '</g>';
+    }
+    function pickStorm(sx, sy, r) {
+      if (!showStorms) { return null; }
+      for (var i = 0; i < STORMS.length; i++) {
+        var p = project(STORMS[i].lon, STORMS[i].lat, lon0, lat0);
+        if (!p) { continue; }
+        var dx = view.cx + p[0] * r - sx, dy = view.cy - p[1] * r - sy;
+        // A generous target: the eye of a hurricane is a few pixels wide here
+        // and the reader is aiming with a finger on a phone.
+        if (dx * dx + dy * dy <= 400) { return STORMS[i]; }
+      }
+      return null;
+    }
+    function deg(lat, lon) {
+      return Math.abs(lat).toFixed(1) + (lat >= 0 ? "N" : "S") + " " +
+             Math.abs(lon).toFixed(1) + (lon < 0 ? "W" : "E");
+    }
+    function attachCentre() {
+      var centre = panel.querySelector("[data-globe-centre]");
+      if (!centre) { return; }
+      centre.addEventListener("click", function () {
+        if (!pin) { return; }
+        lon0 = pin[0]; lat0 = pin[1]; draw();
+      });
+    }
+    function reportStorm(S) {
+      var h = hue(S.hue), i, rows;
+      var out = ['<div class="dhead"><h3><span class="tckey" style="background:' +
+        h + '"></span>' + esc(S.name) + '</h3>' +
+        '<button type="button" class="gbtn" data-globe-centre="1">' +
+        'Centre here</button></div>'];
+      out.push('<p class="localsst"><strong>' + S.wind + ' kt</strong> ' +
+        esc(S.short) + (S.pressure ? ' &middot; ' + S.pressure + ' mb' : "") +
+        '</p>');
+      out.push('<p class="dcount">' + esc(S.designation) + ' &middot; ' +
+        esc(S.basin) + ' &middot; fix ' + esc(S.when) +
+        (S.advisory ? ' &middot; advisory ' + esc(S.advisory) : "") + '</p>');
+      rows = ['<dt>Position</dt><dd>' + deg(S.lat, S.lon) + '</dd>'];
+      if (S.move) {
+        rows.push('<dt>Moving</dt><dd>' + esc(S.move[1]) + ' at ' +
+          S.move[0] + ' kt</dd>');
+      }
+      rows.push('<dt>Past 24 h</dt><dd>' + signed(S.change, 0) + ' kt' +
+        (S.rapid ? ' &mdash; rapid intensification' : "") + '</dd>');
+      if (S.peak) {
+        rows.push('<dt>Peak so far</dt><dd>' + S.peak[0] + ' kt, ' +
+          esc(S.peak[1]) + ', ' + esc(S.peak[2]) + '</dd>');
+      }
+      rows.push('<dt>Storm ACE</dt><dd>' + S.ace.toFixed(1) + '</dd>');
+      if (S.spread_km !== null && S.spread_km !== undefined) {
+        rows.push('<dt>Track spread</dt><dd>' + S.spread_km + ' km across ' +
+          S.members + ' members at +' + S.spread_tau + ' h</dd>');
+      }
+      if (S.land) {
+        rows.push('<dt>Nearest land</dt><dd>' + esc(S.land[0]) + ', ' +
+          esc(S.land[1]) + ', ' + S.land[2] + ' km</dd>');
+      }
+      out.push('<dl class="dzgrid">' + rows.join("") + '</dl>');
+      if (S.steps.length) {
+        rows = ['<h4 class="dsub">Official forecast</h4><table class="tctable">' +
+          '<thead><tr><th>Lead</th><th>Position</th>' +
+          '<th class="tcnum">Wind</th><th>Intensity</th></tr></thead><tbody>'];
+        for (i = 0; i < S.steps.length; i++) {
+          rows.push('<tr><td>+' + S.steps[i][0] + ' h</td><td>' +
+            deg(S.steps[i][1], S.steps[i][2]) + '</td><td class="tcnum">' +
+            S.steps[i][3] + ' kt</td><td>' + esc(S.steps[i][4]) + '</td></tr>');
+        }
+        out.push(rows.join("") + '</tbody></table>');
+      }
+      if (S.threats.length) {
+        rows = ['<h4 class="dsub">Closest approach to named coast</h4>' +
+          '<table class="tctable"><thead><tr><th>Place</th>' +
+          '<th class="tcnum">km</th><th>Lead</th><th>Intensity</th>' +
+          '</tr></thead><tbody>'];
+        for (i = 0; i < S.threats.length; i++) {
+          rows.push('<tr><td>' + esc(S.threats[i][0]) + ', ' +
+            esc(S.threats[i][1]) + '</td><td class="tcnum">' + S.threats[i][2] +
+            '</td><td>' + esc(S.threats[i][6]) + '</td><td>' + S.threats[i][4] +
+            ' kt ' + esc(S.threats[i][5]) + '</td></tr>');
+        }
+        out.push(rows.join("") + '</tbody></table>');
+      }
+      out.push('<p class="tcwarn">Distances are to the forecast centre line. ' +
+        'Hurricane-force wind reaches tens of kilometres either side of it and ' +
+        'tropical-storm force twice that, so a 200 km pass is not a miss. The ' +
+        'grey lines are the honest width of this forecast; the dashed line is ' +
+        'the middle of them, not the whole of them.</p>');
+      panel.innerHTML = out.join("");
+      attachCentre();
+    }
+
+    // --- level of detail --------------------------------------------------
+    // The same three numbers the server worked out before it rendered the
+    // first frame, recomputed here with the zoom folded in. Drawing is bounded
+    // by what the viewport can show rather than by the size of the field, so
+    // the cost of a frame does not change when the reader zooms - only the
+    // detail does.
+    var CELL_BUDGET = 65000, MAX_RUN_DEG = 6, DEG = 180 / Math.PI;
+    // The field is a quarter degree, so the zoom is allowed to run far
+    // enough in to actually reach it: ten times is about 0.02 degrees to
+    // a pixel, which is one cell to twelve and the finest coastline.
+    var MAX_ZOOM = 10;
+    var coastCache = {}, boundsCache = {};
+
+    function visibleRadius(r) {
+      var half = (view.cx * 2) / (2 * Math.max(r, 1e-6));
+      return half >= 1 ? 90 : Math.asin(half) * DEG;
+    }
+    function reach(lat, theta) {
+      if (theta >= 89) { return 180; }
+      var c = Math.cos(Math.min(Math.abs(lat), 89) / DEG);
+      return c <= 0.02 ? 180 : Math.min(180, theta / c + 2);
+    }
+    function cellStride(theta) {
+      var rows = Math.max(1, 2 * theta / Math.abs(g.dlat));
+      var cols = Math.max(1, 2 * reach(lat0, theta) / Math.abs(g.dlon));
+      return Math.max(1, Math.ceil(Math.sqrt(rows * cols / CELL_BUDGET)));
+    }
+    function levelFor(dpp) {
+      for (var i = 0; i < GLOBE_TOL.length; i++) {
+        if (GLOBE_TOL[i] <= dpp) { return i; }
+      }
+      return GLOBE_TOL.length - 1;
+    }
+    // Douglas-Peucker is hierarchical, so a level is a filter on one array
+    // rather than an array of its own: keep every point whose digit is at most
+    // the level asked for. Unpacked once per level and kept.
+    function coastAt(level) {
+      if (coastCache[level]) { return coastCache[level]; }
+      var digit = String(level), out = [], boxes = [], i, j;
+      for (i = 0; i < GLOBE_COAST.length; i++) {
+        var parts = GLOBE_COAST[i][0].split(","), marks = GLOBE_COAST[i][1];
+        var flat = [], x = 0, y = 0;
+        var w = 1e9, e = -1e9, s2 = 1e9, n = -1e9;
+        for (j = 0; j < marks.length; j++) {
+          x += +parts[j * 2];
+          y += +parts[j * 2 + 1];
+          if (marks.charAt(j) <= digit) {
+            var lo = x / 100, la = y / 100;
+            flat.push(lo, la);
+            if (lo < w) { w = lo; }
+            if (lo > e) { e = lo; }
+            if (la < s2) { s2 = la; }
+            if (la > n) { n = la; }
+          }
+        }
+        if (flat.length > 3) { out.push(flat); boxes.push([w, e, s2, n]); }
+      }
+      coastCache[level] = out;
+      boundsCache[level] = boxes;
+      return out;
+    }
+    function nearBox(b, theta) {
+      if (b[2] > lat0 + theta + 5 || b[3] < lat0 - theta - 5) { return false; }
+      if (b[1] - b[0] > 170) { return true; }
+      var near = Math.min(Math.max(lat0, b[2]), b[3]);
+      var span = reach(near, theta) + 5;
+      if (span >= 180) { return true; }
+      var a = wrap(b[0] - lon0), c = wrap(b[1] - lon0);
+      if (a <= 0 && c >= 0) { return true; }
+      return Math.min(Math.abs(a), Math.abs(c)) <= span;
+    }
+
     function draw() {
       var r = view.r * zoom;
       host.classList.toggle("zoomed", zoom > 1.001);
-      // Coarser cells while dragging: a 2x2 merge is a quarter of the polygons
-      // and the difference is invisible on a globe in motion.
-      var step = coarse ? 2 : 1;
+      var theta = visibleRadius(r);
+      // One step coarser while dragging: a 2x2 merge is a quarter of the
+      // polygons and the difference is invisible on a globe in motion.
+      var step = cellStride(theta) * (coarse ? 2 : 1);
       var hlat = g.dlat / 2, hlon = g.dlon / 2;
+      var runCap = Math.max(1, Math.floor(MAX_RUN_DEG / Math.abs(g.dlon) / step));
       var cells = [], row, col, i, pts, s;
-      for (row = 0; row < g.rows; row += step) {
+      var midRow = Math.round((lat0 - g.lat0) / g.dlat);
+      var spanRow = Math.floor(theta / Math.abs(g.dlat)) + 2;
+      var rowLo = Math.max(0, Math.floor((midRow - spanRow) / step) * step);
+      var rowHi = Math.min(g.rows, midRow + spanRow + 1);
+      var midCol = Math.round(mod(lon0 - g.lon0, 360) / g.dlon);
+      for (row = rowLo; row < rowHi; row += step) {
         var south = g.lat0 + row * g.dlat - hlat;
         var north = south + g.dlat * step;
-        for (col = 0; col < g.cols; col += step) {
-          var v = sample(row, col);
-          if (v === null) { continue; }
-          var lo = wrap(g.lon0 + col * g.dlon);
-          var quad = ring([project(lo - hlon, south, lon0, lat0),
-                           project(lo + hlon * (2 * step - 1), south, lon0, lat0),
-                           project(lo + hlon * (2 * step - 1), north, lon0, lat0),
-                           project(lo - hlon, north, lon0, lat0)], r);
-          if (quad) {
-            cells.push('<polygon points="' + quad + '" fill="var(--d' + v + ')"/>');
+        var spanCol = Math.floor(reach((south + north) / 2, theta) /
+                                 Math.abs(g.dlon)) + 2;
+        var start = Math.floor((midCol - spanCol) / step) * step;
+        var stop = midCol + spanCol + 1;
+        var runLo = null, runIx = null, runLen = 0;
+        for (col = start; col <= stop; col += step) {
+          var v = col < stop ? sample(row, mod(col, g.cols)) : null;
+          if (v !== runIx || runLen >= runCap) {
+            if (runLo !== null && runIx !== null) {
+              var west = g.lon0 + runLo * g.dlon - hlon;
+              var east = g.lon0 + (col - step) * g.dlon - hlon + g.dlon * step;
+              var quad = ring([project(west, south, lon0, lat0),
+                               project(east, south, lon0, lat0),
+                               project(east, north, lon0, lat0),
+                               project(west, north, lon0, lat0)], r);
+              if (quad) {
+                cells.push('<polygon points="' + quad +
+                           '" fill="var(--d' + runIx + ')"/>');
+              }
+            }
+            runLo = col; runIx = v; runLen = 0;
           }
+          runLen++;
         }
       }
       var grat = [];
@@ -754,9 +1330,16 @@ GLOBE_JS = r"""
         for (s = -90; s <= 90; s += 3) { pts.push(project(lo2, s, lon0, lat0)); }
         runs(pts, r, grat);
       }
+      // A level finer than the display is invisible and a level coarser is
+      // the polygon the reader complains about, so it follows the zoom - and
+      // drops one while dragging, where nobody is reading an estuary.
+      var level = levelFor(DEG / r);
+      if (coarse) { level = Math.max(0, level - 1); }
+      var shore = coastAt(level), boxes = boundsCache[level];
       var coast = [];
-      for (i = 0; i < GLOBE_COAST.length; i++) {
-        var flat = GLOBE_COAST[i];
+      for (i = 0; i < shore.length; i++) {
+        if (!nearBox(boxes[i], theta)) { continue; }
+        var flat = shore[i];
         pts = [];
         for (var j = 0; j < flat.length; j += 2) {
           pts.push(project(flat[j], flat[j + 1], lon0, lat0));
@@ -792,7 +1375,8 @@ GLOBE_JS = r"""
         '<g class="cells">' + cells.join("") + '</g>' +
         '<g class="grat">' + grat.join("") + '</g>' +
         '<g class="coast">' + coast.join("") + '</g>' +
-        '<g class="zones">' + zones.join("") + hot.join("") + '</g>' + mark +
+        '<g class="zones">' + zones.join("") + hot.join("") + '</g>' +
+        stormArt(r) + mark +
         '<circle cx="' + view.cx + '" cy="' + view.cy + '" r="' + r.toFixed(1) +
         '" class="limb"/>';
     }
@@ -864,13 +1448,14 @@ GLOBE_JS = r"""
             '<p class="dzeffect">' + esc(L.effect) + '</p>' +
             '<dl class="dzgrid">' +
             '<dt>Season</dt><dd>' + esc(L.window) + '</dd>' +
-            '<dt>Now (ONI ' + signed(data.oni, 2) + ')</dt><dd>' +
+            '<dt>Now (' + esc(data.index_name) + ' ' + signed(data.index, 2) + ')</dt><dd>' +
               chip(L.now.likelihood) + '</dd>' +
             '<dt>At peak' + (L.peak_label ? ", " + esc(L.peak_label) : "") +
-              ' (' + signed(data.peak_oni, 2) + ')</dt><dd>' +
+              ' (' + signed(data.peak_index, 2) + ')</dt><dd>' +
               chip(L.peak.likelihood) + '</dd>' +
-            '<dt>Appears above</dt><dd>ONI ' + signed(L.threshold, 1) +
-              ' °C</dd>' +
+            '<dt>Appears above</dt><dd>' + esc(data.index_name) + ' ' +
+              signed(L.threshold_here, 1) + ' °C' +
+              (L.threshold_here > L.threshold ? ' for this flavour' : '') + '</dd>' +
             '<dt>Confidence</dt><dd>' + esc(L.confidence) + '</dd>' +
             '</dl>' +
             '<p class="dzdetail">' + esc(L.detail) + '</p>' +
@@ -884,12 +1469,7 @@ GLOBE_JS = r"""
         }
         panel.innerHTML = out.join("");
       }
-      var centre = panel.querySelector("[data-globe-centre]");
-      if (centre) {
-        centre.addEventListener("click", function () {
-          lon0 = pin[0]; lat0 = pin[1]; draw();
-        });
-      }
+      attachCentre();
     }
 
     function queue() {
@@ -897,16 +1477,36 @@ GLOBE_JS = r"""
       frame = requestAnimationFrame(function () { frame = null; draw(); });
     }
 
-    var dragging = false, travelled = 0, lastX = 0, lastY = 0;
+    // Every pointer on the globe is kept: one spins it, two pinch its zoom.
+    // Kept as one, a second finger jerked the spin between the two of them.
+    var pointers = new Map(), travelled = 0, spread = 0;
+    function gap() {
+      var two = Array.from(pointers.values()).slice(0, 2);
+      return Math.max(1, Math.hypot(two[0].x - two[1].x, two[0].y - two[1].y));
+    }
+    // Zoom by how far apart the fingers have moved since the last event. The
+    // globe grows about its own centre: a sphere turned under the fingers as
+    // well would be a second gesture hidden in the first.
+    function pinch() {
+      var now = gap();
+      zoom = Math.max(1, Math.min(MAX_ZOOM, zoom * now / spread));
+      spread = now;
+      queue();
+    }
     svg.addEventListener("pointerdown", function (e) {
-      dragging = true; travelled = 0; lastX = e.clientX; lastY = e.clientY;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) { travelled = 0; }
+      // A pinch is never a click, whichever finger lifts last.
+      if (pointers.size === 2) { spread = gap(); travelled = Infinity; }
       coarse = true; host.classList.add("grabbing");
       try { svg.setPointerCapture(e.pointerId); } catch (err) { /* no capture */ }
     });
     svg.addEventListener("pointermove", function (e) {
-      if (!dragging) { return; }
-      var dx = e.clientX - lastX, dy = e.clientY - lastY;
-      lastX = e.clientX; lastY = e.clientY;
+      var last = pointers.get(e.pointerId);
+      if (!last) { return; }
+      var dx = e.clientX - last.x, dy = e.clientY - last.y;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size >= 2) { pinch(); return; }
       travelled += Math.abs(dx) + Math.abs(dy);
       // Slower turn when zoomed in, so a gesture covers the same ground.
       lon0 = wrap(lon0 - dx * 0.35 / zoom);
@@ -914,21 +1514,37 @@ GLOBE_JS = r"""
       queue();
     });
     function release(e) {
-      if (!dragging) { return; }
-      dragging = false; coarse = false; host.classList.remove("grabbing");
+      if (!pointers.has(e.pointerId)) { return; }
+      pointers.delete(e.pointerId);
+      // Fingers still down carry on: two pinch from where they are now, one
+      // spins from where it is.
+      if (pointers.size >= 2) { spread = gap(); }
+      if (pointers.size) { return; }
+      coarse = false; host.classList.remove("grabbing");
       if (travelled < 5) {
         var rect = svg.getBoundingClientRect();
         var sx = (e.clientX - rect.left) / rect.width * view.cx * 2;
         var sy = (e.clientY - rect.top) / rect.height * view.cy * 2;
         var r = view.r * zoom;
-        var ll = unproject((sx - view.cx) / r, (view.cy - sy) / r, lon0, lat0);
-        if (ll) { pin = ll; report(ll[0], ll[1]); }
+        // A storm wins the click over the ocean under it: a reader aiming at a
+        // hurricane wants the hurricane, not the cell it happens to sit on.
+        var hit = pickStorm(sx, sy, r);
+        if (hit) {
+          pin = [hit.lon, hit.lat];
+          reportStorm(hit);
+        } else {
+          var ll = unproject((sx - view.cx) / r, (view.cy - sy) / r, lon0, lat0);
+          if (ll) { pin = ll; report(ll[0], ll[1]); }
+        }
       }
       draw();
     }
     svg.addEventListener("pointerup", release);
-    svg.addEventListener("pointercancel", function () {
-      dragging = false; coarse = false; host.classList.remove("grabbing"); draw();
+    svg.addEventListener("pointercancel", function (e) {
+      pointers.delete(e.pointerId);
+      if (pointers.size >= 2) { spread = gap(); }
+      if (pointers.size) { return; }
+      coarse = false; host.classList.remove("grabbing"); draw();
     });
     // Ctrl/Cmd is required to zoom on the wheel. A bare wheel that zoomed would
     // trap the reader: this panel sits in the middle of a very long page, and a
@@ -936,7 +1552,7 @@ GLOBE_JS = r"""
     svg.addEventListener("wheel", function (e) {
       if (!e.ctrlKey && !e.metaKey) { return; }
       e.preventDefault();
-      zoom = Math.max(1, Math.min(6, zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      zoom = Math.max(1, Math.min(MAX_ZOOM, zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
       queue();
     }, { passive: false });
 
@@ -950,7 +1566,7 @@ GLOBE_JS = r"""
       btn.addEventListener("click", function () {
         var dir = parseInt(btn.getAttribute("data-globe-zoom"), 10);
         if (dir === 0) { zoom = 1; lon0 = view.lon; lat0 = view.lat; }
-        else { zoom = Math.max(1, Math.min(6, zoom * (dir > 0 ? 1.4 : 1 / 1.4))); }
+        else { zoom = Math.max(1, Math.min(MAX_ZOOM, zoom * (dir > 0 ? 1.4 : 1 / 1.4))); }
         draw();
       });
     });
@@ -960,6 +1576,35 @@ GLOBE_JS = r"""
         card.querySelectorAll("[data-globe-pol]").forEach(function (other) {
           other.classList.toggle("on", other === btn);
         });
+        draw();
+      });
+    });
+
+    card.querySelectorAll("[data-globe-storm]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-globe-storm"), i, toggle;
+        for (i = 0; i < STORMS.length; i++) {
+          if (STORMS[i].id !== id) { continue; }
+          showStorms = true;
+          toggle = card.querySelector("[data-globe-tc]");
+          if (toggle) {
+            toggle.classList.add("on"); toggle.classList.remove("off");
+            toggle.textContent = "Tracks on";
+          }
+          lon0 = STORMS[i].lon; lat0 = STORMS[i].lat;
+          pin = [STORMS[i].lon, STORMS[i].lat];
+          reportStorm(STORMS[i]);
+          draw();
+          return;
+        }
+      });
+    });
+    card.querySelectorAll("[data-globe-tc]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        showStorms = !showStorms;
+        btn.classList.toggle("on", showStorms);
+        btn.classList.toggle("off", !showStorms);
+        btn.textContent = showStorms ? "Tracks on" : "Tracks off";
         draw();
       });
     });

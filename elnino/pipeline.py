@@ -15,8 +15,11 @@ from pathlib import Path
 
 from . import (
     alerts,
+    atlas,
     atmosphere,
     classify,
+    cyclones,
+    stormfury,
     forecast,
     grids,
     impacts,
@@ -49,6 +52,9 @@ class SystemState:
     impacts: impacts.ImpactAssessment
     alert_set: alerts.AlertSet
     spatial: grids.SpatialState
+    cyclones: cyclones.CycloneState
+    stormfury: stormfury.FuryState
+    atlas: atlas.AtlasState
     discussion: dict
     fetched: dict
     series: dict = field(default_factory=dict)
@@ -165,11 +171,11 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
     if "sst_pacific" in text:
         state.sst_map = attempt(
             "Pacific SST anomaly", grids.grid_map, text["sst_pacific"], "anom",
-            "Tropical Pacific SST anomaly", "degrees C",
+            "Tropical Pacific SST anomaly", "°C",
         )
         absolute = attempt(
             "Pacific SST", grids.grid_map, text["sst_pacific"], "sst",
-            "Tropical Pacific SST", "degrees C",
+            "Tropical Pacific SST", "°C",
         )
         if absolute is not None:
             state.warm_pool = grids.warm_pool_edge(absolute)
@@ -182,12 +188,12 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
     if "sst_global" in text:
         state.sst_global = attempt(
             "global SST anomaly", grids.grid_map, text["sst_global"], "anom",
-            "Global SST anomaly", "degrees C",
+            "Global SST anomaly", "°C",
         )
     if "sst_hovmoller" in text:
         state.sst_hov = attempt(
             "SST Hovmoller", grids.grid_hovmoller, text["sst_hovmoller"], "anom",
-            "Equatorial SST anomaly", "degrees C",
+            "Equatorial SST anomaly", "°C",
         )
     if "ssh_pacific" in text:
         state.ssh_map = attempt(
@@ -237,12 +243,29 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
     return state
 
 
-def nino34_monthly(series: dict) -> list[parsers.MonthValue]:
-    """Best available monthly Nino-3.4 anomaly series."""
-    monthly = series.get("monthly") or {}
-    if monthly.get("nino34"):
-        return monthly["nino34"]
-    return series.get("nino34_relative") or []
+# The monthly Nino-3.4 each index is the three-month mean of.
+MONTHLY_INPUT = {"RONI": "nino34_relative", "ONI": "nino34_detrended"}
+
+
+def nino34_monthly(series: dict, index_name: str = "RONI") -> list[parsers.MonthValue]:
+    """The monthly Nino-3.4 the official index is the three-month mean of.
+
+    RONI averages Rnino34 and ONI the detrended ERSST series, so those are what
+    the recharge model, the hindcast and the phase-space view run on: a
+    forecast of the index has to start from the index's own numbers. The OISST
+    files are another analysis on another base - for August 2026 they put
+    Nino-3.4 at +2.52 degC against +2.17 in the ONI's input and +1.67 in
+    RONI's - and stand in only when the index's own input is missing, the
+    relative OISST series for RONI because it removes the same tropical mean.
+    """
+    own = series.get(MONTHLY_INPUT.get(index_name, "nino34_detrended"))
+    if own:
+        return own
+    if index_name == "RONI":
+        relative = (series.get("rel_monthly") or {}).get("nino34")
+        if relative:
+            return relative
+    return (series.get("monthly") or {}).get("nino34") or []
 
 
 def run(
@@ -256,11 +279,25 @@ def run(
     fetched = sources.fetch_all(raw_dir, offline=offline, progress=progress)
     series, warnings = parse_all(fetched)
 
+    # RONI is the official index and ONI the legacy one beside it. Either can
+    # carry the classification, so only losing both stops the run; losing
+    # either is a degraded run, and says which.
     oni = series.get("oni") or []
-    if not oni:
+    if not oni and not series.get("roni"):
         raise RuntimeError(
-            "No ONI data and no cache. The tracker cannot classify the state of "
-            "the system without it."
+            "Neither RONI nor ONI arrived, and neither is cached. The tracker "
+            "cannot classify the state of the system without one of them."
+        )
+    if not series.get("roni"):
+        warnings.append(
+            "RONI, CPC's official index since February 2026, did not arrive: "
+            "the classification is running on the legacy ONI, which reads warm "
+            "of RONI in a warming ocean."
+        )
+    if not oni:
+        warnings.append(
+            "The legacy ONI did not arrive: RONI, the official index, carries "
+            "the analysis, and the comparison with ONI is absent this run."
         )
 
     discussion = series.get("discussion") or {}
@@ -271,9 +308,20 @@ def run(
         series.get("soi") or [],
         series.get("mei") or [],
         status=discussion.get("status", ""),
+        relative_weeks=series.get("rel_weeks") or [],
     )
+    # Everything downstream - forecast, hindcast, analogs, the hazard outlook,
+    # the hurricane composite - runs on the index the classification used.
+    index_series = assessment.index_series
+    index_name = assessment.index_name
 
-    monthly_sst = nino34_monthly(series)
+    monthly_sst = nino34_monthly(series, index_name)
+    if not series.get(MONTHLY_INPUT[index_name]):
+        warnings.append(
+            f"The monthly Nino-3.4 that {index_name} averages did not arrive; the "
+            "recharge model, the hindcast and the phase space are running on the "
+            "OISST analysis instead, which is a different product on a different base."
+        )
     wwv_obs = series.get("wwv") or []
     wwv_monthly = [obs.month_value for obs in wwv_obs]
 
@@ -301,31 +349,49 @@ def run(
     if not spatial.available:
         warnings.append("No spatial feeds parsed: the map and section views are absent.")
 
-    skill = verification.run(oni, monthly_sst, wwv_monthly, leads=leads)
+    # The cyclone tier fetches on its own, because the files it needs are
+    # named after storms that only today's advisory index knows exist and
+    # after archive files that get renamed every spring. It is given the same
+    # cache and the same offline switch as everything else, so an offline run
+    # reproduces the last online one instead of going quiet.
+    storms = cyclones.build(
+        fetched, index_series, lambda source: sources.fetch(source, raw_dir, offline)
+    )
+    warnings.extend(storms.notes)
+    # A protective product the index links but that did not arrive is a failed
+    # feed like any other, and the storm it was for is named.
+    for storm in storms.active:
+        for label in getattr(storm.products, "unavailable", ()):
+            warnings.append(f"{storm.title}: {label} could not be fetched or read.")
+    if not storms.available:
+        warnings.append("No cyclone feeds parsed: the storm tier is absent.")
 
-    # Analogs for the forecast: a wider set than the display table uses, so the
-    # ensemble spread is not dominated by two or three members.
-    analog_members: list[forecast.AnalogMember] = []
-    stage = 0
-    if assessment.episode:
-        stage = max(assessment.episode.length - 1, 0)
-        wide = classify.find_analogs(oni, assessment.episode, limit=FORECAST_ANALOGS)
-        analog_members = [
-            forecast.AnalogMember(
-                analog.episode.onset.season,
-                analog.episode.onset.year,
-                analog.episode.name,
-                analog.rmse,
-            )
-            for analog in wide
-        ]
+    # The STORMFURY recreation is pure arithmetic over decks already in hand,
+    # so it runs here rather than in the renderers: the report and the
+    # dashboard then quote one set of numbers instead of computing two.
+    fury = stormfury.evaluate(storms)
+
+    # The atlas reads vendored composites and a vendored gazetteer, so it has
+    # nothing to fetch and cannot fail on a feed. It takes the storms only so a
+    # click near an active one says so.
+    ground = atlas.evaluate(storms.storms if storms.available else ())
+    warnings.extend(ground.reasons if not ground.available else [])
+
+    skill = verification.run(
+        index_series, monthly_sst, wwv_monthly, leads=leads, index_name=index_name
+    )
+
+    # Analogs for the forecast: the years that ran most like this one over the
+    # same calendar seasons, continued from the same season - the rule the
+    # hindcast above scored. The display card's analogs are a different thing:
+    # past El Ninos aligned on onset, to show how comparable events evolved.
+    analog_members = forecast.calendar_analogs(index_series, keep=FORECAST_ANALOGS)
 
     forecast_result = forecast.build(
-        oni,
+        index_series,
         monthly_sst,
         wwv_monthly,
         analog_members,
-        stage,
         leads=leads,
         skill=skill.rmse_by_lead() if skill else None,
         weights=skill.weights if skill else None,
@@ -334,19 +400,19 @@ def run(
             if skill
             else "default weights (verification unavailable)"
         ),
+        index_name=index_name,
     )
 
     peak_projection = forecast_result.peak
-    projected_peak = max(
-        assessment.oni_latest.value,
-        peak_projection.mean if peak_projection else assessment.oni_latest.value,
-    )
+    current = assessment.index_latest.value
+    projected_peak = max(current, peak_projection.mean if peak_projection else current)
     months_to_peak = peak_projection.lead if peak_projection else None
     impact_assessment = impacts.assess(
         projected_peak,
         assessment.scale.flavour_index if assessment.scale else 0.0,
-        current_oni=assessment.oni_latest.value,
+        current_index=current,
         months_to_peak=months_to_peak,
+        index_name=index_name,
     )
 
     # Persist, then evaluate alerts against what the previous run recorded.
@@ -361,6 +427,8 @@ def run(
             forecast_result,
             fetched,
             previous,
+            storms,
+            now=run_at,
         )
         alert_set = alerts.reconcile(conn, raised, run_at)
 
@@ -368,9 +436,10 @@ def run(
         storage.record_snapshot(conn, run_at, snapshot_values(
             assessment, subsurface_state, atmosphere_state, forecast_result
         ))
-        storage.record_series(
-            conn, run_at, "oni", [(v.label, v.value) for v in oni[-24:]]
-        )
+        if oni:
+            storage.record_series(
+                conn, run_at, "oni", [(v.label, v.value) for v in oni[-24:]]
+            )
         if series.get("roni"):
             storage.record_series(
                 conn, run_at, "roni", [(v.label, v.value) for v in series["roni"][-24:]]
@@ -388,6 +457,9 @@ def run(
         impacts=impact_assessment,
         alert_set=alert_set,
         spatial=spatial,
+        cyclones=storms,
+        stormfury=fury,
+        atlas=ground,
         discussion=discussion,
         fetched=fetched,
         series=series,
@@ -403,10 +475,13 @@ def snapshot_values(
     week = assessment.latest_week
     peak = forecast_result.peak if forecast_result else None
     return {
-        "observed_at": assessment.oni_latest.label,
+        "observed_at": assessment.index_latest.label,
         "status": assessment.status,
-        "oni_label": assessment.oni_latest.label,
-        "oni": assessment.oni_latest.value,
+        "index_name": assessment.index_name,
+        "index": assessment.index_latest.value,
+        "index_label": assessment.index_latest.label,
+        "oni_label": assessment.oni_latest.label if assessment.oni_latest else None,
+        "oni": assessment.oni_latest.value if assessment.oni_latest else None,
         "roni": assessment.roni_latest.value if assessment.roni_latest else None,
         "nino34_weekly": week.nino34_anom if week else None,
         "nino12_weekly": week.nino12_anom if week else None,

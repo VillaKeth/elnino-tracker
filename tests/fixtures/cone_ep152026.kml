@@ -1,0 +1,65 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<kml xmlns='http://earth.google.com/kml/2.1'>
+<Document>
+<name>Hurricane Nolo (Advisory #20) - Forecast Track Uncertainty</name>
+    <description>
+        <TABLE>
+            <TR><TD><B>Title:</B> Tropical Cyclone Forecast Cone of Uncertainty for EP152026 (Advisory #20)</TD></TR>
+            <TR><TD><B>Description:</B>The cone represents the probable track of the center of a tropical cyclone, and is formed by enclosing the area swept out by a set of circles along the forecast track (at 12, 24, 36 hours, etc). The size of each circle is set so that two-thirds of historical official forecast errors over a 5-year sample fall within the circle. Based on forecasts over the previous 5 years, the entire track of a tropical cyclone can be expected to remain within the cone roughly 60-70% of the time. It is important to note that the area affected by a tropical cyclone can extend well beyond the confines of the cone enclosing the most likely track area of the center. </TD></TR>
+            <TR><TD><B>Date Created:</B> 09-25-2026 - 14:53 UTC </TD></TR>
+            <TR><TD><B>Created:</B> National Hurricane Center </TD></TR>
+            <TR><TD><B>Disclaimer:</B>The official forecast track in KML format is an experimental product.</TD></TR>
+            <TR><TD><B>For More Information: </B><a href="https://www.nhc.noaa.gov">https://www.nhc.noaa.gov</a></TD></TR>
+        </TABLE>
+    </description>
+    <Style id='120'>
+            <LineStyle>
+                    <color>ffff7b00</color>
+                    <width>2</width>
+            </LineStyle>
+            <PolyStyle>
+                    <color>33eae12e</color>
+            </PolyStyle>
+    </Style>
+    <Placemark>
+      <styleUrl>#120</styleUrl>
+        <Polygon>
+            <outerBoundaryIs><LinearRing>
+                <coordinates>-155.59238,15.75043,0 -155.15088,16.05473,0 -154.89638,16.54589,0 -154.82199,17.16562,0 -155.13599,17.61156,0 -155.67557,17.83149,0 -156.35739,17.89462,0 -157.073,17.86535,0 -157.78975,17.83722,0 -158.5065,17.86535,0 -159.20355,17.91321,0 -159.83321,18.02857,0 -160.41992,18.17263,0 -160.81204,18.51159,0 -161.16612,18.90301,0 -161.51172,19.31726,0 -161.83727,19.72292,0 -162.15823,20.16185,0 -162.44357,20.62214,0 -162.52515,21.2033,0 -162.40677,21.83083,0 -162.3269,22.49693,0 -162.35658,23.14845,0 -162.55472,23.71044,0 -162.86755,24.15753,0 -163.25096,24.50521,0 -163.74461,24.78552,0 -164.32318,24.95207,0 -165.03741,24.98249,0 -165.65768,24.85772,0 -166.16864,24.62344,0 -166.59479,24.30422,0 -166.93683,23.8864,0 -167.18182,23.38571,0 -167.28633,22.72994,0 -167.19431,22.09036,0 -166.98553,21.53905,0 -166.80917,20.98394,0 -166.59879,20.43424,0 -166.35976,19.94193,0 -166.05885,19.46855,0 -165.73331,19.0629,0 -165.37122,18.67952,0 -164.98743,18.30348,0 -164.59991,17.94558,0 -164.18417,17.60157,0 -163.77921,17.27547,0 -163.35362,16.95567,0 -162.91476,16.6492,0 -162.44162,16.36269,0 -161.95792,16.1011,0 -161.41891,15.89495,0 -160.78763,15.78119,0 -160.08142,15.79967,0 -159.3367,15.79979,0 -158.65833,15.85201,0 -157.98019,15.93317,0 -157.33322,16.03119,0 -156.72693,16.16997,0 -156.13107,16.31919,0 -155.74501,16.27569,0 -155.59238,15.75043,0</coordinates>
+            </LinearRing></outerBoundaryIs>
+        </Polygon>
+        <ExtendedData>
+            <Data name="timezone">
+                <value>HST</value>
+            </Data>
+            <Data name="stormType">
+                <value>HU</value>
+            </Data>
+            <Data name="advisoryDate">
+                <value>500 AM HST Fri Sep 25 2026</value>
+            </Data>
+            <Data name="basin">
+                <value>EP</value>
+            </Data>
+            <Data name="fcstpd">
+                <value>120</value>
+            </Data>
+            <Data name="storm">
+                <value>Hurricane Nolo</value>
+            </Data>
+            <Data name="atcfid">
+                <value>EP152026</value>
+            </Data>
+            <Data name="advisoryNum">
+                <value>20</value>
+            </Data>
+            <Data name="stormNum">
+                <value>15</value>
+            </Data>
+            <Data name="stormName">
+                <value>Nolo</value>
+            </Data>
+        </ExtendedData>
+    </Placemark>
+</Document>
+</kml>

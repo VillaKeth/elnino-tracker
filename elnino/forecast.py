@@ -7,10 +7,10 @@ against each other with honest uncertainty, are worth more than one method
 quoted with false confidence.
 
     damped persistence   the benchmark every operational forecast must beat.
-                         Carries today's anomaly forward, damped by the
-                         observed lag autocorrelation FOR THAT TARGET MONTH,
-                         which is what makes the spring predictability barrier
-                         appear on its own rather than being asserted.
+                         Regresses each target season on today's anomaly,
+                         fitted separately FOR THAT TARGET SEASON, which is
+                         what makes the spring predictability barrier appear
+                         on its own rather than being asserted.
 
     recharge oscillator  a seasonal linear inverse model fitted to the joint
                          evolution of Nino-3.4 and warm water volume. It knows
@@ -18,10 +18,14 @@ quoted with false confidence.
                          growth rate is strongly seasonal, so it can forecast a
                          turning point instead of only a decay.
 
-    analog ensemble      past events aligned at the same stage of development,
-                         each continued forward through the real record. Its
-                         spread is a direct, assumption-free estimate of how
-                         differently things can go from here.
+    analog ensemble      past years whose index ran most like this one over
+                         the same calendar seasons, each continued forward
+                         through the real record from the same season. ENSO
+                         is phase-locked to the calendar - events grow through
+                         boreal summer and autumn, peak near December and decay
+                         through spring - so an analog is only an analog at the
+                         same time of year. Its spread is a direct estimate of
+                         how differently things can go from here.
 
 The ensemble mean is the headline; the disagreement between methods is
 reported next to it, because when they diverge that is the honest signal.
@@ -37,13 +41,30 @@ from .parsers import ONI_SEASONS, MonthValue, SeasonValue
 MIN_FIT_SAMPLE = 20
 DEFAULT_LEADS = 9
 
-# Fallback weights, used until verification supplies measured skill. Damped
-# persistence is deliberately weighted lowest at long lead and the analog
-# ensemble highest, which is the usual ordering of their hindcast skill.
+# Fallback weights, used only when verification cannot run. With a record to
+# verify against, every method's weight is the inverse of its cross-validated
+# mean squared error.
 DEFAULT_WEIGHTS = {"analog": 0.45, "recharge": 0.35, "persistence": 0.20}
 
-# Thresholds worth a probability statement, in degC of ONI.
+# The order the methods are listed in wherever they are shown side by side.
+METHODS_SHOWN = ("analog", "recharge", "persistence")
+
+
+def weights_text(weights: dict[str, float]) -> str:
+    """"analog 35%, recharge 37%, persistence 28%" - the order never changes."""
+    return ", ".join(f"{name} {weights[name]:.0%}"
+                     for name in METHODS_SHOWN if name in weights)
+
+# Thresholds worth a probability statement, in degC of the official index
+# (RONI, or ONI where RONI is missing), judged on the value CPC prints.
 THRESHOLDS = (1.0, 1.5, 2.0, 2.5)
+# CPC prints one decimal, so a season "at or above +2.0" is one of +1.95 or more.
+PRINTED_HALF_STEP = 0.05
+
+# How far the warm water volume may trail the SST at the forecast's start. It
+# changes slowly enough that a month or two of lag costs less than throwing
+# away the newest SST; beyond that the start state is too stale to integrate.
+MAX_HEAT_LAG = 2
 
 # Analog quality gate. Past events are ranked by RMSE against the current
 # event's trajectory so far; a member is kept only if it is close in absolute
@@ -52,6 +73,12 @@ THRESHOLDS = (1.0, 1.5, 2.0, 2.5)
 # like the current one and drags the mean toward climatology.
 ANALOG_RMSE_CEILING = 0.45
 ANALOG_RMSE_RATIO = 1.6
+
+# Seasons an analog is matched on, ending with the latest, and how many of the
+# closest years go forward to the quality gate. Four seasons scored as well as
+# six in the cross-validated hindcast and admit one more year of record.
+ANALOG_WINDOW = 4
+ANALOG_KEEP = 10
 
 # The largest ONI ever observed is about +2.6 degC. A linear model integrated
 # forward from a record initial state will sail past that, so the SST equation
@@ -84,7 +111,7 @@ class Projection:
         return max(self.methods.values()) - min(self.methods.values())
 
     def probability_above(self, threshold: float) -> float:
-        """P(ONI >= threshold), from the ensemble mean and spread."""
+        """P(index >= threshold), from the ensemble mean and spread."""
         if self.sigma <= 0.0:
             return 1.0 if self.mean >= threshold else 0.0
         z = (threshold - self.mean) / self.sigma
@@ -100,8 +127,10 @@ class Forecast:
     skill_source: str
     analog_members: dict[str, list[float]] = field(default_factory=dict)
     analog_weights: dict[str, float] = field(default_factory=dict)
+    weights: dict[str, float] = field(default_factory=dict)  # method -> share
     rom_fitted: bool = False
     notes: list[str] = field(default_factory=list)
+    index_name: str = "RONI"
 
     def at(self, lead: int) -> Projection | None:
         for projection in self.projections:
@@ -144,6 +173,30 @@ def _season_step(season: str, year: int, steps: int) -> tuple[str, int]:
     return ONI_SEASONS[index % 12], year + index // 12
 
 
+def _month_add(year: int, month: int, steps: int) -> tuple[int, int]:
+    index = year * 12 + (month - 1) + steps
+    return index // 12, index % 12 + 1
+
+
+def season_months(season: str, year: int) -> list[tuple[int, int]]:
+    """The (year, month) pairs an overlapping three-month season averages.
+
+    CPC dates a season by its centre month, so DJF 2027 runs from December
+    2026 to February 2027 and NDJ 2026 ends in January 2027.
+    """
+    centre = ONI_SEASONS.index(season) + 1
+    return [_month_add(year, centre, offset) for offset in (-1, 0, 1)]
+
+
+def _held_out(exclude_year) -> set[int]:
+    """``exclude_year`` as a set: one year, several, or none."""
+    if exclude_year is None:
+        return set()
+    if isinstance(exclude_year, int):
+        return {exclude_year}
+    return set(exclude_year)
+
+
 def _solve3(matrix: list[list[float]], rhs: list[float]) -> list[float]:
     """Gaussian elimination with partial pivoting for the 3-predictor fit."""
     size = len(rhs)
@@ -181,52 +234,74 @@ def _solve2(
 # ---------------------------------------------------------------------------
 
 
-def autocorrelation_by_target(
-    series: list[SeasonValue], lead: int
-) -> dict[str, float]:
-    """Lag-`lead` autocorrelation, computed separately per target season.
+def persistence_fit(
+    series: list[SeasonValue], lead: int, exclude_year=None
+) -> dict[str, tuple[float, float, float]]:
+    """Least-squares persistence at one lead, fitted per target season.
 
-    Doing this per target season rather than pooled is the whole point: the
-    correlation into MAM/AMJ collapses while the correlation into NDJ stays
-    high, which is the spring predictability barrier falling out of the data.
+    Returns target season -> (slope, start mean, target mean). The slope is the
+    lag correlation times the ratio of the target season's spread to the start
+    season's. The correlation alone is the right multiplier only when both
+    seasons vary equally, and ENSO's seasons do not: the winter seasons swing
+    far wider than the summer ones, so a correlation applied to a summer
+    anomaly forecasts the winter too low - from RONI's JJA 2026 +1.36 the
+    correlation says NDJ +1.21, the regression +2.08. Fitting per target
+    season is still what makes the spring barrier fall out of the data: the
+    fit into MAM and AMJ collapses while the fit into NDJ stays strong.
+
+    ``exclude_year`` (a year or a collection of them) drops every pair that
+    starts or ends in a held-out year, so a hindcast never scores a fit on the
+    seasons it is verified against.
     """
+    held = _held_out(exclude_year)
     index = {(v.season, v.year): v.value for v in series}
     buckets: dict[str, list[tuple[float, float]]] = {}
     for value in series:
+        if value.year in held:
+            continue
         target_season, target_year = _season_step(value.season, value.year, lead)
+        if target_year in held:
+            continue
         target = index.get((target_season, target_year))
         if target is None:
             continue
         buckets.setdefault(target_season, []).append((value.value, target))
 
-    out: dict[str, float] = {}
+    out: dict[str, tuple[float, float, float]] = {}
     for season, pairs in buckets.items():
         if len(pairs) < MIN_FIT_SAMPLE:
             continue
-        starts = [p[0] for p in pairs]
-        ends = [p[1] for p in pairs]
-        start_mean, end_mean = _mean(starts), _mean(ends)
-        numerator = sum((a - start_mean) * (b - end_mean) for a, b in pairs)
-        denominator = math.sqrt(
-            sum((a - start_mean) ** 2 for a in starts)
-            * sum((b - end_mean) ** 2 for b in ends)
-        )
-        out[season] = numerator / denominator if denominator else 0.0
+        start_mean = _mean([a for a, _ in pairs])
+        target_mean = _mean([b for _, b in pairs])
+        spread = sum((a - start_mean) ** 2 for a, _ in pairs)
+        covariance = sum((a - start_mean) * (b - target_mean) for a, b in pairs)
+        out[season] = (covariance / spread if spread else 0.0, start_mean, target_mean)
     return out
 
 
+def persist(fit: tuple[float, float, float], value: float) -> float:
+    """Carry one starting anomaly forward through a persistence fit.
+
+    A negative slope is held at zero, which forecasts the target season's mean:
+    damped persistence is a benchmark, and a benchmark that predicts a sign
+    flip is a model.
+    """
+    slope, start_mean, target_mean = fit
+    return target_mean + max(slope, 0.0) * (value - start_mean)
+
+
 def damped_persistence(series: list[SeasonValue], leads: int) -> dict[int, float]:
-    """Today's anomaly, damped by the measured per-target autocorrelation."""
+    """Today's anomaly carried forward by the per-target-season regression."""
     if not series:
         return {}
     latest = series[-1]
     out: dict[int, float] = {}
     for lead in range(1, leads + 1):
         target_season, _ = _season_step(latest.season, latest.year, lead)
-        rho = autocorrelation_by_target(series, lead).get(target_season)
-        if rho is None:
+        fit = persistence_fit(series, lead).get(target_season)
+        if fit is None:
             continue
-        out[lead] = latest.value * max(rho, 0.0)
+        out[lead] = persist(fit, latest.value)
     return out
 
 
@@ -328,11 +403,12 @@ def fit_recharge(
     Fitting a growth rate per calendar month is what lets the model reproduce
     ENSO's seasonal phase locking - events grow through boreal autumn and decay
     through spring - without that behaviour being hard-coded. ``exclude_year``
-    holds one year out so verification never scores the model on its own
-    training data.
+    holds one year (or several) out so verification never scores the model on
+    its own training data.
     """
     rows = rom_rows(sst, heat) if rows is None else rows
-    sample = [r for r in rows if exclude_year is None or r[0] != exclude_year]
+    held = _held_out(exclude_year)
+    sample = [r for r in rows if r[0] not in held]
     if len(sample) < MIN_FIT_SAMPLE * 2:
         return None
 
@@ -371,6 +447,74 @@ def recharge_projection(
     return out
 
 
+def _heat_at(heat: dict[tuple[int, int], float], start: tuple[int, int]) -> float | None:
+    """Heat content at the start month, or the latest up to MAX_HEAT_LAG before."""
+    for back in range(MAX_HEAT_LAG + 1):
+        value = heat.get(_month_add(start[0], start[1], -back))
+        if value is not None:
+            return value
+    return None
+
+
+def initial_state(
+    sst: list[MonthValue], heat: list[MonthValue]
+) -> tuple[tuple[int, int], float, float] | None:
+    """Where the recharge model starts: the last month of SST that is in.
+
+    The heat content is that month's, or the latest before it when the warm
+    water volume runs behind. Never a later one: a start state borrowed from
+    the future is not a forecast.
+    """
+    if not sst:
+        return None
+    last = max(sst, key=lambda v: (v.year, v.month))
+    start = (last.year, last.month)
+    heat_now = _heat_at({(v.year, v.month): v.value for v in heat}, start)
+    if heat_now is None:
+        return None
+    return start, last.value, heat_now
+
+
+def recharge_seasons(
+    model: RechargeModel,
+    sst: dict[tuple[int, int], float],
+    heat: dict[tuple[int, int], float],
+    start: tuple[int, int],
+    latest: tuple[str, int],
+    leads: int,
+) -> dict[int, float]:
+    """The recharge model's forecast of each season ahead, as the index averages it.
+
+    The model steps a month at a time from ``start``, the last month observed,
+    and the index is a three-month mean dated by its centre month. So each
+    target season is the mean of its three months: observed where the month is
+    already in - a forecast made at the end of August still has July and
+    August in hand for JAS - and projected where it is not. ``latest`` is the
+    last observed season, from which the leads count.
+
+    Reading one projected month as the season, as this used to, dated every
+    lead a month late and threw away the two measured months of the first one.
+    """
+    sst_now = sst.get(start)
+    heat_now = _heat_at(heat, start)
+    if sst_now is None or heat_now is None:
+        return {}
+    season, year = latest
+    last = season_months(*_season_step(season, year, leads))[-1]
+    steps = (last[0] - start[0]) * 12 + (last[1] - start[1])
+    track = recharge_projection(model, sst_now, heat_now, start[1], steps) if steps > 0 else {}
+    projected = {_month_add(start[0], start[1], step): value for step, value in track.items()}
+
+    out: dict[int, float] = {}
+    for lead in range(1, leads + 1):
+        months = season_months(*_season_step(season, year, lead))
+        values = [sst.get(key) if key <= start else projected.get(key) for key in months]
+        if any(value is None for value in values):
+            continue
+        out[lead] = sum(values) / 3.0
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 3. Analog ensemble
 # ---------------------------------------------------------------------------
@@ -382,6 +526,50 @@ class AnalogMember:
     year: int
     name: str
     rmse: float
+
+
+def _year_name(season: str, year: int) -> str:
+    """The ENSO year a season belongs to: JJA 1997 and DJF 1998 are 1997-98."""
+    first = year - 1 if season in ("DJF", "JFM", "FMA", "MAM") else year
+    return f"{first}-{(first + 1) % 100:02d}"
+
+
+def calendar_analogs(series: list[SeasonValue], at: int | None = None,
+                     window: int = ANALOG_WINDOW,
+                     keep: int = ANALOG_KEEP) -> list[AnalogMember]:
+    """Past years whose index ran most like this one over the same seasons.
+
+    ``at`` is the position of the forecast's start in ``series`` - the last
+    season for the live forecast, an earlier one in the hindcast. Each other
+    year is scored by RMSE over the ``window`` seasons ending with the start's
+    calendar season, and only a year whose record continues past that season
+    can be a member. The start's own year and its neighbours are held out,
+    the year before as well as the two after: the year before's continuation
+    runs through the start's own record, and in the hindcast the two after
+    hold the truth being forecast. The live forecast and its verification
+    hold out the same years, so the skill quoted is the skill of this rule.
+    """
+    at = len(series) - 1 if at is None else at
+    if at + 1 < window:
+        return []
+    start = series[at]
+    now = [series[at - k].value for k in range(window - 1, -1, -1)]
+    position = {(v.season, v.year): i for i, v in enumerate(series)}
+    held = {start.year - 1, start.year, start.year + 1, start.year + 2}
+    after = _season_step(start.season, start.year, 1)[0]
+    scored = []
+    for year in sorted({v.year for v in series} - held):
+        where = position.get((start.season, year))
+        if where is None or where + 1 < window:
+            continue
+        if (after, _season_step(start.season, year, 1)[1]) not in position:
+            continue
+        past = [series[where - k].value for k in range(window - 1, -1, -1)]
+        rmse = math.sqrt(sum((a - b) ** 2 for a, b in zip(now, past)) / window)
+        scored.append((rmse, year))
+    scored.sort()
+    return [AnalogMember(start.season, year, _year_name(start.season, year), rmse)
+            for rmse, year in scored[:keep]]
 
 
 def filter_analogs(members: list[AnalogMember]) -> list[AnalogMember]:
@@ -400,11 +588,11 @@ def analog_projection(
     leads: int,
     current_value: float | None = None,
 ) -> tuple[dict[int, list[tuple[float, float]]], dict[str, list[float]], dict[str, float]]:
-    """Continue each analog forward from the equivalent stage of its own life.
+    """Continue each analog forward from the equivalent point of its own year.
 
-    ``stage`` is how many months past onset the current event is, so each
-    analog is read forward from *its* onset plus that same offset, through the
-    real record - the continuation therefore includes the event's actual decay
+    Each member is read forward from its own season plus ``stage`` months -
+    zero for calendar analogs, whose season is already the start's - through
+    the real record, so the continuation includes what that year actually did
     rather than a fitted curve.
 
     Two corrections make the result usable rather than merely interesting:
@@ -413,14 +601,19 @@ def analog_projection(
         closest analog dominates instead of being averaged in with marginal ones.
 
       * **Offset correction.** If the current event is running warmer than its
-        analogs were at the same stage - which is the case whenever an event is
+        analogs were at the same point - which is the case whenever an event is
         outpacing history - a raw continuation under-forecasts by exactly that
         gap. Each member is therefore shifted by the difference between today's
-        value and that member's value at the current stage. The shift is held
-        constant rather than tapered: it is a simple, auditable assumption, and
-        the untouched raw tracks are returned alongside for comparison.
+        value and that member's value at the start. The shift is held constant
+        rather than tapered: it is a simple, auditable assumption, and the
+        hindcast scores it as it stands.
 
-    Returns (per-lead (value, weight) pairs, raw per-member tracks, weights).
+    The per-member tracks carry the same shift, so what a chart draws from
+    today's value is what the band was built from. They used to be the raw
+    record, hung from today's value: a member that stood 0.8 below this
+    event at the start fell 0.8 further on the page than in the band.
+
+    Returns (per-lead (value, weight) pairs, per-member tracks, weights).
     """
     index = {(v.season, v.year): v.value for v in series}
     by_lead: dict[int, list[tuple[float, float]]] = {lead: [] for lead in range(1, leads + 1)}
@@ -441,7 +634,7 @@ def analog_projection(
             if value is None:
                 break
             by_lead[lead].append((value + offset, weight))
-            track.append(value)
+            track.append(value + offset)
         if track:
             by_name[member.name] = track
             weights[member.name] = weight
@@ -453,52 +646,91 @@ def analog_projection(
 # ---------------------------------------------------------------------------
 
 
+def peak_probability(
+    projections: list[Projection], thresholds: tuple[float, ...] = THRESHOLDS
+) -> dict[float, float]:
+    """P(the event's peak prints at or above each threshold).
+
+    Taken from the season likeliest to clear each bar, not only from the
+    season with the highest mean: a later season with a slightly lower mean
+    and a wider band can be the likelier route past a high threshold, and
+    reading the peak season alone called a +2.5 degC event all but impossible
+    whenever the peak season happened to be the sharpest one. The best single
+    season is a floor on the chance that some season clears the bar.
+
+    CPC tiers on the printed one-decimal value, so "at or above +2.0" means a
+    value of +1.95 or more.
+    """
+    if not projections:
+        return {}
+    return {
+        threshold: max(p.probability_above(threshold - PRINTED_HALF_STEP)
+                       for p in projections)
+        for threshold in thresholds
+    }
+
+
 def build(
-    oni: list[SeasonValue],
+    series: list[SeasonValue],
     nino34_monthly: list[MonthValue],
     wwv: list[MonthValue],
     analog_members: list[AnalogMember],
-    stage: int,
+    stage: int = 0,
     leads: int = DEFAULT_LEADS,
     skill: dict[int, float] | None = None,
     weights: dict[str, float] | None = None,
     skill_source: str = "default weights (no verification run)",
+    index_name: str = "RONI",
 ) -> Forecast:
     """Run all three methods and combine them.
 
-    ``skill`` maps lead time to hindcast RMSE; when present it sets the width
-    of the uncertainty band, which is the only honest way to size it.
+    ``series`` is the official seasonal index and ``nino34_monthly`` the
+    monthly series it is the three-month mean of, so every method forecasts
+    the number the classification runs on. ``skill`` maps lead time to
+    hindcast RMSE; when present it sets the width of the uncertainty band,
+    which is the only honest way to size it.
     """
-    if not oni:
-        return Forecast([], None, {}, [], skill_source, notes=["No ONI data."])
+    if not series:
+        return Forecast([], None, {}, [], skill_source,
+                        notes=[f"No {index_name} data."], index_name=index_name)
 
     weights = dict(weights or DEFAULT_WEIGHTS)
-    latest = oni[-1]
+    latest = series[-1]
     notes: list[str] = []
     method_notes: list[str] = []
 
-    persistence = damped_persistence(oni, leads)
+    persistence = damped_persistence(series, leads)
     if persistence:
         method_notes.append(
-            "Damped persistence uses the lag correlation measured for each "
-            "target season, so the spring barrier is in the numbers, not asserted."
+            "Damped persistence regresses each target season on today's value, "
+            "fitted separately for each target season, so the spring barrier and "
+            "the autumn growth are both in the numbers rather than asserted."
         )
 
     recharge: dict[int, float] = {}
     model = fit_recharge(nino34_monthly, wwv) if nino34_monthly and wwv else None
-    if model and nino34_monthly and wwv:
-        start = nino34_monthly[-1]
-        heat_index = {(v.year, v.month): v.value for v in wwv}
-        heat_now = heat_index.get((start.year, start.month), wwv[-1].value)
-        recharge = recharge_projection(
-            model, start.value, heat_now, start.month, leads
-        )
+    if model:
+        state = initial_state(nino34_monthly, wwv)
+        if state is None:
+            notes.append(
+                f"The warm water volume is more than {MAX_HEAT_LAG} months behind "
+                "the SST, so the recharge model has no start state and is left out."
+            )
+        else:
+            recharge = recharge_seasons(
+                model,
+                {(v.year, v.month): v.value for v in nino34_monthly},
+                {(v.year, v.month): v.value for v in wwv},
+                state[0],
+                (latest.season, latest.year),
+                leads,
+            )
         method_notes.append(
             f"Recharge oscillator fitted to {model.samples} monthly transitions of "
             f"Nino-3.4 against warm water volume, with a separate growth rate and "
             f"nonlinear damping term for each of {model.seasonal_months} calendar months."
         )
-        if not recharge:
+        if state is not None and not recharge:
             notes.append(
                 "The recharge model's integration diverged and was discarded; the "
                 "ensemble is running on the remaining methods."
@@ -514,21 +746,23 @@ def build(
     kept = filter_analogs(analog_members)
     dropped = len(analog_members) - len(kept)
     analog_by_lead, analog_tracks, analog_weights = analog_projection(
-        oni, kept, stage, leads, current_value=latest.value
+        series, kept, stage, leads, current_value=latest.value
     )
     if analog_tracks:
         best = min(kept, key=lambda m: m.rmse)
         method_notes.append(
-            f"Analog ensemble: {len(analog_tracks)} past events matched on their "
-            f"first {stage + 1} seasons, weighted by closeness of fit (best is "
-            f"{best.name}, RMSE {best.rmse:.2f}) and offset-corrected to today's value."
+            f"Analog ensemble: {len(analog_tracks)} past years matched on the "
+            f"same {ANALOG_WINDOW} calendar seasons ending {latest.season}, "
+            f"weighted by closeness of fit (best is {best.name}, RMSE "
+            f"{best.rmse:.2f}) and offset-corrected to today's value."
         )
         if dropped:
             notes.append(
-                f"{dropped} candidate analog(s) were dropped for being too "
+                f"{dropped} candidate analog{'s were' if dropped != 1 else ' was'} "
+                "dropped for being too "
                 "dissimilar to the current trajectory."
             )
-        at_stage_index = {(v.season, v.year): v.value for v in oni}
+        at_stage_index = {(v.season, v.year): v.value for v in series}
         gaps = [
             latest.value - at_stage_index[_season_step(m.season, m.year, stage)]
             for m in kept
@@ -536,7 +770,7 @@ def build(
         ]
         if gaps and min(gaps) > 0.1:
             notes.append(
-                f"This event is running warmer than every analog at the same stage, "
+                f"This event is running warmer than every analog at the same point of its year, "
                 f"by {min(gaps):+.2f} to {max(gaps):+.2f} degC. The analog members "
                 "are shifted by that gap; without the shift they would understate "
                 "the projection."
@@ -598,20 +832,17 @@ def build(
         )
 
     peak = max(projections, key=lambda p: p.mean) if projections else None
-    peak_probability = (
-        {threshold: peak.probability_above(threshold) for threshold in THRESHOLDS}
-        if peak
-        else {}
-    )
 
     return Forecast(
         projections=projections,
         peak=peak,
-        peak_probability=peak_probability,
+        peak_probability=peak_probability(projections),
         method_notes=method_notes,
         skill_source=skill_source,
         analog_members=analog_tracks,
         analog_weights=analog_weights,
+        weights=weights,
         rom_fitted=model is not None,
         notes=notes,
+        index_name=index_name,
     )

@@ -33,18 +33,26 @@ re-themes without re-rendering a single rectangle.
 
 from __future__ import annotations
 
+import math
+
 from . import grids
 from itertools import count
 
 from .coastline import segments
 from .grids import Field, lat_name, lon_name
-from .svg import Plot, esc, table
+from .svg import Plot, esc, map_plot, table
 
 # --- ramps ------------------------------------------------------------------
 # Diverging, 11 classes, index 5 is neutral. Generated in Oklab.
+#
+# The last warm step is #a30000 rather than a fuller #b50000 for two reasons the
+# palette validator found: against #b50000 the step from #c8222c was a lightness
+# gap of 0.053, under the 0.06 the eye needs to see a step at all, and the red
+# pole came out at 6.9:1 on the light surface against the blue pole's 8.3:1,
+# which quietly made one end of a symmetric scale louder than the other.
 DIVERGING_LIGHT = (
     "#0045af", "#2269bd", "#5889ca", "#87a9d5", "#b7c8df", "#e8e8e8",
-    "#e7bcb8", "#e19089", "#d6615c", "#c8222c", "#b50000",
+    "#e7bcb8", "#e19089", "#d6615c", "#c8222c", "#a30000",
 )
 DIVERGING_DARK = (
     "#61a6ff", "#568cd1", "#4c72a4", "#415979", "#364150", "#2a2a2a",
@@ -108,6 +116,12 @@ class Ramp:
             self.low, self.high = (low, high) if high > low else (low, low + 1.0)
 
     def index(self, value: float) -> int:
+        # A NaN or an infinity here used to raise out of int(), which takes the
+        # whole page down rather than one cell. Parsed fields cannot carry
+        # either - grids._num drops them - but a computed field can, and the
+        # composite grids are computed.
+        if not math.isfinite(value):
+            return self.steps // 2 if self.diverging else 0
         frac = (value - self.low) / (self.high - self.low)
         return max(0, min(self.steps - 1, int(frac * self.steps)))
 
@@ -117,6 +131,20 @@ class Ramp:
     def edges(self) -> list[float]:
         width = (self.high - self.low) / self.steps
         return [self.low + i * width for i in range(self.steps + 1)]
+
+    def ticks(self) -> list[float]:
+        """The values a colour bar is labelled at.
+
+        A diverging bar at its two ends, its middle and halfway out, so zero
+        is always marked; a sequential one at every other edge and at its top.
+        """
+        if self.diverging:
+            return [self.low, self.low / 2, 0.0, self.high / 2, self.high]
+        edges = self.edges()
+        picked = edges[::max(1, self.steps // 4)]
+        if picked[-1] != edges[-1]:
+            picked.append(edges[-1])
+        return picked
 
     def auto_fmt(self) -> str:
         """Enough decimals that two adjacent tick labels cannot read the same.
@@ -142,15 +170,26 @@ class Ramp:
             f'title="{esc(fmt.format(edges[i]))} to {esc(fmt.format(edges[i + 1])) }"></span>'
             for i in range(self.steps)
         )
-        marks = "".join(
-            f'<span class="ramptick">{esc(fmt.format(edges[i]))}</span>'
-            for i in range(0, self.steps + 1, max(1, self.steps // 4))
-        )
+        # Each label at its own value's place along the bar. They used to be
+        # spread evenly, which on an 11-step bar put six labels for twelve
+        # edges in the wrong places and the last one, a step short of the
+        # top, at the top.
+        values = self.ticks()
+        marks = []
+        for i, value in enumerate(values):
+            left = (value - self.low) / (self.high - self.low) * 100.0
+            shift = 0 if i == 0 else 100 if i == len(values) - 1 else 50
+            text = "0" if self.diverging and value == 0 else fmt.format(value)
+            marks.append(
+                f'<span class="ramptick" style="left:{left:.2f}%;'
+                f'transform:translateX(-{shift}%)">{esc(text)}</span>'
+            )
+        marks = "".join(marks)
         return (
             f'<div class="ramp"><div class="ramplabel">{esc(caption)} '
             f'<span class="rampunits">{esc(units)}</span></div>'
             f'<div class="rampstrip">{cells}</div>'
-            f'<div class="rampticks">{marks}</div></div>'
+            f'<div class="rampticks rampscale">{marks}</div></div>'
         )
 
 
@@ -169,6 +208,19 @@ def _edges(values: tuple[float, ...]) -> list[tuple[float, float]]:
     return out
 
 
+# A hover target smaller than this is not a target. At half-degree spacing a
+# Pacific map draws cells about two pixels wide, and nobody points at two
+# pixels - least of all on a phone. Colour is drawn at the field's own
+# resolution and the hit areas are pooled up to something a finger can land on.
+HIT_MIN_PX = 11.0
+
+
+# How far each cell is drawn past its own right and bottom edges, in plot
+# units: enough to close the hairline antialiasing leaves between shapes that
+# abut exactly, a fifth of a pixel of a two-pixel cell.
+SEAM = 0.2
+
+
 def draw_cells(
     plot: Plot,
     grid: Field,
@@ -180,25 +232,41 @@ def draw_cells(
 ) -> int:
     """Fill the plot with the field, merging equal-coloured neighbours.
 
-    A one-degree Pacific map is twelve thousand cells. Emitting one rectangle
-    each would add about a megabyte of markup to a page that is meant to be a
-    single self-contained file, so horizontally adjacent cells that land in the
-    same colour class are merged into one run. On a smooth field this is a
-    ten- to twenty-fold reduction and it changes nothing about what is drawn,
-    because the cells were already the same colour.
+    A half-degree Pacific map is forty-eight thousand cells. Two things keep
+    that from being forty-eight thousand elements on a page that is meant to be
+    one self-contained file.
 
-    Returns the number of rectangles emitted, which the tests assert against
-    the cell count to prove the run-length encoding is actually doing work.
+    Horizontally adjacent cells in the same colour class are merged into a run,
+    which on a smooth field is a two- to twenty-fold reduction depending on how
+    much structure the field has, and changes nothing about what is drawn
+    because the cells were already the same colour. Then the runs of a class
+    are accumulated into a single path rather than getting a rectangle each:
+    eleven classes is eleven elements instead of thirty thousand, which is a
+    third of the bytes and an order of magnitude off the browser's layout cost.
+    That is what makes drawing the field at its own resolution affordable
+    rather than decimating it to something the page can carry.
+
+    Hover is a second, much coarser pass - see ``HIT_MIN_PX``.
+
+    Returns the number of runs emitted, which the tests assert against the cell
+    count to prove the run-length encoding is actually doing work.
     """
     x_edges = _edges(grid.x)
     y_edges = _edges(grid.y)
     # Edge cells are half a cell wider than the outermost centre, so the run
     # rectangles overhang the frame by design; the clip trims them to it.
-    plot.add(f'<g clip-path="url(#{clip_area(plot)})">')
+    plot.add(f'<g class="cellfill" clip-path="url(#{clip_area(plot)})">')
+    paths: dict[int, list[str]] = {}
     drawn = 0
     for row in range(grid.rows):
+        # Edges are rounded once and shared, so a row's bottom is the next
+        # row's top to the tenth. Rounding each top and height on its own left
+        # a tenth-wide gap under some rows, and the page showed through as
+        # dark streaks across the whole map. SEAM more on the far sides
+        # covers the antialiasing between two shapes that only just touch.
         y0, y1 = plot.sy(y_edges[row][0]), plot.sy(y_edges[row][1])
-        top, height = min(y0, y1), abs(y1 - y0)
+        top, bottom = sorted((round(y0, 1), round(y1, 1)))
+        height = max(bottom - top, 0.6) + SEAM
         col = 0
         while col < grid.cols:
             value = grid.values[row][col]
@@ -207,42 +275,75 @@ def draw_cells(
                 continue
             klass = ramp.index(value)
             end = col
-            low = high = value
             while end + 1 < grid.cols:
                 nxt = grid.values[row][end + 1]
                 if nxt is None or ramp.index(nxt) != klass:
                     break
                 end += 1
-                low, high = min(low, nxt), max(high, nxt)
-            x0 = plot.sx(x_edges[col][0])
-            x1 = plot.sx(x_edges[end][1])
-            attrs = ""
-            if hover:
-                span = (
-                    fmt.format(low) if end == col
-                    else f"{fmt.format(low)} to {fmt.format(high)}"
-                )
-                where = []
-                if row_label:
-                    where.append(row_label(grid.y[row], row))
-                if col_label:
-                    where.append(
-                        col_label(grid.x[col]) if end == col
-                        else f"{col_label(grid.x[col])}-{col_label(grid.x[end])}"
-                    )
-                attrs = (
-                    f' class="hit" data-label="{esc(", ".join(where))}" '
-                    f'data-value="{esc(span)} {esc(grid.units)}"'
-                )
-            plot.add(
-                f'<rect x="{min(x0, x1):.1f}" y="{top:.1f}" '
-                f'width="{max(abs(x1 - x0), 0.6):.1f}" height="{max(height, 0.6):.1f}" '
-                f'fill="var(--{ramp.prefix}{klass})"{attrs} shape-rendering="crispEdges"/>'
-            )
+            left, right = sorted((round(plot.sx(x_edges[col][0]), 1),
+                                  round(plot.sx(x_edges[end][1]), 1)))
+            width = max(right - left, 0.6) + SEAM
+            paths.setdefault(klass, []).append(
+                f"M{left:.1f} {top:.1f}h{width:.1f}v{height:.1f}h-{width:.1f}z")
             drawn += 1
             col = end + 1
+    for klass in sorted(paths):
+        plot.add(f'<path d="{"".join(paths[klass])}" '
+                 f'fill="var(--{ramp.prefix}{klass})"/>')
+    if hover:
+        _draw_hits(plot, grid, x_edges, y_edges, fmt, row_label, col_label)
     plot.add("</g>")
     return drawn
+
+
+def _draw_hits(plot: Plot, grid: Field, x_edges, y_edges, fmt,
+               row_label, col_label) -> None:
+    """Transparent hit areas over the field, pooled to a usable size.
+
+    A block reports the range of the cells under it rather than one cell's
+    value, which is the honest reading of an area: the tooltip says "-0.3 to
+    +0.1" where the field is not uniform, and a single number where it is.
+    """
+    cell_w = abs(plot.sx(x_edges[0][1]) - plot.sx(x_edges[0][0])) or 1.0
+    cell_h = abs(plot.sy(y_edges[0][1]) - plot.sy(y_edges[0][0])) or 1.0
+    block_x = max(1, math.ceil(HIT_MIN_PX / cell_w))
+    block_y = max(1, math.ceil(HIT_MIN_PX / cell_h))
+    for row in range(0, grid.rows, block_y):
+        row_end = min(row + block_y, grid.rows) - 1
+        for col in range(0, grid.cols, block_x):
+            col_end = min(col + block_x, grid.cols) - 1
+            seen = [grid.values[r][c]
+                    for r in range(row, row_end + 1)
+                    for c in range(col, col_end + 1)
+                    if grid.values[r][c] is not None]
+            if not seen:
+                continue
+            low, high = min(seen), max(seen)
+            span = (fmt.format(low) if low == high
+                    else f"{fmt.format(low)} to {fmt.format(high)}")
+            where = []
+            if row_label:
+                where.append(_span_label(
+                    row_label(grid.y[row], row),
+                    row_label(grid.y[row_end], row_end)))
+            if col_label:
+                where.append(_span_label(col_label(grid.x[col]),
+                                         col_label(grid.x[col_end])))
+            y0 = plot.sy(y_edges[row][0])
+            y1 = plot.sy(y_edges[row_end][1])
+            x0 = plot.sx(x_edges[col][0])
+            x1 = plot.sx(x_edges[col_end][1])
+            plot.add(
+                f'<rect x="{min(x0, x1):.1f}" y="{min(y0, y1):.1f}" '
+                f'width="{max(abs(x1 - x0), 1.0):.1f}" '
+                f'height="{max(abs(y1 - y0), 1.0):.1f}" fill="transparent" '
+                f'class="hit" data-label="{esc(", ".join(where))}" '
+                f'data-value="{esc(span)} {esc(grid.units)}"/>'
+            )
+
+
+def _span_label(first: str, last: str) -> str:
+    return first if first == last else f"{first}-{last}"
 
 
 def draw_contour(plot: Plot, grid: Field, level: float, width: float = 2.0,
@@ -377,8 +478,19 @@ def field_table(grid: Field, caption: str, fmt: str = "{:+.2f}",
 
     note = ""
     if row_step > 1 or col_step > 1:
-        note = f" (every {row_step} by {col_step} cell)"
+        along = {"time": "time step", "depth": "depth"}.get(grid.y_name, "latitude")
+        note = (f" ({_every(row_step, along)} and "
+                f"{_every(col_step, 'longitude')} of the grid)")
     return table(f"{caption}{note}", headers, body)
+
+
+def _every(step: int, what: str) -> str:
+    """"every latitude", "every 2nd time step", "every 90th longitude"."""
+    if step == 1:
+        return f"every {what}"
+    suffix = ("th" if 10 <= step % 100 <= 20
+              else {1: "st", 2: "nd", 3: "rd"}.get(step % 10, "th"))
+    return f"every {step}{suffix} {what}"
 
 
 # --- panels -----------------------------------------------------------------
@@ -418,6 +530,19 @@ def _hov_time_axis(plot: Plot, grid: Field) -> None:
         )
 
 
+def _sampling(grid: Field) -> str:
+    """How much of OISST's quarter-degree grid a field carries, in words.
+
+    Read off the grid itself, because the words were typed in once and the
+    request changed under them: the global map said "two and a half degrees"
+    of a request for every quarter-degree point.
+    """
+    spacing = abs(grid.x[1] - grid.x[0]) if len(grid.x) > 1 else 0.0
+    return {0.25: "the full", 0.5: "a half-degree sample of the",
+            1.0: "a one-degree sample of the"}.get(
+        round(spacing, 2), f"a {spacing:g}-degree sample of the")
+
+
 def sst_map(grid: Field, box_means: dict[str, float],
             warm_pool: float | None) -> str:
     """Tropical Pacific SST anomaly, with the Nino boxes drawn where they are.
@@ -430,7 +555,7 @@ def sst_map(grid: Field, box_means: dict[str, float],
     """
     lon_min, lon_max = grid.x[0], grid.x[-1]
     lat_min, lat_max = grid.y[0], grid.y[-1]
-    plot = Plot(880, 372, (14, 16, 26, 44))
+    plot = map_plot(880, (14, 16, 26, 44), lon_max - lon_min, lat_max - lat_min)
     plot.domain(lon_min, lon_max, lat_min, lat_max)
 
     low, high = grid.robust_span()
@@ -473,32 +598,33 @@ def sst_map(grid: Field, box_means: dict[str, float],
         )
         plot.add(
             f'<text x="{x - 6:.1f}" y="{plot.top + 14:.1f}" text-anchor="end" '
-            f'class="pointlabel" fill="var(--s3)">28 C edge {esc(lon_name(warm_pool))}</text>'
+            f'class="pointlabel">28 °C edge {esc(lon_name(warm_pool))}</text>'
         )
 
     lon_axis(plot, lon_min, lon_max, 20.0)
     lat_axis(plot, lat_min, lat_max, 10.0)
     frame(plot)
 
+    sample = _sampling(grid)
     edge_line = ""
     if warm_pool is not None:
         edge_line = (
-            f" The eastern edge of the 28 C warm pool on the equator sits at "
+            f" The eastern edge of the 28 °C warm pool on the equator sits at "
             f"<strong>{esc(lon_name(warm_pool))}</strong>; in a neutral year it is "
             f"near 180."
         )
     return f"""<section class="card">
   <h2>Where the anomaly actually is</h2>
   <p class="caption">Daily OISST v2.1 sea-surface temperature anomaly for
-    {esc(grid.as_of)}, on a one-degree sample of the quarter-degree analysis. The four
+    {esc(grid.as_of)}, on {sample} quarter-degree analysis. The four
     Nino boxes are drawn in their real positions with their area-weighted means, so the
     shape of the anomaly can be compared against the index it produces.{edge_line}</p>
-  {ramp.bar('degrees C', 'SST anomaly')}
+  {ramp.bar('°C', 'SST anomaly')}
   <div class="chart wide">{plot.svg(
       'Tropical Pacific sea surface temperature anomaly map',
       'Map of the tropical Pacific shaded by sea surface temperature anomaly, with '
       'coastlines and the four Nino index boxes marked.')}</div>
-  {field_table(grid, 'SST anomaly by latitude and longitude, degrees C')}
+  {field_table(grid, 'SST anomaly by latitude and longitude, °C')}
 </section>"""
 
 
@@ -506,7 +632,7 @@ def global_map(grid: Field) -> str:
     """The rest of the world, because ENSO is not only a Pacific event."""
     lon_min, lon_max = grid.x[0], grid.x[-1]
     lat_min, lat_max = grid.y[0], grid.y[-1]
-    plot = Plot(880, 420, (10, 14, 26, 40))
+    plot = map_plot(880, (10, 14, 26, 40), lon_max - lon_min, lat_max - lat_min)
     plot.domain(lon_min, lon_max, lat_min, lat_max)
 
     low, high = grid.robust_span()
@@ -519,20 +645,21 @@ def global_map(grid: Field) -> str:
 
     return f"""<section class="card">
   <h2>The same day, worldwide</h2>
-  <p class="caption">Global SST anomaly for {esc(grid.as_of)} at two and a half degrees.
-    Context for the Pacific map above: the Indian Ocean and tropical Atlantic states
-    modify the atmospheric response, and a basin-wide warm background is the reason the
-    relative ONI exists at all.</p>
-  {ramp.bar('degrees C', 'SST anomaly')}
+  <p class="caption">Global SST anomaly for {esc(grid.as_of)}, on
+    {_sampling(grid)} quarter-degree analysis. Context for the Pacific map
+    above: the Indian Ocean and tropical Atlantic states modify the atmospheric
+    response, and a basin-wide warm background is the reason the relative ONI
+    exists at all.</p>
+  {ramp.bar('°C', 'SST anomaly')}
   <div class="chart wide">{plot.svg(
       'Global sea surface temperature anomaly map',
       'World map shaded by sea surface temperature anomaly for the latest available day.')}</div>
-  {field_table(grid, 'global SST anomaly, degrees C', max_rows=18, max_cols=16)}
+  {field_table(grid, 'global SST anomaly, °C', max_rows=18, max_cols=16)}
 </section>"""
 
 
 def hovmoller(grid: Field, title: str, caption: str, diverging: bool = True,
-              fmt: str = "{:+.2f}", units: str = "degrees C",
+              fmt: str = "{:+.2f}", units: str = "°C",
               ramp_caption: str = "anomaly", extra: str = "") -> str:
     """Time down, longitude across: how the anomaly moved.
 
@@ -575,7 +702,7 @@ def section(grid: Field, absolute: Field | None, title: str) -> str:
     """Depth against longitude on the equator: the thermocline itself.
 
     This is the one picture that shows the mechanism rather than its symptom.
-    In a neutral Pacific the 20 C isotherm sits near 150 m in the west and 50 m
+    In a neutral Pacific the 20 °C isotherm sits near 150 m in the west and 50 m
     in the east; the flattening of that slope *is* El Nino, and the surface
     warming follows from it.
     """
@@ -608,7 +735,7 @@ def section(grid: Field, absolute: Field | None, title: str) -> str:
     frame(plot)
 
     ramp_bar = ramp.bar(
-        "degrees C",
+        "°C",
         "temperature anomaly" if diverging else "temperature",
         fmt="{:+.1f}" if diverging else "{:.0f}",
     )
@@ -616,7 +743,7 @@ def section(grid: Field, absolute: Field | None, title: str) -> str:
     if absolute is not None:
         legend = (
             '<div class="legend"><span class="key">'
-            '<span class="swatch swatch-line"></span>20 C isotherm</span></div>'
+            '<span class="swatch swatch-line"></span>20 °C isotherm</span></div>'
         )
     return f"""<div>
   {ramp_bar}{legend}
@@ -654,7 +781,7 @@ def hov_card(state) -> str:
     if state.iso_hov_anomaly is not None:
         panels.append(hovmoller(
             state.iso_hov_anomaly,
-            "20 C isotherm depth anomaly, time by longitude",
+            "20 °C isotherm depth anomaly, time by longitude",
             "Hovmoller diagram of the depth anomaly of the 20 degree isotherm on the "
             "equator. A downwelling Kelvin wave appears as a band sloping to the right.",
             fmt="{:+.0f}", units="m", ramp_caption="thermocline anomaly",
@@ -675,8 +802,8 @@ def hov_card(state) -> str:
 
     tables = []
     for grid, caption in (
-        (state.sst_hov, "equatorial SST anomaly, degrees C"),
-        (state.iso_hov_anomaly, "20 C isotherm depth anomaly, m"),
+        (state.sst_hov, "equatorial SST anomaly, °C"),
+        (state.iso_hov_anomaly, "20 °C isotherm depth anomaly, m"),
         (state.ssh_hov, "sea surface height anomaly, m"),
     ):
         if grid is not None:
@@ -717,7 +844,7 @@ def section_card(state) -> str:
     if measured is not None:
         drop, west, east = measured
         tilt = (
-            f" The 20 C isotherm averages {west:.0f} m across the two westernmost "
+            f" The 20 °C isotherm averages {west:.0f} m across the two westernmost "
             f"moorings and {east:.0f} m across the two easternmost, a tilt of "
             f"<strong>{drop:.0f} m</strong> across the basin. A neutral Pacific runs "
             f"near 100 m of tilt and a mature El Nino flattens it."
@@ -729,12 +856,12 @@ def section_card(state) -> str:
   <p class="caption">Equatorial Pacific temperature against depth, {esc(state.section.as_of)},
     from the TAO/TRITON moorings. This is the mechanism rather than the symptom: the
     surface warming that the indices measure is what happens after this slope
-    relaxes.{tilt} The heavy line is the 20 C isotherm, the conventional marker for the
+    relaxes.{tilt} The heavy line is the 20 °C isotherm, the conventional marker for the
     centre of the thermocline.</p>
   <div class="twoup">{''.join(panels)}</div>
-  {field_table(state.section, 'equatorial temperature by depth and longitude, degrees C',
+  {field_table(state.section, 'equatorial temperature by depth and longitude, °C',
                fmt='{:.1f}', max_rows=16, max_cols=12)}
-  {table('20 C isotherm depth by mooring', ['longitude', 'depth (m)'], rows)}
+  {table('20 °C isotherm depth by mooring', ['longitude', 'depth (m)'], rows)}
 </section>"""
 
 
@@ -745,7 +872,7 @@ def ssh_card(state) -> str:
     grid = state.ssh_map
     lon_min, lon_max = grid.x[0], grid.x[-1]
     lat_min, lat_max = grid.y[0], grid.y[-1]
-    plot = Plot(880, 330, (14, 16, 26, 44))
+    plot = map_plot(880, (14, 16, 26, 44), lon_max - lon_min, lat_max - lat_min)
     plot.domain(lon_min, lon_max, lat_min, lat_max)
     low, high = grid.robust_span()
     ramp = Ramp("d", 11, low, high, diverging=True)

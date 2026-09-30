@@ -25,9 +25,15 @@ labels on the values that matter, a hover layer, and a table view twin.
 from __future__ import annotations
 
 from .alerts import CRITICAL, INFO, WARNING, WATCH
-from .svg import Plot, _hit, _legend, esc, nice_ticks, table
+from .forecast import weights_text
+from .impacts import flavour_words
+from .svg import (Plot, _hit, _legend, boxes_clear, crosses, esc,
+                  label_box, nice_ticks, prose, table, tick_text)
 
 PHASE_MONTHS = 48
+# The forecast band is the mean's hue at this strength, and its legend key is
+# mixed to match: two solid squares of one orange told the reader nothing.
+BAND_OPACITY = 0.16
 SPARK_MONTHS = 180
 
 
@@ -90,11 +96,21 @@ def chart_phase(state) -> str:
         )
 
     # Year ticks along the trail, so the loop can be read as a clock. The
-    # January dot is always drawn; its label is dropped where it would land on
-    # the "now" marker or on another year, since a collided label reads as
-    # neither year rather than as both.
+    # January dot is always drawn; its label goes in the first of eight
+    # places around it that the trail does not run through and that clears
+    # the "now" marker, the other years and the quadrant names. A label with
+    # no such place is dropped - its dot and hover stay - because a year
+    # written across the line reads as a kink in the data. On 24 September
+    # 2026 every year went up and to the right of its dot, and the trail ran
+    # through all four.
     current_x, current_y = points[-1]
-    placed: list[tuple[float, float]] = [(current_x, current_y - 15)]
+    trail = [(*points[i - 1], *points[i]) for i in range(1, len(points))]
+    axes = [(plot.sx(-limit), plot.sy(0), plot.sx(limit), plot.sy(0)),
+            (plot.sx(0), plot.sy(-limit), plot.sx(0), plot.sy(limit))]
+    taken = [label_box(current_x, current_y - 15, "now", 11.5, "middle"),
+             (current_x - 10, current_y - 10, current_x + 10, current_y + 10)]
+    taken += [label_box(plot.sx(qx), plot.sy(qy), label, 11.0, anchor)
+              for qx, qy, label, anchor in quadrants]
     seen: set[int] = set()
     for point, (x, y) in zip(track, points):
         if point.when.year in seen or point.when.month != 1:
@@ -104,13 +120,23 @@ def chart_phase(state) -> str:
             f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="var(--surface)" '
             f'stroke="var(--s1)" stroke-width="2"/>'
         )
-        label_x, label_y = x + 7, y - 6
-        if any(abs(label_x - px) < 30 and abs(label_y - py) < 13 for px, py in placed):
-            continue
-        placed.append((label_x, label_y))
-        plot.add(
-            f'<text x="{label_x:.1f}" y="{label_y:.1f}" class="tiny">{point.when.year}</text>'
-        )
+        text = str(point.when.year)
+        for lx, ly, anchor in ((x + 7, y + 3.5, "start"), (x - 7, y + 3.5, "end"),
+                               (x, y - 7, "middle"), (x, y + 13, "middle"),
+                               (x + 6, y - 6, "start"), (x - 6, y - 6, "end"),
+                               (x + 6, y + 12, "start"), (x - 6, y + 12, "end")):
+            box = label_box(lx, ly, text, 10.0, anchor)
+            inside = (plot.left <= box[0] and box[2] <= plot.left + plot.plot_w
+                      and plot.top <= box[1] and box[3] <= plot.top + plot.plot_h)
+            if (inside and boxes_clear(box, taken)
+                    and not any(crosses(box, seg, 1.5) for seg in trail + axes)):
+                taken.append(box)
+                anchor_attr = "" if anchor == "start" else f' text-anchor="{anchor}"'
+                plot.add(
+                    f'<text x="{lx:.1f}" y="{ly:.1f}"{anchor_attr} '
+                    f'class="tiny">{text}</text>'
+                )
+                break
 
 
     plot.add(
@@ -142,9 +168,9 @@ def chart_phase(state) -> str:
             continue
         plot.add(
             f'<text x="{plot.sx(tick):.1f}" y="{plot.sy(0) + 15:.1f}" text-anchor="middle" '
-            f'class="tick">{tick:+.0f}</text>'
+            f'class="tick">{tick_text(tick, "{:+.0f}")}</text>'
             f'<text x="{plot.sx(0) - 8:.1f}" y="{plot.sy(tick) + 4:.1f}" text-anchor="end" '
-            f'class="tick">{tick:+.0f}</text>'
+            f'class="tick">{tick_text(tick, "{:+.0f}")}</text>'
         )
 
     rows = [
@@ -169,8 +195,8 @@ def chart_phase(state) -> str:
     <span class="phasenote">{esc(sub.phase_note)}{esc(confidence)}</span>
   </div>
   {table(f'phase-space trajectory ({len(track)} months, newest first)',
-         ['month', 'Nino-3.4 (degC)', 'Nino-3.4 (sigma)',
-          'WWV (10^14 m3)', 'WWV (sigma)'], rows)}
+         ['month', 'Nino-3.4 (°C)', 'Nino-3.4 (σ)',
+          'WWV (10¹⁴ m³)', 'WWV (σ)'], rows)}
 </section>"""
 
 
@@ -203,7 +229,7 @@ def chart_heat(state) -> str:
                 f'<line x1="{plot.left:.1f}" y1="{y:.1f}" x2="{plot.left + plot.plot_w:.1f}" '
                 f'y2="{y:.1f}" stroke="{stroke}" stroke-width="1"/>'
                 f'<text x="{plot.left - 8:.1f}" y="{y + 4:.1f}" text-anchor="end" '
-                f'class="tick">{esc(fmt.format(tick))}</text>'
+                f'class="tick">{esc(tick_text(tick, fmt))}</text>'
             )
         pts = [(plot.sx(i), sy(v)) for i, v in enumerate(values)]
         plot.add(
@@ -262,7 +288,7 @@ def chart_heat(state) -> str:
       'Two stacked line charts sharing a time axis: equatorial warm water volume anomaly '
       'above, Nino-3.4 sea surface temperature anomaly below.')}</div>
   {table('warm water volume and Nino-3.4 (most recent 36 months)',
-         ['month', 'WWV anomaly (10^14 m3)', 'Nino-3.4 (degC)'], rows)}
+         ['month', 'WWV anomaly (10¹⁴ m³)', 'Nino-3.4 (°C)'], rows)}
 </section>"""
 
 
@@ -293,11 +319,12 @@ def _declutter(
 
 def chart_forecast(state) -> str:
     forecast = state.forecast
-    oni = state.series.get("oni") or []
-    if not forecast or not forecast.projections or len(oni) < 12:
+    observed = state.assessment.index_series
+    index_name = state.assessment.index_name
+    if not forecast or not forecast.projections or len(observed) < 12:
         return ""
 
-    history = oni[-18:]
+    history = observed[-18:]
     projections = forecast.projections
     n_hist = len(history)
     total = n_hist + len(projections)
@@ -344,7 +371,7 @@ def chart_forecast(state) -> str:
     band = _series_path(upper) + " L" + " L".join(
         f"{x:.1f} {y:.1f}" for x, y in reversed(lower)
     ) + " Z"
-    plot.add(f'<path d="{band}" fill="var(--s2)" opacity="0.16" stroke="none"/>')
+    plot.add(f'<path d="{band}" fill="var(--s2)" opacity="{BAND_OPACITY}" stroke="none"/>')
 
     # Analog members, recessive: they are context for the band, not headline
     # series, so they take a muted ink rather than a categorical slot.
@@ -396,7 +423,7 @@ def chart_forecast(state) -> str:
         ))
     for index, value in enumerate(history):
         plot.add(_hit(hist_pts[index][0], hist_pts[index][1], value.label,
-                      f"{value.value:+.2f} °C observed"))
+                      f"{index_name} {value.value:+.2f} °C observed"))
 
     peak = forecast.peak
     if peak:
@@ -423,7 +450,7 @@ def chart_forecast(state) -> str:
     )
 
     probability_rows = "".join(
-        f'<div class="prob"><span class="prob-label">P(peak ≥ {threshold:+.1f} °C)</span>'
+        f'<div class="prob"><span class="prob-label">P({index_name} peak ≥ {threshold:+.1f} °C)</span>'
         f'<span class="prob-track"><span class="prob-fill" style="width:{value * 100:.1f}%">'
         f'</span></span><span class="prob-val">{value * 100:.0f}%</span></div>'
         for threshold, value in sorted(forecast.peak_probability.items())
@@ -435,19 +462,21 @@ def chart_forecast(state) -> str:
            for m in ("analog", "recharge", "persistence")]
         for p in projections
     ]
-    notes = "".join(f"<li>{esc(note)}</li>" for note in forecast.notes)
+    notes = "".join(f"<li>{prose(note)}</li>" for note in forecast.notes)
     return f"""
 <section class="card">
   <h2>Forecast</h2>
   <p class="caption">Three methods &mdash; analog ensemble, a nonlinear recharge oscillator and
-    damped persistence &mdash; combined with weights taken from {esc(forecast.skill_source)}.
-    The shaded fan is the 10th to 90th percentile; it is wide because the verification says
-    it should be.</p>
-  {_legend([('Observed ONI', 'var(--s1)'), ('Ensemble mean', 'var(--s2)'),
-            ('80% range', 'var(--s2)'), ('Analog members', 'var(--muted)')])}
+    damped persistence &mdash; forecasting {esc(index_name)}, combined with weights taken from
+    {esc(forecast.skill_source)}{": " + esc(weights_text(forecast.weights)) if forecast.weights else ""}. The shaded fan is the 10th to 90th percentile; it is wide
+    because the verification says it should be. Each probability is that of the likeliest
+    season, on the one-decimal value CPC prints.</p>
+  {_legend([(f'Observed {index_name}', 'var(--s1)'), ('Ensemble mean', 'var(--s2)'),
+            ('80% range', f'color-mix(in srgb, var(--s2) {BAND_OPACITY:.0%}, var(--surface))'),
+            ('Analog members', 'var(--muted)')])}
   <div class="chart">{plot.svg(
       'ENSO forecast fan chart',
-      'Observed Oceanic Nino Index followed by a projected ensemble mean with a shaded '
+      f'Observed {index_name} followed by a projected ensemble mean with a shaded '
       '10th-to-90th-percentile band and individual historical analog tracks.')}</div>
   <div class="probs">{probability_rows}</div>
   {'<ul class="warnlist">' + notes + '</ul>' if notes else ''}
@@ -478,7 +507,7 @@ def chart_walker(state) -> str:
             f'<line x1="{x:.1f}" y1="{plot.top - 6:.1f}" x2="{x:.1f}" '
             f'y2="{height - plot.bottom:.1f}" stroke="{stroke}" stroke-width="1"/>'
             f'<text x="{x:.1f}" y="{plot.top - 12:.1f}" text-anchor="middle" '
-            f'class="tick">{tick:+.0f}σ</text>'
+            f'class="tick">{tick_text(tick, "{:+.0f}σ")}</text>'
         )
     plot.add(
         f'<text x="{plot.sx(-limit * 0.5):.1f}" y="{height - 2:.1f}" text-anchor="middle" '
@@ -521,7 +550,7 @@ def chart_walker(state) -> str:
             f'<rect class="hit" x="{plot.left:.1f}" y="{y:.1f}" '
             f'width="{plot.plot_w:.1f}" height="{row_h}" fill="transparent" tabindex="0" '
             f'data-label="{esc(indicator.name)} ({esc(indicator.label)})" '
-            f'data-value="{indicator.score:+.2f} sigma  ·  raw {indicator.raw:+.2f}" '
+            f'data-value="{indicator.score:+.2f}σ  ·  raw {indicator.raw:+.2f}" '
             f'data-extra="{esc(indicator.meaning)}"></rect>'
         )
 
@@ -571,7 +600,7 @@ def chart_skill(state) -> str:
     plot.domain(-0.6, len(leads) - 0.4, 0, top)
     plot.gridlines(nice_ticks(0, top, 5), "{:.1f}")
     plot.add(
-        '<text x="0" y="13" class="panellabel">Error by lead &mdash; RMSE, degrees C '
+        '<text x="0" y="13" class="panellabel">Error by lead &mdash; RMSE, °C '
         '(lower is better)</text>'
     )
 
@@ -632,7 +661,7 @@ def chart_skill(state) -> str:
             f'height="{season_plot.plot_h:.1f}" fill="transparent" tabindex="0" '
             f'data-label="Forecasting {esc(season)}" '
             f'data-value="correlation {acc:.2f} at 6 months lead" '
-            f'data-extra="{"inside the spring predictability barrier" if barrier else ""}">'
+            f'data-extra="{"within 0.05 of the weakest target season" if barrier else ""}">'
             f'</rect>'
         )
     threshold_y = season_plot.sy(0.5)
@@ -645,24 +674,38 @@ def chart_skill(state) -> str:
         f'class="tiny">useful-skill threshold</text>'
     )
 
+    # Every method the forecast weights, in the forecast table's order; a
+    # method with too few forecasts at a lead to score has no score.
     lead_rows = [
-        [f"+{s.lead}", f"{s.rmse:.2f}", f"{s.acc:.2f}", f"{s.bias:+.2f}", str(s.count),
-         f"{s.by_method.get('persistence', float('nan')):.2f}",
-         f"{s.by_method.get('recharge', float('nan')):.2f}",
-         "yes" if s.useful else "no"]
+        [f"+{s.lead}", f"{s.rmse:.2f}", f"{s.acc:.2f}", f"{s.bias:+.2f}", str(s.count)]
+        + [f"{s.by_method[m]:.2f}" if m in s.by_method else "\u2014"
+           for m in ("analog", "recharge", "persistence")]
+        + ["yes" if s.useful else "no"]
         for s in leads
     ]
+    months = f"{skill.horizon} month{'' if skill.horizon == 1 else 's'}"
+    lost = skill.lost_at()
+    if lost is None:
+        horizon = (f"Useful horizon <strong>at least {months}</strong>, the longest "
+                   f"lead scored.")
+    elif not skill.horizon:
+        horizon = (f"No useful horizon: correlation is {lost.acc:.2f} at "
+                   f"+{lost.lead}, below 0.5.")
+    else:
+        horizon = (f"Useful horizon <strong>{months}</strong>; correlation falls "
+                   f"below 0.5 at +{lost.lead}.")
     season_rows = [[season, f"{acc:.2f}",
-                    "barrier" if season in skill.barrier_seasons else ""]
+                    "within 0.05 of the weakest" if season in skill.barrier_seasons
+                    else ""]
                    for season, acc in seasons]
     return f"""
 <section class="card">
   <h2>How much is that forecast worth?</h2>
   <p class="caption">Hindcast across {skill.sample_years} years with the verification year held
-    out of every fit, so none of this is in-sample. Useful horizon
-    <strong>{skill.horizon} months</strong>. The right-hand panel is the spring predictability
-    barrier as measured here, not as asserted from the literature: forecasts that must cross
-    boreal spring lose {skill.barrier_drop:.2f} of correlation.</p>
+    out of every fit, so none of this is in-sample. {horizon} The right-hand panel is the spring predictability
+    barrier as measured here, not as asserted from the literature: its weakest target
+    seasons, {esc(", ".join(skill.barrier_seasons))}, score {skill.barrier_drop:.2f} of
+    correlation below the best.</p>
   <div class="twoup">
     <div>
       {_legend([('Inside the useful horizon', 'var(--s1)'),
@@ -673,8 +716,8 @@ def chart_skill(state) -> str:
           'months; error grows with lead.')}</div>
     </div>
     <div>
-      {_legend([('Clear of boreal spring', 'var(--s1)'),
-                ('Inside the spring barrier', 'var(--s2)')])}
+      {_legend([('Other target seasons', 'var(--s1)'),
+                ('Within 0.05 of the weakest', 'var(--s2)')])}
       <div class="chart">{season_plot.svg(
           'Forecast correlation by target season',
           'Bar chart of anomaly correlation at six months lead for each target season, '
@@ -682,8 +725,8 @@ def chart_skill(state) -> str:
     </div>
   </div>
   {table('verification by lead',
-         ['lead', 'RMSE (degC)', 'correlation', 'bias', 'forecasts scored',
-          'persistence RMSE', 'recharge RMSE', 'useful'], lead_rows)}
+         ['lead', 'RMSE (°C)', 'correlation', 'bias', 'forecasts scored',
+          'analog RMSE', 'recharge RMSE', 'persistence RMSE', 'useful'], lead_rows)}
   {table('correlation at 6-month lead by target season',
          ['target season', 'correlation', 'note'], season_rows)}
 </section>"""
@@ -716,7 +759,9 @@ def alert_feed(state) -> str:
     for alert in alert_set.alerts:
         status = _ALERT_STATUS.get(alert.level, "good")
         icon = _ICON_ALARM if status in ("critical", "serious") else _ICON_DOT
-        new = '<span class="chip chip-new">new</span>' if alert.is_new else ""
+        new = ('<span class="chip chip-new">new</span>' if alert.is_new
+               else f'<span class="chip chip-new">up from {esc(alert.escalated_from)}</span>'
+               if alert.escalated_from else "")
         since = (
             f'<span class="alert-since">standing since {esc(alert.first_seen[:10])}</span>'
             if alert.first_seen and not alert.is_new else ""
@@ -724,14 +769,16 @@ def alert_feed(state) -> str:
         items.append(
             f'<li class="alert" data-status="{status}">'
             f'<span class="alert-level">{icon}<span>{esc(alert.level)}</span></span>'
-            f'<div class="alert-body"><div class="alert-title">{esc(alert.title)}{new}</div>'
-            f'<p>{esc(alert.detail)}</p>{since}</div></li>'
+            f'<div class="alert-body"><div class="alert-title">{prose(alert.title)}{new}</div>'
+            f'<p>{prose(alert.detail)}</p>{since}</div></li>'
         )
     cleared = (
-        f'<p class="note">Cleared this run: {esc(", ".join(alert_set.cleared))}</p>'
+        f'<p class="note">Cleared this run: {prose(", ".join(alert_set.cleared))}</p>'
         if alert_set.cleared else ""
     )
-    rows = [[a.level, a.title, a.kind, "new" if a.is_new else "standing",
+    rows = [[a.level, a.title, a.kind,
+             "new" if a.is_new else
+             f"up from {a.escalated_from}" if a.escalated_from else "standing",
              (a.first_seen or "")[:19]] for a in alert_set.alerts]
     return f"""
 <section class="card">
@@ -784,12 +831,18 @@ def impact_panel(state) -> str:
 
     watch = ""
     if assessment.watch:
+        def condition(item) -> str:
+            if item.needs is None:
+                return "contested: rated possible at most, however strong the event"
+            return (f"joins the outlook at a {assessment.index_name} peak of about "
+                    f"{item.needs:+.1f} &deg;C")
         entries = "".join(
             f'<li>{esc(i.link.region)} &mdash; {esc(i.link.effect)} '
-            f'<span class="tiny">(needs ONI about {i.link.min_intensity:+.1f} &deg;C)</span></li>'
+            f'<span class="tiny">({condition(i)})</span></li>'
             for i in assessment.watch
         )
-        watch = f'<div class="impact-watch"><h3>On watch</h3><ul>{entries}</ul></div>'
+        watch = (f'<div class="impact-watch"><h3>On watch &mdash; below the outlook&rsquo;s '
+                 f'bar at this peak</h3><ul>{entries}</ul></div>')
 
     rows = [
         [i.link.area, i.link.region, i.link.effect, i.link.window,
@@ -797,18 +850,21 @@ def impact_panel(state) -> str:
          i.link.flavour]
         for i in assessment.active
     ]
-    notes = "".join(f"<p>{esc(note)}</p>" for note in assessment.notes)
+    notes = "".join(f"<p>{prose(note)}</p>" for note in assessment.notes)
+    structure = flavour_words(assessment.flavour)
+    article = "an" if structure[:1].lower() in "aeiou" else "a"
     return f"""
 <section class="card">
   <h2>Hazard outlook</h2>
   <div class="disclaimer">{notes}</div>
-  <p class="caption">Shifted odds from historical composites for a projected peak of
-    <strong>{assessment.peak_oni:+.2f} &deg;C</strong> with a {esc(assessment.flavour)} structure.
+  <p class="caption">Shifted odds from historical composites for a projected
+    {esc(assessment.index_name)} peak of <strong>{assessment.peak_index:+.2f} &deg;C</strong>
+    with {article} {esc(structure)} structure.
     Not a forecast of any individual season, and not a substitute for your national
     meteorological service.</p>
   {''.join(groups)}
   {watch}
   {table('hazard outlook',
          ['area', 'region', 'effect', 'window', 'likelihood', 'confidence',
-          'ONI threshold', 'flavour'], rows)}
+          f'{assessment.index_name} threshold', 'flavour'], rows)}
 </section>"""
