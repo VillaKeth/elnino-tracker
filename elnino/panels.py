@@ -180,7 +180,7 @@ def chart_phase(state) -> str:
     ]
     confidence = "" if sub.phase_confident else " (close to a boundary, so read it as indicative)"
     return f"""
-<section class="card">
+<section class="card" id="recharge">
   <h2>Recharge oscillator &mdash; where the event sits on its own cycle</h2>
   <p class="caption">Last {len(track)} months of Nino-3.4 against equatorial warm water volume,
     both as standard deviations. The system circles this plane <strong>clockwise</strong>:
@@ -277,7 +277,7 @@ def chart_heat(state) -> str:
         for p in reversed(track[-36:])
     ]
     return f"""
-<section class="card">
+<section class="card" id="heat-content">
   <h2>Heat content leads the surface</h2>
   <p class="caption">Two panels on one shared time axis &mdash; deliberately not two y axes on
     one panel, which would let the choice of scales manufacture any apparent lead you like.
@@ -464,7 +464,7 @@ def chart_forecast(state) -> str:
     ]
     notes = "".join(f"<li>{prose(note)}</li>" for note in forecast.notes)
     return f"""
-<section class="card">
+<section class="card" id="forecast">
   <h2>Forecast</h2>
   <p class="caption">Three methods &mdash; analog ensemble, a nonlinear recharge oscillator and
     damped persistence &mdash; forecasting {esc(index_name)}, combined with weights taken from
@@ -565,7 +565,7 @@ def chart_walker(state) -> str:
     )
     coupled = "Coupled" if atmosphere.coupled else "Not yet coupled"
     return f"""
-<section class="card">
+<section class="card" id="walker">
   <h2>Is the atmosphere coupled to the ocean?</h2>
   <p class="caption">Every index is re-signed so that <strong>positive means El Ni&ntilde;o-like</strong>,
     whatever its native convention, and standardised against its own calendar month.
@@ -699,7 +699,7 @@ def chart_skill(state) -> str:
                     else ""]
                    for season, acc in seasons]
     return f"""
-<section class="card">
+<section class="card" id="skill">
   <h2>How much is that forecast worth?</h2>
   <p class="caption">Hindcast across {skill.sample_years} years with the verification year held
     out of every fit, so none of this is in-sample. {horizon} The right-hand panel is the spring predictability
@@ -781,7 +781,7 @@ def alert_feed(state) -> str:
              f"up from {a.escalated_from}" if a.escalated_from else "standing",
              (a.first_seen or "")[:19]] for a in alert_set.alerts]
     return f"""
-<section class="card">
+<section class="card" id="alerts">
   <h2>Alerts</h2>
   <p class="caption">Raised against thresholds and against the previous run held in the local
     database, so an alert fires once when the condition appears and clears itself when it
@@ -854,7 +854,7 @@ def impact_panel(state) -> str:
     structure = flavour_words(assessment.flavour)
     article = "an" if structure[:1].lower() in "aeiou" else "a"
     return f"""
-<section class="card">
+<section class="card" id="hazards">
   <h2>Hazard outlook</h2>
   <div class="disclaimer">{notes}</div>
   <p class="caption">Shifted odds from historical composites for a projected

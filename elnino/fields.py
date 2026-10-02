@@ -613,7 +613,7 @@ def sst_map(grid: Field, box_means: dict[str, float],
             f"<strong>{esc(lon_name(warm_pool))}</strong>; in a neutral year it is "
             f"near 180."
         )
-    return f"""<section class="card">
+    return f"""<section class="card" id="sst-map">
   <h2>Where the anomaly actually is</h2>
   <p class="caption">Daily OISST v2.1 sea-surface temperature anomaly for
     {esc(grid.as_of)}, on {sample} quarter-degree analysis. The four
@@ -643,7 +643,7 @@ def global_map(grid: Field) -> str:
     lat_axis(plot, lat_min, lat_max, 20.0)
     frame(plot)
 
-    return f"""<section class="card">
+    return f"""<section class="card" id="global-map">
   <h2>The same day, worldwide</h2>
   <p class="caption">Global SST anomaly for {esc(grid.as_of)}, on
     {_sampling(grid)} quarter-degree analysis. Context for the Pacific map
@@ -810,7 +810,7 @@ def hov_card(state) -> str:
             fmt = "{:+.0f}" if grid.units == "m" and "isotherm" in grid.label else "{:+.2f}"
             tables.append(field_table(grid, caption, fmt=fmt, max_rows=17, max_cols=10))
 
-    return f"""<section class="card">
+    return f"""<section class="card" id="hovmoller">
   <h2>How the anomaly moved</h2>
   <p class="caption">Time runs downward, longitude across, so anything travelling east
     leans to the right as you read down. These are three independent instruments
@@ -851,7 +851,7 @@ def section_card(state) -> str:
         )
 
     rows = [[k, f"{v:.0f}"] for k, v in known.items()]
-    return f"""<section class="card">
+    return f"""<section class="card" id="cross-section">
   <h2>The thermocline in cross-section</h2>
   <p class="caption">Equatorial Pacific temperature against depth, {esc(state.section.as_of)},
     from the TAO/TRITON moorings. This is the mechanism rather than the symptom: the
@@ -884,7 +884,7 @@ def ssh_card(state) -> str:
     frame(plot)
 
     chip = _stale_chip(state, "ssh_map", 21)
-    return f"""<section class="card">
+    return f"""<section class="card" id="sea-level">
   <h2>Sea level, which is heat content you can see from orbit</h2>
   <p class="caption">Sea surface height anomaly for {esc(grid.as_of)}. {chip}
     Warm water expands, so height is a direct proxy for the heat stored in the upper

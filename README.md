@@ -8,8 +8,10 @@
 [latest.json](https://villaketh.github.io/elnino-tracker/latest.json) ·
 [storms.json](https://villaketh.github.io/elnino-tracker/storms.json)
 
-Free, no account, nothing to install. The site is one published run of this
-tracker: the dashboard, the storm desk and the map say when that run was.
+Free, no account, nothing to install. The site refreshes itself every hour:
+GitHub runs the tracker and publishes the run, and a page left open takes each
+new run on its own. The dashboard, the storm desk and the map say when their
+run was.
 
 A diagnostic, forecast and impact system for the current El Niño, built on live
 NOAA observations.
@@ -73,7 +75,7 @@ Exit codes are meaningful, so this can be driven from a scheduler:
 
 On Windows, double-click **`update.bat`** to refresh and open the dashboard, or
 **`publish.bat`** to refresh and put the run up as the site (see *Publishing the
-site*).
+site*); `./publish.sh` does the same on Linux or macOS.
 
 ---
 
@@ -1045,9 +1047,12 @@ can read the pages, so use it on one you trust; the first time, Windows may ask
 whether Python may accept connections — allow private networks only. The server
 lists no directories, refuses any `..` in a path however it is spelled, and marks
 every page no-cache, so the browser asks for a newer copy each time. A served page
-also re-reads itself every five minutes and takes up a newer run in place, keeping
-the view, the storm chosen and the place pinned, so a tablet left open follows the
-runs.
+also asks each minute which run the server has (`run.json`) and takes up a newer
+one in place, keeping the view, the part of the panel being read, the storm
+chosen and its tab, the tables opened, the focus and the place pinned, with
+Google's frame in *Here* left as it is, so a tablet left open follows the runs.
+A run that updated code wrote is loaded instead, once the tablet is left alone,
+and the page comes back where it was.
 
 `output/storms.json` (schema 1) is the same content as plain JSON: every live storm
 with its advisory, track, hourly path, cone, watches and warnings, surge areas,
@@ -1291,7 +1296,16 @@ archive is brought to its nearest end, and the bar says so; when an event's two
 dates land on the same image or capture and an older one exists, the left side
 steps back one, and the bar says why. Every date carries the season's words as
 the tracker's own index gives them: "OND 2015, centred on Nov 2015: RONI +2.6,
-very strong El Niño, the 2014-16 episode".
+very strong El Niño, the 2014-16 episode". A new run taken while a place is
+entered (*The live site*) moves sides set from the event menu to that run's
+dates for the event: a year ago against the latest moves on each day, and an
+episode's peak while it is still rising. Dates that stand, the reader's own
+among them, have NASA asked again for their days (the times GIBS lists, and the
+days with a Landsat or Sentinel-2 image at the pin), so the latest is the
+latest; the sides stand as they are meanwhile, words and reading too, until an
+answer moves one, and no answer leaves them. Esri's captures stay as they were
+found. The event menu is written again only when the new run changes it, so one
+open stays open.
 
 Esri's archive is read as Esri's own Wayback app reads it. The release list
 (`waybackconfig.json`) comes first; then the release tilemap
@@ -1474,9 +1488,12 @@ current 1991-2020 base period.
 
 **Update rhythm.** The weekly SST file refreshes Monday; ONI, RONI and the
 monthly indices update early each month; WWV updates monthly; the MJO index is
-daily; the Diagnostic Discussion is issued on the second Thursday. Running more
-often than daily gains nothing, which is why `--watch` refuses intervals under
-15 minutes.
+daily; the Diagnostic Discussion is issued on the second Thursday. For the ENSO
+state alone, running more often than daily gains nothing. The tropical cyclone
+products change faster: advisories every six hours with intermediates between,
+outlooks four times a day, JTWC's warnings six-hourly. That is why the site runs
+every hour (*The live site*); `--watch` refuses only intervals under 15 minutes,
+which would be load on NOAA for nothing new.
 
 If a feed is unreachable the tracker falls back to the last cached copy and says
 so, in the report, in the dashboard's provenance panel, and in the exit code
@@ -1506,6 +1523,8 @@ Every run is written to `data/elnino.db` (SQLite, stdlib):
 ```
 track.py                 CLI entry point, exit codes, watch loop, storm desk server
 publish.py               puts output/ up as the site on GitHub Pages, under the site's name
+publish.sh               runs the tracker, then publishes the run: what the hourly run calls
+.github/workflows/       live.yml, the hourly run that keeps the site live; tests.yml
 elnino/sources.py        43-feed registry, parallel fetch, retry, cache + archive
 elnino/parsers.py        one parser per NOAA format, each with its quirks documented
 elnino/classify.py       episodes, ranking, scale, flavour, analogs, power index
@@ -1542,16 +1561,17 @@ tools/                   one-off vendoring: composites, coastline, gazetteer, re
 elnino/stormfury.py      the STORMFURY recreation: criteria, momentum, confound
 elnino/storms.py         the three cyclone cards: tracks, season verdict, STORMFURY
 elnino/dashboard.py      self-contained HTML + inline SVG, and the JSON payload
+elnino/live.py           pages that follow the site: run.json, each page's run and code, the follower
 elnino/stormdesk.py      the storm desk: live imagery, products, find, here, close in
 elnino/worldmap.py       the map: street maps, El Nino's composites and tiles, El Nino now,
                          what a point is told, Google on request, the geocoder
 elnino/thennow.py        then and now: its sources, every month's RONI season, the events,
                          the bar, and the script that enters a place and compares two dates
-tests/                   1031 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1165 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
-                         storms.json
+                         storms.json, run.json
 ```
 
 `output/latest.json` (schema 9) is the machine-readable snapshot: classification,
@@ -1593,6 +1613,9 @@ page and data file the run wrote beside it and the data file's own schema.
 it is news, kept apart from `cyclones.notes`, which are problems and make the
 run a degraded one. The storm
 desk's own data file is `output/storms.json`, described in section 12.
+`output/run.json`, written after every other file of a run, names that run and
+nothing else: an open page asks for it to learn whether the site has a newer one
+(*The live site*).
 
 A value that could not be computed is `null` rather than absent, so a consumer
 never has to distinguish "missing" from "not applicable".
@@ -1601,17 +1624,19 @@ never has to distinguish "missing" from "not applicable".
 
 ## Scheduling a daily refresh
 
-Not set up automatically. To have Windows refresh it every morning at 07:30, from a
-Command Prompt (the quoting is cmd's, not PowerShell's):
+The published site needs none of this: GitHub refreshes it every hour (*The live
+site*). On this machine nothing is set up automatically. To have Windows refresh it
+every morning at 07:30, from a Command Prompt (the quoting is cmd's, not
+PowerShell's):
 
 ```bat
 schtasks /create /tn "El Nino Tracker" /tr "\"%LOCALAPPDATA%\Programs\Python\Python310\python.exe\" \"%USERPROFILE%\Desktop\elnino-tracker\track.py\" --quiet" /sc daily /st 07:30
 ```
 
-Adjust the Python path to match `where python`. To keep the published site fresh
+Adjust the Python path to match `where python`. To publish this machine's runs
 as well, have the task run `publish.bat /scheduled` instead, which runs the
 tracker, publishes the run and never waits for a key (`/f` replaces the task
-above):
+above); a run older than the one the site shows is not published over it:
 
 ```bat
 schtasks /create /f /tn "El Nino Tracker" /tr "\"%USERPROFILE%\Desktop\elnino-tracker\publish.bat\" /scheduled" /sc daily /st 07:30
@@ -1624,9 +1649,10 @@ schtasks /create /f /tn "El Nino Tracker" /tr "\"%USERPROFILE%\Desktop\elnino-tr
 ## Publishing the site
 
 The pages are published at **<https://villaketh.github.io/elnino-tracker/>**: the
-dashboard, with the storm desk, the map, the atlas and both JSON files beside it,
-served by GitHub Pages from this repository's `gh-pages` branch. To put the last
-run there:
+dashboard, with the storm desk, the map, the atlas, both JSON files and the run's
+`run.json` beside it, served by GitHub Pages from this repository's `gh-pages`
+branch. GitHub puts each hour's run there (*The live site*); to put this
+machine's last run there:
 
 ```
 python publish.py                 # publish the pages output/ holds now
@@ -1634,7 +1660,8 @@ python publish.py --dry-run       # lay the site out and check it; push nothing
 python publish.py --allow-older   # publish even though the site shows a later run
 ```
 
-or double-click **`publish.bat`**, which runs the tracker and then publishes it. A
+or double-click **`publish.bat`**, which runs the tracker and then publishes it
+(`./publish.sh` is its twin for Linux and macOS, and what the hourly run calls). A
 run with open alerts (exit 1) or failed feeds (exit 3) is published, and its pages
 say so; a run that could not happen publishes nothing. `publish.bat` exits with
 the run's own code once it is published, 2 when the tracker did not run, and 4
@@ -1648,19 +1675,93 @@ in a repository sealed off from this machine's git setup, so no personal address
 hook, signature or ignore rule reaches the public repository. Before anything is
 pushed, the publish refuses a run with a page missing, empty, cut off or
 unreadable; a page naming this machine's home folder in any spelling (either
-slash, any case, %-escaped, with or without the drive); and a run older than the
-one the site already shows, unless `--allow-older` says so. `main` and `master`
-are never published over. The push goes only over HTTPS (an address, or an
-`insteadOf` rewrite, that turns it to SSH or anything else is refused), with the
-credential git has for GitHub (`gh auth setup-git` hands it the GitHub CLI's
-login), so the account `gh auth status` shows must be able to write to the
-repository; without a credential the push fails at once rather than waiting on a
-password prompt. GitHub serves the new pages a minute or two after the push.
+slash, any case, %-escaped, with or without the drive); a page of another run
+than latest.json's, or naming none (each page names its run in its head,
+`storms.json` and `run.json` under keys of their own, all compared as moments),
+so the site is always one run and no open page loads again for a run it can
+never find; and a run older than the one the site already shows, unless
+`--allow-older` says so. `main` and `master` are never published over. The push
+goes only over HTTPS (an address, or an `insteadOf` rewrite, that turns it to SSH
+or anything else is refused), with the credential git has for GitHub
+(`gh auth setup-git` hands it the GitHub CLI's login), so the account
+`gh auth status` shows must be able to write to the repository; without a
+credential the push fails at once rather than waiting on a password prompt.
+GitHub serves the new pages a minute or two after the push.
 
 Served from GitHub, the pages draw everything the local ones do (*Maps, imagery
 and search*, under *Data sources*), OpenStreetMap included, which refuses a page
-opened from a file. The site's data are the run's: the imagery under the storms is
-live, but the storms, the outlooks and the ENSO state are as that run found them.
+opened from a file. The site's data are the last run's: the imagery under the
+storms is live, but the storms, the outlooks and the ENSO state are as that run
+found them, within the hour while the hourly run keeps up, and each page says
+when that was.
+
+---
+
+## The live site
+
+GitHub runs the tracker every hour and publishes the run, so the site is never
+much more than an hour, plus GitHub's queue, behind the feeds
+(`.github/workflows/live.yml`):
+
+- **The run.** At twelve minutes past each hour (the products land on the hour,
+  and GitHub queues scheduled runs longest at the top of it), on every push to
+  `main`, and on request. One runs at a time. Each calls `./publish.sh`, which
+  runs `track.py --brief` and then publishes the run with `publish.py`, its
+  refusals and all, under the run's own short-lived token.
+- **The state.** `data/elnino.db` and the cached downloads are carried from one
+  run to the next in the Actions cache, so the alerts are reconciled against the
+  last run and a failed feed falls back on its last copy. The dated archive is
+  left out: nothing reads it back. GitHub drops a cache unused for seven days, so
+  after a longer gap the next run starts afresh: every open alert reads as new,
+  and no feed has a copy to fall back on for that run.
+- **Pages that follow it.** Every page names its run, and the code that wrote
+  it, in its head and asks the site for `run.json` each minute, and at once when
+  it is shown again or the browser is back online. The storm desk and the map
+  take a newer run in place, keeping the view and the panel as the reader left
+  it: the part being read, a storm's row among them, held where it stood on the
+  screen as the page settles, for 15 seconds at most or until the reader's own
+  hand is on the page (the browser's own scroll anchoring loses the nodes a take
+  swaps, and Safari before 27 has none; a panel or a page at its top is left to
+  show what comes in there, as a browser leaves it), each storm's tab, the
+  tables open or shut and the focus, in *Here* too, the region shown, and
+  *Here*, whose Google frame is not loaded again (Street View stays where the
+  reader walked it), whose readings of NASA's tiles stand, and whose place a
+  screen reader hears once, not with every run. The dashboard and the atlas load
+  again: at once in a tab that is not shown; otherwise once the reader has left
+  the page alone for two minutes, saying meanwhile that a newer run is in, with
+  **Update now**, and **Later**, which keeps the page as it is until the run
+  after. So do the storm desk and the map for a run another code wrote (pushed
+  since the page was opened: its markup and data are not the open page's script
+  to read), and for each run after it, and for a run whose take failed part way,
+  which leaves the page between two runs and so is offered without **Later**.
+  They come back where the reader was: the scroll, the theme and the open
+  sections, and the part being read, put back where it stood and held there
+  while what is above it comes in (on the dashboard, the card); on the atlas
+  also the view, the point picked, the variable, the season and the layers; on
+  the desk and the map also the view, the layers, the comparison and the loop,
+  the hour and the day, the overlays, El Niño's map, *Here* and its Google
+  frame, the place entered in then and now on its event, with the address it was
+  opened from, and the storm and its tab. Each says for a few seconds which run
+  it now shows, and a tab loaded while hidden holds its place from when it is
+  shown. A run that does not arrive is tried again after 2, 5 and 10 minutes,
+  then every 15. A run older than the page's own (a cache the site's move has
+  not reached yet, or a run put back with `--allow-older`) is never taken,
+  whether `run.json` names it or the page read again holds it. A browser that
+  keeps no session storage, or a reader saving data (Data Saver), is only ever
+  offered the update.
+
+Run it now from the Actions tab (*Live site*, then *Run workflow*) or with
+`gh workflow run live.yml`; pause it with *Disable workflow* there, or with
+`gh workflow disable live.yml`. A run that could not happen or could not publish
+fails, and GitHub notifies the repository's owner; the site keeps its last run.
+A run with open alerts or failed feeds is published, with a notice or a warning
+on the run, as its pages say. GitHub pauses the schedules of a public repository
+after 60 days without activity: each scheduled run enables its own workflow
+again, which keeps that pause off, and should it ever be paused, the Actions tab
+turns it back on.
+
+On this machine, `python track.py --serve --watch` does the same for a tablet: a
+run every hour, and served pages that follow it.
 
 ---
 
@@ -1670,7 +1771,7 @@ live, but the storms, the outlooks and the ENSO state are as that run found them
 python -m unittest discover -s tests -v
 ```
 
-1031 tests, no network required. They cover:
+1165 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -1882,18 +1983,81 @@ python -m unittest discover -s tests -v
   run time, or a page naming the home folder in any of its spellings stops the
   publish with nothing pushed, while a folder only named like it does not; a run
   older than the site's needs `--allow-older`; `--dry-run` says which run it
-  checked and pushes nothing; a refused publish exits 2; and `publish.bat`
-  publishes exactly the runs that happened, exits 2 or 4 when the tracker or the
-  publish failed, and never waits when scheduled;
+  checked and pushes nothing; a refused publish exits 2; a page of another run,
+  or naming none in its head or its own key, is refused, one moment written two
+  ways is one run, and `run.json` goes up with the pages; `publish.bat` publishes
+  exactly the runs that happened, exits 2 or 4 when the tracker or the publish
+  failed, and never waits when scheduled; and `publish.sh` does the same under
+  `sh`, passes its options on, and is committed executable with LF endings;
+- **the live site**: `run.json` written after every other file of a run, and the
+  run and the code each page names in its head (the code the same whatever the
+  checkout's line endings); under node, with a fake clock, site, page and
+  storage, a page that takes a new run in place and one that loads again for it
+  (at once when hidden, after two minutes left alone when in view, at once on
+  **Update now**, not for the run put off with **Later**, never on its own
+  without storage or for a reader saving data), a page taking runs in place that
+  loads for one it cannot take and offers each run after it, and one whose take
+  failed part way offered with no Later, a page knowing a run its own code
+  wrote, its place handed over and put back (the scroll, the theme before first
+  paint, each section by its words, a box that scrolls itself once its sections
+  are open, what stood at the top of the view put back where it stood and held
+  as the page settles, until the view moves for anything else, however slowly,
+  the reader's own hand is on the page or 15 seconds have passed, a page or a
+  box at its top left to show what comes in there, a hidden page holding its
+  place once it is shown, junk refused, the browser's own scroll restoring left
+  out of the follower's loads until the page loaded again has loaded and left to
+  the browser for a page held by its scroll alone, and a load the browser never
+  made given up when the page is shown again), the page's own state failing
+  without stopping the following, a run that does not arrive gone for again
+  after 2, 5, 10 and 15 minutes, a run older than the page's or than the one
+  offered passed over, a take never started twice, answers that name no run
+  passed over, a hand-over left in storage read like input, one run written two
+  ways, a tab frozen for hours, and the beacon found beside any address; every
+  page setting a theme handed over before it is styled; the desk's refresh
+  loading for a run another code wrote, failing for a take that fails part way
+  once its place is put back, passing over a copy no newer than its own, and
+  naming the run it took and leaving the panel as the reader left it (*Here* and
+  Google's frame in it never taken out of the page, *Here* keeping its tables
+  and its focus, saying its place once in a line of its own and keeping its
+  readings of NASA's tiles for their day and point, a failed one asked again,
+  each storm's tab, each table open or shut by its section and words, the focus
+  on the same control, the region shown still pressed, the reading under the map
+  keeping its height, each storm's row named) and the reader's place held
+  through it (the section being read put back where it stood, in a panel that
+  scrolls itself or down a phone's page, by the box around it when the new run
+  drops or hides it, a box below the top of the view left alone, the page drawn
+  before the place is put back, and the place held as the page settles); the
+  desk's and the map's place handed across a load (the view, the layers and the
+  loop as the map's own while a place is entered, the loop run once GIBS gives
+  its frames, on Exit too, the hour, the day stepped to, the overlays, El Niño's
+  map, *Here* and its frame, then and now on its event and its names and the
+  address it was entered from, the storm and its tabs) with junk refused, and a
+  place the reader had left left though the address opened on it; then and now
+  following the run (an event's sides moved to the new build's dates for it, an
+  event no longer offered left as the reader's own dates, NASA asked again for
+  the days that stand, quietly, the days with a Landsat or Sentinel-2 image
+  looked for again, Esri's captures kept, and menus the new build left as they
+  were not written again); the dashboard's run time ageing, and its body named
+  to the follower, every part of it wearing an id of its own; the atlas's view
+  and layers kept, junk refused and a view turned any number of times put back
+  on the world; and the hourly run's schedule, token, state, remote, keep-alive,
+  time limit and actions pinned to commits, no pull request starting it, and the
+  suite's Python and node, read as text;
 - **a full offline run** end to end, then every report section, the 78-column and
   ASCII-only guarantees, dashboard self-containment, a table view for every
   chart, all eight spatial panels and both cyclone cards reaching the page, the
   map-derived Niño-3.4 mean agreeing with the published index to within 1 °C,
   the terminal report and the dashboard quoting the *same* thermocline tilt, the
   *same* storm intensities and the *same* STORMFURY verdict, and a JSON payload
-  that round-trips.
+  that round-trips; then every page naming that run, the dashboard dated by it,
+  and its pages published as one run naming no path of this machine.
 
 If NOAA changes a format, these fail before a bad number reaches the dashboard.
+
+The tests that run a page's script need node and are skipped without it; those
+that read the downloads a run of `track.py` leaves in `data/raw/` are skipped on
+a fresh checkout. GitHub runs the suite on every push to `main` and every pull
+request, on Ubuntu with Python 3.12 and node 24 (`.github/workflows/tests.yml`).
 
 ---
 

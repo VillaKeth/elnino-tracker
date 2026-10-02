@@ -16,6 +16,7 @@ output/latest.json
 output/storms.html
 output/storms.json
 output/map.html
+output/run.json
 
 # Python
 __pycache__/

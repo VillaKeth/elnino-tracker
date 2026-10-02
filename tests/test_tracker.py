@@ -32,7 +32,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 from elnino import (  # noqa: E402
     alerts, atlas, atlasdata, atlasview, atmosphere, coastline, composite,
     cyclones, dashboard, exposure, fields, forecast, geo, globe, grids, history, impacts,
-    jtwc, kml,
+    jtwc, kml, live,
     outlook, panels, parsers, pipeline, relief, report, sources, space3d, storage, stormdesk, storms,
     tcproducts,
     stormfury, subsurface, svg,
@@ -3636,7 +3636,8 @@ console.log(JSON.stringify(out));
         # imager's disc, or a tile not yet come.
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in (
-            "clamp", "world", "origin", "xyzUrl", "present", "xyzCells", "cells", "overSpecs", "tiles"))
+            "clamp", "world", "origin", "xyzUrl", "present", "xyzCells", "cells", "overSpecs", "tiles",
+            "loopWhenKnown"))
         got = _node_json(self, r"""
 var TILE = 256, NODATA = {}, D = {layers: []};
 var LAYERS = {streets: {id: "streets", kind: "map", zoom: 19, tiles: "st/{z}/{y}/{x}"},
@@ -4263,8 +4264,9 @@ class TestEnsoTiles(_DeskFixtures, unittest.TestCase):
     def test_the_tiles_are_drawn_read_back_and_credited(self):
         self.assertIn("drawPane(panes.e, ensoTileSpecs(), moving)", _js_function(stormdesk._JS, "tiles"))
         here = _js_function(stormdesk._JS, "showHere")
-        self.assertLess(here.index("ensoHereHtml("), here.index("ensoTodayHtml()"))
-        self.assertLess(here.index("box.innerHTML = html.join"), here.index("ensoTodayRead(S.here.lon, S.here.lat)"))
+        self.assertLess(here.index("ensoHereHtml("), here.index("ensoTodayHtml(S.here.lon, S.here.lat)"))
+        # Today's value is read into Here once Here is written.
+        self.assertLess(here.index('hereWrite(box, html.join(""))'), here.index("ensoTodayRead(S.here.lon, S.here.lat)"))
         self.assertIn("ensoTileMore()", _js_function(stormdesk._JS, "pills"))
         self.assertIn("from(panes.e", _js_function(stormdesk._JS, "credit"))
         self.assertIn("crossOrigin", _js_function(worldmap._JS, "readEnso"))
@@ -4519,7 +4521,7 @@ function $() { return null; }
 function dirty() {}
 function thenLeave() {}
 function showHere() {}
-""" + _js_function(worldmap._JS, "setEnso") + r"""
+""" + _js_function(worldmap._JS, "ensoControls") + _js_function(worldmap._JS, "setEnso") + r"""
 function pressed() { return shows.map(function (b) { return b.a["aria-pressed"]; }); }
 var out = [];
 setEnso({shown: "Peru"}); out.push(pressed());
@@ -4559,10 +4561,13 @@ class TestGoogleHere(unittest.TestCase):
         self.assertIn("[data-google]", selectors[0])
         self.assertIn('googleFrame(el.getAttribute("data-google"))', stormdesk._JS)
 
-    def test_an_open_frame_outlives_a_refresh_of_the_same_point(self):
+    def test_here_is_written_around_an_open_frame(self):
+        # The frame itself is kept, never loaded again: TestTheDeskKeepsThePlace.
         body = _js_function(stormdesk._JS, "showHere")
-        self.assertLess(body.index("box.innerHTML = html.join"), body.index("googleFrame(S.google.kind)"))
-        self.assertIn("S.google.lon === S.here.lon && S.google.lat === S.here.lat", body)
+        self.assertEqual(body.count('hereWrite(box, html.join(""));'), 1)
+        self.assertNotIn("innerHTML = html", body)
+        self.assertIn("S.google.lon === S.here.lon && S.google.lat === S.here.lat",
+                      _js_function(stormdesk._JS, "hereWrite"))
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
@@ -4648,7 +4653,7 @@ class TestTwoPages(_DeskFixtures, unittest.TestCase):
     def test_a_refreshed_page_writes_the_el_nino_key_again(self):
         # A refresh puts back the legend's markup, empty; the key's text is
         # only written when it changes, so what it last said is forgotten.
-        self.assertIn('ensoSaid = ""', _js_function(stormdesk.script(), "refresh"))
+        self.assertIn('ensoSaid = ""', _js_function(stormdesk.script(), "takeRun"))
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
@@ -4828,6 +4833,12 @@ def _node_json(case: unittest.TestCase, script: str):
                               encoding="utf-8", timeout=60)
     case.assertEqual(done.returncode, 0, done.stderr[-2000:])
     return json.loads(done.stdout)
+
+
+def _named_run(page: str) -> str | None:
+    """The run a page names in its head (elnino/live.py); None if it names none."""
+    found = re.search(r'<meta name="elnino-run" content="([^"]*)">', page.split("</head>", 1)[0])
+    return found.group(1) if found else None
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
@@ -5298,10 +5309,63 @@ console.log(JSON.stringify(out));
         # when the width changes.
         self.assertEqual(got, ["16px", "32px", "32px", "16px"])
 
+    def test_a_reading_written_anew_by_a_take_keeps_the_height_held(self):
+        # A run taken in place writes the key anew: its reading, shorter for
+        # now, keeps the height the old one held, so the map does not jump.
+        got = _node_json(self, r"""
+var readTall = 0, readWide = 0;
+""" + _js_function(stormdesk.script(), "holdHeight") + r"""
+function reading(text) {
+  var el = {parentNode: {clientWidth: 900}, style: {minHeight: ""}, textContent: text};
+  Object.defineProperty(el, "offsetHeight", {get: function () {
+    var natural = Math.ceil(this.textContent.length * 6 / this.parentNode.clientWidth) * 16;
+    return Math.max(natural, parseFloat(this.style.minHeight) || 0); }});
+  return el;
+}
+var old = reading(new Array(201).join("x")); holdHeight(old);
+var fresh = reading("Centre of the view: +0.4"); holdHeight(fresh);
+console.log(JSON.stringify([old.style.minHeight, fresh.style.minHeight, fresh.offsetHeight]));
+""")
+        self.assertEqual(got, ["32px", "32px", 32])
+
+    def test_the_el_nino_controls_show_what_is_set_wherever_they_are(self):
+        # setEnso and a run taken in place (whose panel brings the regions'
+        # Show anew) both set the controls from S.enso.
+        js = stormdesk.script()
+        self.assertIn("ensoControls();", _js_function(js, "setEnso"))
+        self.assertIn("ensoControls();", _js_function(js, "takeRun"))
+        got = _node_json(self, _js_function(js, "ensoControls") + r"""
+var S = {enso: {variable: "PRECIP", season: "SON", mask: true, opacity: 0.7, tileOpacity: 0.8,
+                tiles: {sst: true}, regions: false, boxes: true, shown: "Coastal Peru and Ecuador"}};
+function button(attr, value) {
+  return {attrs: {}, checked: false, getAttribute: function (k) { return k === attr ? value : this.attrs[k]; },
+          setAttribute: function (k, v) { this.attrs[k] = v; }};
+}
+var LISTS = {
+  "[data-enso-var]": [button("data-enso-var", "PRECIP"), button("data-enso-var", "")],
+  "[data-enso-season]": [button("data-enso-season", "DJF"), button("data-enso-season", "SON")],
+  "[data-enso-tile]": [button("data-enso-tile", "sst"), button("data-enso-tile", "floods")],
+  "[data-enso-geo]": [button("data-enso-geo", "regions"), button("data-enso-geo", "boxes")],
+  "[data-show-region]": [button("data-show-region", "Coastal Peru and Ecuador"), button("data-show-region", "Caribbean")]
+};
+var document = {querySelectorAll: function (sel) { return LISTS[sel] || []; }};
+var els = {"enso-mask": {checked: false}, "enso-opacity": {value: 0}, "enso-tile-opacity": {value: 0},
+           "enso-tiles": {style: {opacity: ""}}};
+function $(id) { return els[id] || null; }
+ensoControls();
+function pressed(sel) { return LISTS[sel].map(function (b) { return b.attrs["aria-pressed"]; }); }
+function ticked(sel) { return LISTS[sel].map(function (b) { return b.checked; }); }
+console.log(JSON.stringify([pressed("[data-enso-var]"), pressed("[data-enso-season]"), ticked("[data-enso-tile]"),
+                            ticked("[data-enso-geo]"), pressed("[data-show-region]"), els["enso-mask"].checked,
+                            els["enso-opacity"].value, els["enso-tiles"].style.opacity]));
+""")
+        self.assertEqual(got, [["true", "false"], ["false", "true"], [True, False], [False, True],
+                               ["true", "false"], True, 0.7, 0.8])
+
     def test_nasas_tiles_follow_their_own_slider(self):
         js = stormdesk.script()
         self.assertIn('setEnso({tileOpacity: +e.target.value})', js)
-        functions = _js_function(js, "setEnso")
+        functions = "\n".join(_js_function(js, name) for name in ("ensoControls", "setEnso"))
         got = _node_json(self, r"""
 var S = {enso: {tiles: {}, tileOpacity: 0.8}, here: null}, dirtied = 0;
 var els = {"enso-tile-opacity": {value: 0.8}, "enso-tiles": {style: {opacity: ""}}};
@@ -6825,6 +6889,59 @@ class TestExitCodes(unittest.TestCase):
                     self.assertEqual(done.returncode, code)
                     self.assertEqual((here / "published").exists(), published)
 
+    def test_the_posix_publisher_runs_the_tracker_then_publishes(self):
+        script = (ROOT / "publish.sh").read_text(encoding="utf-8")
+        self.assertIn("python3 track.py --brief\n", script)
+        self.assertIn("  0 | 1 | 3) ;;\n", script)
+        self.assertIn('if ! python3 publish.py "$@"; then\n', script)
+
+    def test_the_posix_publisher_keeps_lf_endings_in_every_checkout(self):
+        # The hourly run is Linux: "sh\r" is no shell, and a checkout under
+        # core.autocrlf would otherwise give it one.
+        script = (ROOT / "publish.sh").read_bytes()
+        self.assertTrue(script.startswith(b"#!/bin/sh\n"))
+        self.assertNotIn(b"\r", script)
+        self.assertIn("*.sh text eol=lf", (ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines())
+
+    @unittest.skipUnless(shutil.which("git") and (ROOT / ".git").exists(), "needs the git checkout")
+    def test_the_posix_publisher_is_committed_executable(self):
+        listed = subprocess.run(["git", "ls-files", "-s", "publish.sh"], cwd=ROOT, capture_output=True,
+                                text=True, check=True).stdout
+        self.assertTrue(listed.startswith("100755 "), listed)
+
+    @unittest.skipIf(sys.platform == "win32", "publish.sh is for Linux and macOS")
+    def test_the_posix_publisher_publishes_exactly_the_runs_that_happened(self):
+        # publish.sh itself, run by sh from another folder, against a track.py
+        # and a publish.py that only exit with the codes they are handed;
+        # publish.py writes down the options it was given.
+        with tempfile.TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            shutil.copyfile(ROOT / "publish.sh", here / "publish.sh")
+            (here / "track.py").write_text(
+                "import os, sys\nsys.exit(int(os.environ['TRACK']))\n", encoding="utf-8")
+            (here / "publish.py").write_text(
+                "import json, os, pathlib, sys\n"
+                "pathlib.Path('published').write_text(json.dumps(sys.argv[1:]))\n"
+                "sys.exit(int(os.environ['PUBLISH']))\n", encoding="utf-8")
+            bin_dir = here / "bin"
+            bin_dir.mkdir()
+            python3 = bin_dir / "python3"
+            python3.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+            python3.chmod(0o755)
+            path = os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
+            remote = ["--remote", "https://example.invalid/site.git"]
+            for track, publish, code, published in ((0, 0, 0, True), (1, 0, 1, True), (3, 0, 3, True),
+                                                    (2, 0, 2, False), (5, 0, 2, False), (1, 2, 4, True)):
+                with self.subTest(track=track, publish=publish):
+                    (here / "published").unlink(missing_ok=True)
+                    env = dict(os.environ, PATH=path, TRACK=str(track), PUBLISH=str(publish))
+                    done = subprocess.run(["sh", str(here / "publish.sh"), *remote], cwd=bin_dir, env=env,
+                                          stdin=subprocess.DEVNULL, capture_output=True, timeout=120)
+                    self.assertEqual(done.returncode, code, done.stderr)
+                    self.assertEqual((here / "published").exists(), published)
+                    if published:
+                        self.assertEqual(json.loads((here / "published").read_text(encoding="utf-8")), remote)
+
 
 @unittest.skipUnless(shutil.which("git"), "publishing needs git")
 class TestPublish(unittest.TestCase):
@@ -6832,7 +6949,7 @@ class TestPublish(unittest.TestCase):
 
     RUN_AT = "2026-09-30T19:59:20+00:00"
     SITE = [".nojekyll", "atlas.html", "dashboard.html", "index.html",
-            "latest.json", "map.html", "storms.html", "storms.json"]
+            "latest.json", "map.html", "run.json", "storms.html", "storms.json"]
 
     def setUp(self):
         import publish
@@ -6844,9 +6961,6 @@ class TestPublish(unittest.TestCase):
         self.nobody = self.tmp / "home" / "nobody"
         self.out = self.tmp / "output"
         self.out.mkdir()
-        for name in ("dashboard.html", "storms.html", "map.html", "atlas.html"):
-            self._page(name, f"<!-- {name} --></html>")
-        self._page("storms.json", "{}")
         self._run(self.RUN_AT)
         self.remote = self.tmp / "site.git"
         self._git("init", "-q", "--bare", str(self.remote))
@@ -6854,7 +6968,18 @@ class TestPublish(unittest.TestCase):
     def _page(self, name, text):
         (self.out / name).write_bytes(text.encode("utf-8"))
 
+    def _html(self, body, run_at=None):
+        """A page of the run at run_at (the fixture's own by default), naming
+        it in its head as the tracker's pages do."""
+        return f"<html><head>{live.head(run_at or self.RUN_AT)}</head><body>{body}</body></html>"
+
     def _run(self, run_at):
+        """Every page of a run, each naming it where the tracker's own do."""
+        for name in ("dashboard.html", "storms.html", "map.html", "atlas.html"):
+            self._page(name, self._html(f"<!-- {name} -->", run_at))
+        built = datetime.fromisoformat(run_at).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._page("storms.json", json.dumps({"built": built}))
+        self._page("run.json", json.dumps({"run_at": run_at}))
         self._page("latest.json", json.dumps({"run_at": run_at}))
 
     def _git(self, *args):
@@ -6922,9 +7047,10 @@ class TestPublish(unittest.TestCase):
 
     def test_a_page_naming_this_machine_s_home_is_not_published(self):
         home = self.tmp / "home" / "someone"
-        self._page("storms.json", json.dumps({"cache": str(home / "data")}))
-        self._page("atlas.html", f'<a href="file:///{home.as_posix()}/x"></a></html>')
-        self._refused("atlas.html.*storms.json", home=home)
+        built = json.loads((self.out / "storms.json").read_text(encoding="utf-8"))["built"]
+        self._page("storms.json", json.dumps({"built": built, "cache": str(home / "data")}))
+        self._page("atlas.html", self._html(f'<a href="file:///{home.as_posix()}/x"></a>'))
+        self._refused("atlas.html, storms.json name this machine's home folder", home=home)
 
     def test_the_home_folder_is_found_in_any_spelling(self):
         from urllib.parse import quote
@@ -6945,11 +7071,11 @@ class TestPublish(unittest.TestCase):
         }
         for how, spelled in spellings.items():
             with self.subTest(how):
-                self._page("map.html", f"<p>{spelled}</p></html>")
-                self._refused("map.html", home=home)
+                self._page("map.html", self._html(f"<p>{spelled}</p>"))
+                self._refused("map.html names this machine's home folder", home=home)
 
     def test_a_folder_named_only_like_home_does_not_stop_the_publish(self):
-        self._page("map.html", f"<p>{self.tmp / 'home' / 'someone'}</p></html>")
+        self._page("map.html", self._html(f"<p>{self.tmp / 'home' / 'someone'}</p>"))
         self._publish(home=self.tmp / "home" / "some")
         self.assertEqual(self._published("rev-list", "--count", "gh-pages"), "1")
 
@@ -6983,7 +7109,7 @@ class TestPublish(unittest.TestCase):
         self.assertNotRegex(commit, r"(?m)^encoding ")
 
     def test_the_site_goes_up_byte_for_byte(self):
-        page = b"<html>\r\n<body>crlf</body>\r\n</html>\r\n"
+        page = f"<html>\r\n<head>{live.head(self.RUN_AT)}</head>\r\n<body>crlf</body>\r\n</html>\r\n".encode()
         (self.out / "storms.html").write_bytes(page)
         with mock.patch.dict(os.environ, self._config("crlf.gitconfig", ("core.autocrlf", "true"))):
             self._publish()
@@ -7017,11 +7143,51 @@ class TestPublish(unittest.TestCase):
 
     def test_each_publish_replaces_the_branch_with_one_commit(self):
         self._publish()
-        self._page("dashboard.html", "<!-- the next run --></html>")
+        later = "2026-09-30T20:59:20+00:00"
+        self._run(later)
         self._publish()
         self.assertEqual(self._published("rev-list", "--count", "gh-pages"), "1")
-        self.assertEqual(self._published("show", "gh-pages:index.html"), "<!-- the next run --></html>")
+        self.assertEqual(self._published("show", "gh-pages:index.html"),
+                         self._html("<!-- dashboard.html -->", later))
         self.assertEqual(self._published("ls-tree", "--name-only", "gh-pages").split(), self.SITE)
+
+    def test_a_page_of_another_run_is_not_published(self):
+        for name, text in (("map.html", self._html("<!-- map -->", "2026-09-30T18:59:20+00:00")),
+                           ("storms.json", json.dumps({"built": "2026-09-30T18:59:20Z"})),
+                           ("run.json", json.dumps({"run_at": "2026-09-30T18:59:20+00:00"}))):
+            with self.subTest(page=name):
+                kept = (self.out / name).read_bytes()
+                self._page(name, text)
+                self._refused(f"{name} names the run of 2026-09-30T18:59:20.*, where latest.json "
+                              f"names the run of {re.escape(self.RUN_AT)}: run track.py again")
+                (self.out / name).write_bytes(kept)
+
+    def test_a_page_naming_no_run_is_not_published(self):
+        # A page that names a run run.json never will would load again for
+        # ever, looking for it.
+        for name, text in (("dashboard.html", "<html><head></head><body></body></html>"),
+                           ("atlas.html", self._html("<!-- atlas -->").replace(self.RUN_AT, "soon")),
+                           ("storms.json", json.dumps({"storms": []})),
+                           ("run.json", json.dumps(["run_at"]))):
+            with self.subTest(page=name):
+                kept = (self.out / name).read_bytes()
+                self._page(name, text)
+                self._refused(f"{name} names no run")
+                (self.out / name).write_bytes(kept)
+
+    def test_a_run_named_outside_the_head_does_not_count(self):
+        self._page("storms.html", f"<html><head></head><body>{live.head(self.RUN_AT)}</body></html>")
+        self._refused("storms.html names no run")
+
+    def test_one_moment_written_two_ways_is_one_run(self):
+        # storms.json writes its run in UTC with a Z, the pages as the run
+        # gives it; an offset is the same moment too.
+        self._page("atlas.html", self._html("<!-- atlas -->", "2026-09-30T21:59:20+02:00"))
+        self.assertEqual(self._publish(), self.RUN_AT)
+
+    def test_the_beacon_goes_up_with_the_pages(self):
+        self._publish()
+        self.assertEqual(json.loads(self._published("show", "gh-pages:run.json")), {"run_at": self.RUN_AT})
 
     def test_a_run_older_than_the_site_s_is_not_published_unless_asked(self):
         self._publish()
@@ -7169,7 +7335,7 @@ class TestServe(unittest.TestCase):
     def test_the_files_a_run_writes_are_not_source(self):
         ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
         for name in ("dashboard.html", "atlas.html", "latest.json", "storms.html",
-                     "storms.json"):
+                     "storms.json", "map.html", "run.json"):
             self.assertIn(f"output/{name}", ignored)
 
 
@@ -8381,6 +8547,65 @@ class TestEndToEnd(unittest.TestCase):
         self.assertIsNotNone(self.state.subsurface)
         self.assertTrue(self.state.atmosphere.indicators)
 
+    def test_every_page_names_the_run_and_follows_the_site(self):
+        for name, html in (("dashboard", dashboard.render(self.state)),
+                           ("atlas", atlasview.page(self.state)),
+                           ("storms", stormdesk.page(self.state)),
+                           ("map", stormdesk.page(self.state, focus="world"))):
+            with self.subTest(name):
+                self.assertEqual(_named_run(html), self.state.run_at)
+                self.assertEqual(html.count(f"<script>{live.SCRIPT}</script>"), 1)
+                self.assertEqual(html.count("elninoLive.follow("), 1)
+                # The theme a page loading again hands over is set before it is styled.
+                theme, style = html.find(live.head(self.state.run_at)), html.find("<style>")
+                self.assertTrue(0 <= theme < style, (theme, style))
+
+    def test_a_run_s_pages_publish_as_one_run_naming_no_path_of_this_machine(self):
+        import publish
+        import track
+
+        with (tempfile.TemporaryDirectory() as tmp,
+              mock.patch.object(track.pipeline, "run", return_value=self.state),
+              mock.patch("sys.stdout"), mock.patch("sys.stderr")):
+            out = Path(tmp)
+            self.assertIn(track.main(["--offline", "--quiet", "--out", str(out)]), (0, 1, 3))
+            # On GitHub the checkout and the run's folder both lie under the
+            # runner's home: a page naming either would stop every publish.
+            for n, home in enumerate((ROOT, out)):
+                site = out / f"site{n}"
+                site.mkdir()
+                self.assertEqual(publish.lay_out(out, site, home=home), self.state.run_at)
+            beacon = json.loads((site / "run.json").read_text(encoding="utf-8"))
+        self.assertEqual(beacon, {"run_at": self.state.run_at})
+
+    def test_the_dashboard_names_its_run_and_is_dated_by_it(self):
+        html = dashboard.render(self.state)
+        self.assertEqual(_named_run(html), self.state.run_at)
+        shown = (datetime.fromisoformat(self.state.run_at).astimezone(timezone.utc)
+                 .strftime("%d %b %Y %H:%M UTC"))
+        stamp = re.search(r"Generated (<time [^>]*>[^<]*</time>)", html)
+        self.assertEqual(stamp and stamp.group(1),
+                         f'<time datetime="{self.state.run_at}" data-age="{shown}">{shown}</time>')
+
+    def test_the_dashboard_holds_a_reader_by_the_part_they_are_reading(self):
+        # The run's own words above the part being read, its "Generated ...
+        # (x ago)" among them, wrap to a line more or less from one run to the
+        # next: on a phone the scroll alone put a reader back 21 px off after a
+        # load. The follower holds them by what stands at the top of the view,
+        # found again by id (elnino/live.py), so the page names its body as
+        # the box to hold, and every part of it wears an id of its own.
+        html = dashboard.render(self.state)
+        box = re.findall(r"elninoLive\.follow\(\{ boxes: \['([\w-]+)'\] \}\)", html)
+        self.assertEqual(len(box), 1, "the dashboard names no box for the follower")
+        start = html.find(f'<div class="wrap" id="{box[0]}">')
+        self.assertGreater(start, 0, "the box named is not the page's body")
+        body = html[start:html.index("</footer>", start)]
+        parts = re.findall(r'<(?:section|div) class="(?:card|hero|tiles)(?: [^"]*)?"[^>]*>', body)
+        self.assertIn('<section class="hero" id="hero">', parts)
+        self.assertEqual([part for part in parts if ' id="' not in part], [])
+        ids = re.findall(r'(?<![\w-])id="([^"]+)"', html)
+        self.assertEqual(sorted({i for i in ids if ids.count(i) > 1}), [])
+
     def test_no_chart_text_is_painted_in_a_series_colour(self):
         # Text wears text tokens; a series or ramp colour belongs on the mark
         # beside it. A fill attribute on a label is also dead weight under a
@@ -9165,6 +9390,8 @@ def _run_without(key: str):
     return tmp, state
 
 
+@unittest.skipUnless((CACHE / "oni.cache").exists(),
+                     "no cached feeds; run `python track.py` once first")
 class TestRunsOnOneIndex(unittest.TestCase):
     """RONI is the official index; ONI is the legacy one beside it.
 
@@ -9295,6 +9522,8 @@ class TestCompositeSample(unittest.TestCase):
     def test_the_event_in_progress_is_not_composited(self):
         # "What past El Ninos did" cannot include this one: in September 2026
         # the JJA composite held June and July 2026, the event being tracked.
+        if not (CACHE / "roni.cache").exists():
+            self.skipTest("no cached feeds; run `python track.py` once first")
         roni = parsers.parse_roni((CACHE / "roni.cache").read_text(encoding="utf-8"))
         current = current_episode(roni, warm=True)
         if current is None:

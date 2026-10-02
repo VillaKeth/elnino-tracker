@@ -1,0 +1,82 @@
+# The live site: run the tracker every hour and publish the run to GitHub
+# Pages, so the site is never much more than an hour behind NOAA's feeds.
+# Open pages follow it on their own (elnino/live.py). Each action is pinned to
+# the commit of a release: a tag can be moved, and this run's token may push.
+name: Live site
+
+on:
+  schedule:
+    # Twelve past each hour: the products land on the hour, and GitHub queues
+    # scheduled runs longest at the top of it.
+    - cron: "12 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+# One at a time: two runs never publish over each other or race on the state.
+concurrency:
+  group: live-site
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # to push gh-pages
+  actions: write   # to keep the schedule from pausing
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # The last run's database and cached downloads: the alerts this run is
+      # reconciled against, and the copy a failed feed falls back on. The
+      # dated archive stays out; nothing reads it back.
+      - name: Restore the tracker's state
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            data/elnino.db
+            data/raw/*.cache
+            data/raw/*.meta.json
+          key: tracker-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: tracker-state-
+
+      - name: Run the tracker and publish the run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          code=0
+          ./publish.sh --remote "https://github.com/$GITHUB_REPOSITORY.git" || code=$?
+          case $code in
+            0) ;;
+            1) echo "::notice title=Alerts open::Published with WARNING or CRITICAL alerts open." ;;
+            3) echo "::warning title=Degraded run::Published, but some feeds failed and fell back on their last copy." ;;
+            *) exit "$code" ;;
+          esac
+
+      - name: Save the tracker's state
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            data/elnino.db
+            data/raw/*.cache
+            data/raw/*.meta.json
+          key: tracker-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # GitHub pauses the schedules of a public repository after 60 days
+      # without activity; a workflow enabled from its own run keeps going.
+      - name: Keep the schedule from pausing
+        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/live.yml/enable"

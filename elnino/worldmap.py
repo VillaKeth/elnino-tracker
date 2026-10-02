@@ -658,15 +658,19 @@ _JS = r"""
     var l = googleLinks(S.here.lat, S.here.lon, S.z);
     document.querySelectorAll("#here a[data-glink]").forEach(function (a) { a.setAttribute("href", l[a.getAttribute("data-glink")]); });
   }
+  // The Google buttons, the one whose frame is open pressed ("" for none).
+  function googlePressed(kind) {
+    document.querySelectorAll("[data-google]").forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-google") === kind ? "true" : "false");
+    });
+  }
   // Google's own map of S.here, at the view's zoom; the pressed button again
   // closes it.
   function googleFrame(kind) {
     var box = $("google-frame");
     if (!box || !S.here) return;
     var closing = !!S.google && S.google.kind === kind && !box.hidden;
-    document.querySelectorAll("[data-google]").forEach(function (b) {
-      b.setAttribute("aria-pressed", !closing && b.getAttribute("data-google") === kind ? "true" : "false");
-    });
+    googlePressed(closing ? "" : kind);
     box.innerHTML = "";
     if (closing) { S.google = null; box.hidden = true; return; }
     S.google = {kind: kind, lon: S.here.lon, lat: S.here.lat};
@@ -849,11 +853,13 @@ _JS = r"""
     return l.id === "floods" ? "Floods, 3 days to " + day : "Ocean today (MUR SST anomaly, " + day + ")";
   }
   // One pixel of the day's tile under a point, at the layer's own zoom, read
-  // back to NASA's own bin or class: a sentence, never a rejection.
+  // back to NASA's own bin or class: a sentence, never a rejection, and the
+  // day whose pixel it read ("" when none was).
   function readEnso(id, lon, lat) {
     var l = LAYERS[id], s = source(id), entries = D.enso.colours[id];
     return new Promise(function (resolve) {
-      if (!l || !s || !entries) { resolve(""); return; }
+      function answer(text, day) { resolve({text: text, day: day || ""}); }
+      if (!l || !s || !entries) { answer(""); return; }
       function attempt(tries) {
         var f = frameOf(s, 0);
         if (!f) {
@@ -862,7 +868,7 @@ _JS = r"""
             setTimeout(function () { attempt(tries - 1); }, 1000);
             return;
           }
-          resolve(ensoWhat(l, null) + ": " + (S.imagery === "offline" ? "offline, NASA's tiles need the network" : "NASA GIBS did not answer"));
+          answer(ensoWhat(l, null) + ": " + (S.imagery === "offline" ? "offline, NASA's tiles need the network" : "NASA GIBS did not answer"));
           return;
         }
         var n = Math.pow(2, l.zoom), x = mx(wrap(lon)) * n, y = clamp(my(lat), 0, 0.9999999) * n;
@@ -877,33 +883,41 @@ _JS = r"""
             cx.drawImage(img, 0, 0, 256, 256);
             px = cx.getImageData(Math.min(255, Math.floor((x - col) * 256)), Math.min(255, Math.floor((y - row) * 256)), 1, 1).data;
           } catch (err) { px = null; }
-          if (!px) { resolve(ensoWhat(l, f) + ": the tile could not be read"); return; }
+          if (!px) { answer(ensoWhat(l, f) + ": the tile could not be read"); return; }
           var got = classify(entries, px), said;
           if (got === null) said = "a colour not on NASA’s scale";
           else if (got.transparent) said = l.id === "floods" ? "nothing mapped here: no water seen, or no data" : "nothing mapped here: land, ice or no data";
           else said = l.id === "floods" ? got.label : got.label + " at this pixel, on NASA’s own colour scale";
-          resolve(ensoWhat(l, f) + ": " + said);
+          answer(ensoWhat(l, f) + ": " + said, f.key);
         };
-        img.onerror = function () { resolve(ensoWhat(l, f) + ": NASA GIBS did not answer"); };
+        img.onerror = function () { answer(ensoWhat(l, f) + ": NASA GIBS did not answer"); };
         img.src = tileUrl(s, f.key, l.zoom, row, ((col % n) + n) % n);
       }
       attempt(8);
     });
   }
-  // Here: a line for each switched-on tile layer, filled once its pixel is read.
-  function ensoTodayHtml() {
+  // Here's readings of NASA's tiles, by layer, day and point: Here written
+  // anew (each take writes it) shows a reading it has had, not asked again.
+  var TODAY = {};
+  function todayKey(id, day, lon, lat) { return [id, day, lon, lat].join("|"); }
+  // Here: a line for each switched-on tile layer, filled once its pixel is
+  // read, or at once with the reading of the day's pixel already had.
+  function ensoTodayHtml(lon, lat) {
     var on = ensoTileLayers().filter(function (l) { return S.enso.tiles[l.id]; });
     if (!on.length) return "";
     return "<h4>Today here, from NASA</h4>" + on.map(function (l) {
-      return '<p id="here-' + l.id + '">' + esc(ensoWhat(l, frameOf(source(l.id), 0))) + ": reading NASA’s tile…</p>";
+      var f = frameOf(source(l.id), 0), had = f && TODAY[todayKey(l.id, f.key, lon, lat)];
+      return '<p id="here-' + l.id + '">' + esc(had || ensoWhat(l, f) + ": reading NASA’s tile…") + "</p>";
     }).join("");
   }
   function ensoTodayRead(lon, lat) {
     ensoTileLayers().forEach(function (l) {
-      if (!S.enso.tiles[l.id]) return;
-      readEnso(l.id, lon, lat).then(function (text) {
+      var f = frameOf(source(l.id), 0);
+      if (!S.enso.tiles[l.id] || (f && TODAY[todayKey(l.id, f.key, lon, lat)])) return;
+      readEnso(l.id, lon, lat).then(function (got) {
+        if (got.day) TODAY[todayKey(l.id, got.day, lon, lat)] = got.text;
         var p = $("here-" + l.id);
-        if (p && text && S.here && S.here.lon === lon && S.here.lat === lat) p.textContent = text;
+        if (p && got.text && S.here && S.here.lon === lon && S.here.lat === lat) p.textContent = got.text;
       });
     });
   }
@@ -1001,13 +1015,14 @@ _JS = r"""
   // The reading changes as the view moves. On a line of its own, it only grows
   // while the key keeps its width, so the map above does not jump by a line,
   // and redraw all it holds, each time the centre crosses into a cell with
-  // more or fewer words.
+  // more or fewer words. A reading written anew, by a run taken in place,
+  // keeps the height held.
   var readTall = 0, readWide = 0;
   function holdHeight(el) {
     var wide = el.parentNode ? el.parentNode.clientWidth : 0;
     if (wide !== readWide) { readWide = wide; readTall = 0; el.style.minHeight = ""; }
-    var tall = el.offsetHeight;
-    if (tall > readTall) { readTall = tall; el.style.minHeight = tall + "px"; }
+    readTall = Math.max(readTall, el.offsetHeight);
+    if (el.style.minHeight !== readTall + "px") el.style.minHeight = readTall + "px";
   }
   // A new width is read again, whatever the words.
   window.addEventListener("resize", function () { ensoSaid = ""; });
@@ -1045,9 +1060,9 @@ _JS = r"""
     $("enso-read").textContent = read;
     holdHeight($("enso-read"));
   }
-  function setEnso(patch) {
-    if (S.then) thenLeave();
-    for (var k in patch) S.enso[k] = patch[k];
+  // The El Nino controls as S.enso has them: the menu's, and the regions'
+  // Show, which a run taken in place brings anew in the panel.
+  function ensoControls() {
     document.querySelectorAll("[data-enso-var]").forEach(function (b) {
       b.setAttribute("aria-pressed", (b.getAttribute("data-enso-var") || null) === S.enso.variable ? "true" : "false");
     });
@@ -1067,6 +1082,11 @@ _JS = r"""
     document.querySelectorAll("[data-show-region]").forEach(function (b) {
       b.setAttribute("aria-pressed", b.getAttribute("data-show-region") === S.enso.shown ? "true" : "false");
     });
+  }
+  function setEnso(patch) {
+    if (S.then) thenLeave();
+    for (var k in patch) S.enso[k] = patch[k];
+    ensoControls();
     dirty();
     if ("tiles" in patch && S.here) showHere();
     return S.enso;

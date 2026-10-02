@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import alerts, coastline, cyclones, exposure, fields, outlook, thennow, worldmap
+from . import alerts, coastline, cyclones, exposure, fields, live, outlook, thennow, worldmap
 from .storms import NEUTRAL, STORM_HUES
 from .svg import esc, table
 
@@ -850,7 +850,7 @@ def _storm_row(entry, hue: str) -> str:
     if entry["issued"]:
         issued += f' &middot; {_time(entry["issued"])}'
     return (
-        f'<li class="stormrow" data-row="{key}">'
+        f'<li class="stormrow" id="row-{key}" data-row="{key}">'
         f'<span class="swatch" style="background:{hue}"></span>'
         f'<div class="stormtext"><button type="button" class="stormname" '
         f'data-select="{key}">{title}</button>'
@@ -1207,9 +1207,10 @@ def _panel(data, hues: dict, focus: str = "storms", now: str = "") -> str:
     else:
         live = ('<h2 class="panelhead">Live storms</h2><p>No live tropical cyclones: '
                 "no warning centre this desk reads has an advisory open.</p>")
-    # Empty until a place is found or the map is tapped; the page fills it.
+    # Empty until a place is found or the map is tapped; the page fills it,
+    # and the line after the panel (#here-said) says which place it is on.
     here = ('<section class="here" id="here" aria-labelledby="here-title" '
-            'aria-live="polite" hidden></section>')
+            'hidden></section>')
     storms = f'<div id="storm-list">{live}</div>' + _outlook_section(data)
     if focus == "world":
         return here + now + storms + _actions_section(data) + _about(data)
@@ -1388,7 +1389,7 @@ body.deskpage {{ background: var(--plane); }}
 .desktools {{ display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center;
   padding: 2px 16px 8px; }}
 .deskfind {{ position: relative; flex: 1 1 260px; max-width: 460px; margin: 0; }}
-.findlabel {{ position: absolute; width: 1px; height: 1px; overflow: hidden;
+.findlabel, .heresaid {{ position: absolute; width: 1px; height: 1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap; }}
 .deskfind input {{ box-sizing: border-box; width: 100%; min-height: 44px; padding: 0 12px;
   border-radius: 10px; border: 1px solid var(--border); background: var(--surface);
@@ -1687,6 +1688,7 @@ def page(state, focus: str = "storms") -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+{live.head(getattr(state, "run_at", None))}
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%232a78d6'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='%23fcfcfb'/%3E%3C/svg%3E">
 <title>{esc(words["title"])}</title>
 <style>{shell_css()}{fields.ramp_css()}{css()}{worldmap.css()}{thennow.css()}</style>
@@ -1694,7 +1696,7 @@ def page(state, focus: str = "storms") -> str:
 <body class="deskpage">
 <header class="deskhead">
 <div class="headtext"><h1>{esc(words["title"])}</h1>
-<p class="sub"><span class="long">{esc(words["sub"])} </span>Built {built}.</p></div>
+<p class="sub"><span class="long">{esc(words["sub"])} </span>Built <span id="built">{built}</span>.</p></div>
 {_find()}
 <div class="headbtns"><a class="themebtn" data-carry="{other}" href="{other}">{esc(other_name)}</a>
 <a class="themebtn" href="dashboard.html">Dashboard</a>
@@ -1709,8 +1711,10 @@ def page(state, focus: str = "storms") -> str:
 {_legend(data, hues)}
 </div>
 <aside class="deskpanel" id="panel" aria-label="Storms, outlook and what to do">{_panel(data, hues, focus, now)}</aside>
+<p class="heresaid" id="here-said" role="status"></p>
 </main>
 <script id="desk-data" type="application/json">{raw}</script>
+<script>{live.SCRIPT}</script>
 <script>{script()}</script>
 </body>
 </html>"""
@@ -1741,7 +1745,7 @@ _JS = r"""
   var S = {
     x: 0.5, y: 0.45, z: 3, w: 1, h: 1,
     layer: "geocolor", second: "infrared", compare: false, split: 0.5,
-    loop: false, frame: 0, scrub: 0, selected: null, inView: {},
+    loop: false, loopWanted: false, frame: 0, scrub: 0, selected: null, inView: {},
     show: {}, refs: {}, pin: null, day: null, dayState: "idle", dayStepped: false,
     imagery: navigator.onLine === false ? "offline" : "pending"
   };
@@ -1763,6 +1767,10 @@ _JS = r"""
   }
   function lonOf(x) { return x * 360 - 180; }
   function latOf(y) { return deg(Math.atan(Math.sinh(Math.PI * (1 - 2 * y)))); }
+  // A name a table has of its own: words, and not one every object inherits
+  // ("constructor").
+  function own(table, key) { return typeof key === "string" && Object.prototype.hasOwnProperty.call(table, key); }
+  function finite(x) { return typeof x === "number" && isFinite(x); }
   function world() { return TILE * Math.pow(2, S.z); }
   function km(lon1, lat1, lon2, lat2) {
     var p1 = rad(lat1), p2 = rad(lat2), dp = p2 - p1, dl = rad(lon2 - lon1);
@@ -2419,7 +2427,7 @@ _JS = r"""
     drawPane(panes.r, refs, moving);
     // NASA's ocean and flood tiles, over the whole map, both sides of the divider.
     drawPane(panes.e, ensoTileSpecs(), moving);
-    if (!moving) S.inView = inView;
+    if (!moving) { S.inView = inView; loopWhenKnown(); }
   }
 
   // ---- drawing in world units -------------------------------------------------
@@ -3113,6 +3121,7 @@ _JS = r"""
   }
   function setLoop(on) {
     clearTimeout(loopTimer);
+    S.loopWanted = false;
     S.loop = !!on && loopLength() > 1;
     S.frame = S.loop ? loopLength() - 1 : 0;
     if (S.loop) loopTimer = setTimeout(tick, 450);
@@ -3125,6 +3134,12 @@ _JS = r"""
     S.frame = S.frame > 0 ? Math.min(S.frame - 1, n - 1) : n - 1;
     dirty();
     loopTimer = setTimeout(tick, S.frame === 0 ? 1400 : 450);
+  }
+  // A loop waiting on GIBS's frames: one handed across a load, or kept while
+  // a place was entered. It runs once the map is drawn with the frames in
+  // view; the reader's own Loop, pressed meanwhile, comes first.
+  function loopWhenKnown() {
+    if (S.loopWanted && loopLength() > 1) setLoop(true);
   }
 
   // ---- choosing what to show ------------------------------------------------------
@@ -3638,7 +3653,11 @@ _JS = r"""
   function showHere() {
     var box = $("here");
     if (!box) return;
-    if (!S.here) { box.hidden = true; box.innerHTML = ""; $("herego").hidden = true; S.google = null; return; }
+    if (!S.here) {
+      box.hidden = true; box.innerHTML = ""; $("herego").hidden = true; S.google = null;
+      hereSay("");
+      return;
+    }
     var h = hereFor(S.here.lon, S.here.lat), html = [], place = h.place;
     html.push('<h2 class="panelhead" id="here-title">Here: ' + esc(S.here.label) + "</h2>");
     var facts = [where(h.lon, h.lat)];
@@ -3671,19 +3690,35 @@ _JS = r"""
       : "Out at sea, far from any named place. ") +
       "Each storm\u2019s advisories come from the centre named beside it.</p>");
     html.push(ensoHereHtml(ensoHere(h.lon, h.lat)));
-    html.push(ensoTodayHtml());
+    html.push(ensoTodayHtml(S.here.lon, S.here.lat));
     html.push(googleHtml(h.lat, h.lon, S.z));
     html.push('<p><a href="atlas.html#at=' + h.lat.toFixed(2) + "," + h.lon.toFixed(2) + '">What El Ni\u00f1o usually does here, season by season &rarr;</a></p>');
     html.push('<p class="method">' + esc(D.methods.here || "") + "</p>");
-    box.innerHTML = html.join("");
+    hereWrite(box, html.join(""));
     box.hidden = false;
+    hereSay("Here: " + S.here.label);
     ensoTodayRead(S.here.lon, S.here.lat);
-    // Google's frame, if one is open on this point, is opened again after a refresh.
-    if (S.google && S.google.lon === S.here.lon && S.google.lat === S.here.lat) googleFrame(S.google.kind);
-    else S.google = null;
     var go2 = $("herego");
     go2.textContent = S.here.label.split(", ")[0] + (D.focus === "world" ? ": El Ni\u00f1o here \u2193" : ": what the storms mean here \u2193");
     go2.hidden = false;
+  }
+  // Here written anew, as the reader left it: its tables open or shut, and
+  // the focus on its control (retake). Google's frame open on this point is
+  // left where it is, never loaded again, so the place the reader has gone to
+  // in it (Street View walked on, Google's map moved) stays; a frame of
+  // another point closes.
+  function hereWrite(box, html) {
+    var frame = S.google && S.google.lon === S.here.lon && S.google.lat === S.here.lat ? $("google-frame") : null;
+    retake(box, html, frame);
+    if (frame) googlePressed(S.google.kind);
+    else S.google = null;
+  }
+  // Which place Here is on, said by the line kept for it outside the panel:
+  // written only when that changes, so Here written anew (each take writes
+  // it) is not read out again.
+  function hereSay(words) {
+    var line = $("here-said");
+    if (line && line.textContent !== words) line.textContent = words;
   }
   // A point named: the town it is in, the distance from the nearest, or its
   // latitude and longitude. Here's name for it, and an entered place's.
@@ -3892,36 +3927,239 @@ _JS = r"""
     if (sec) tab(sec, el.getAttribute("data-tab"));
   });
 
+  // ---- a run taken where the reader is ---------------------------------------
+  // A box written anew around one node of it, which is left where it is: the
+  // new markup's node of the same id marks its place. A frame taken out of
+  // the page loads again, so Google's frame, and Here, which holds it, never
+  // are. Without that node, or with one that is not the box's, the box is
+  // written whole.
+  function writeAround(box, html, keep) {
+    if (!keep || keep.parentNode !== box) { box.innerHTML = html; return; }
+    var fresh = document.createElement("div"), before = true;
+    fresh.innerHTML = html;
+    Array.prototype.slice.call(box.childNodes).forEach(function (n) { if (n !== keep) box.removeChild(n); });
+    Array.prototype.slice.call(fresh.childNodes).forEach(function (n) {
+      if (n.id === keep.id) before = false;
+      else box.insertBefore(n, before ? keep : null);
+    });
+  }
+  // A new run's markup put in a box as the reader left it: each storm on the
+  // tab it showed, each <details> open or shut as it was, and the focus on
+  // the control it was on, each found again by knownAs(). The node kept
+  // (Here) keeps its own.
+  function retake(box, html, keep) {
+    var tabs = shownTabs(box), open = {}, on = document.activeElement;
+    var focus = on && on !== box && box.contains(on) && !(keep && keep.contains(on)) ? knownAs(on) : "";
+    box.querySelectorAll("details").forEach(function (d) { open[knownAs(d)] = d.open; });
+    writeAround(box, html, keep);
+    box.querySelectorAll("section.storm").forEach(function (sec) { tab(sec, tabs[sec.id] || "now"); });
+    box.querySelectorAll("details").forEach(function (d) {
+      var k = knownAs(d);
+      if (k in open) d.open = open[k];
+    });
+    if (!focus) return;
+    var again = box.querySelectorAll("a[href], button, summary, input, select");
+    for (var i = 0; i < again.length; i++) {
+      if (knownAs(again[i]) === focus) { again[i].focus({preventScroll: true}); return; }
+    }
+  }
+  // Each storm's tab as the reader left it, by its section's id.
+  function shownTabs(root) {
+    var tabs = {};
+    root.querySelectorAll("section.storm").forEach(function (sec) {
+      var on = sec.querySelector('[data-tab][aria-selected="true"]');
+      if (on) tabs[sec.id] = on.getAttribute("data-tab");
+    });
+    return tabs;
+  }
+  // A control, or a <details> by its summary, known by what it is and not by
+  // where it stands: its section, then its id, address and data-* actions,
+  // or its words where it has none (a summary's, as live.py finds a section
+  // across a load).
+  function knownAs(el) {
+    var sec = el.closest("section[id]"), named = el.tagName === "DETAILS" ? el.querySelector("summary") : el;
+    if (!named) return "";
+    var says = Array.prototype.filter.call(named.attributes, function (a) {
+      return a.name === "id" || a.name === "href" || a.name.slice(0, 5) === "data-";
+    }).map(function (a) { return a.name + "=" + a.value; });
+    return (sec ? sec.id : "") + "|" + named.tagName + "|" + (says.length ? says.join(" ") : named.textContent.trim());
+  }
+
   // ---- keeping current -----------------------------------------------------------
-  // Served over HTTP the page reads itself again every five minutes, map data
-  // and panel together, and leaves the view where it is.
+  // A new run is read from the page itself, map data and panel together, and
+  // the view is left where it is. Served, the page asks the site each minute
+  // which run it serves (elninoLive, in live.py) and comes here only for a run
+  // it does not show; the promise says when the page has taken it, and the
+  // page then names the run in its head. A run another code wrote is not this
+  // script's to read: the promise says false, and the follower loads the page
+  // again for it, the reader's place handed across (keepPlace, below). A copy
+  // no newer than the page's own run (a CDN's edge can still serve an older
+  // one) is passed over, and the follower goes for the run again after a pause.
   function refresh() {
-    fetch(location.href.split("#")[0], {cache: "no-store"}).then(function (r) {
+    return siteCopy().then(function (copy) {
+      if (copy === false) return false;
+      if (copy && newer(copy.data.built, D.built)) return takeRun(copy.doc, copy.data);
+    });
+  }
+  // The site's copy of this page and its data, read: false when another code
+  // wrote it; null when it could not be had or read.
+  function siteCopy() {
+    return fetch(location.href.split("#")[0], {cache: "no-store"}).then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status);
       return r.text();
     }).then(function (text) {
       var doc = new DOMParser().parseFromString(text, "text/html");
+      if (!elninoLive.sameCode(doc)) return false;
       var node = doc.getElementById("desk-data");
-      if (!node) return;
-      var next = JSON.parse(node.textContent);
-      if (next.built === D.built) return;
+      return node ? {doc: doc, data: JSON.parse(node.textContent)} : null;
+    }).catch(function () { return null; });
+  }
+  // Whether one run is later than another, however each is written.
+  function newer(a, b) { return Date.parse(a) > Date.parse(b); }
+  // The new run taken where the reader is, the place in the panel and the key
+  // held by the follower (elninoLive.hold). A take that fails part way leaves
+  // the page between two runs: it throws once the place is put back, and the
+  // follower loads the page for the run.
+  function takeRun(doc, next) {
+    var panel = doc.getElementById("panel"), legend = doc.getElementById("legend");
+    var stamp = doc.getElementById("built");
+    var putPlaceBack = elninoLive.hold();
+    try {
       D = next;
-      var panel = doc.getElementById("panel"), legend = doc.getElementById("legend");
-      var keyOpen = !!$("legend").querySelector("details[open]");
-      if (panel) $("panel").innerHTML = panel.innerHTML;
+      // The panel and the key as the reader left them. Here is the page's own:
+      // showHere, below, writes it from the new run around Google's frame.
+      if (panel) retake($("panel"), panel.innerHTML, $("here"));
+      // The header's stamp is the new run's, as the panel's is.
+      if (stamp) $("built").innerHTML = stamp.innerHTML;
       // The legend comes back empty, so the El Nino key is written again.
-      if (legend) { $("legend").innerHTML = legend.innerHTML; ensoSaid = ""; }
-      if (keyOpen && $("legend").querySelector("details")) $("legend").querySelector("details").open = true;
-      thenRefreshed(doc);
+      if (legend) { retake($("legend"), legend.innerHTML); ensoSaid = ""; }
+      // The regions' Show in the new panel, pressed as the reader left them.
+      ensoControls();
       prepare();
+      thenRefreshed(doc);
       if (S.then) thenApply();
       coastDone = 0; coastD = ""; coastG.innerHTML = "";
-      document.querySelectorAll("#panel section.storm").forEach(function (sec) { tab(sec, "now"); });
       select(BYID[S.selected] ? S.selected : (STORMS[0] ? STORMS[0].id : null));
       showHere();
       ages();
-      dirty();
-    }).catch(function () { /* the next attempt is five minutes away */ });
+      // Drawn now, keys and all, so the reader's place is put back on the page
+      // as it will stand.
+      geoDirty = true;
+      render();
+    } finally {
+      putPlaceBack();
+    }
+    elninoLive.shows(doc);
+  }
+
+  // ---- a run loaded where the reader was ------------------------------------------
+  // A run the page cannot take in place is loaded, and the reader's place
+  // handed across: the view; the layers, the comparison, the divider and the
+  // loop as the map's own (Exit's, while a place is entered); the hour scrubbed to,
+  // the day stepped to, the overlays and El Nino's map; Here, and Google's
+  // frame in it; the place entered, on its event or its dates; the storm
+  // chosen and each storm's tab. The follower keeps the panel's scroll, its
+  // tables open or shut and the theme.
+  function keepPlace() {
+    var T = S.then, layers = T ? T.back : S;
+    return {view: {lon: wrap(lonOf(S.x)), lat: latOf(S.y), z: S.z},
+            layer: layers.layer, second: layers.second, compare: layers.compare, split: layers.split,
+            loop: layers.loop, scrub: S.scrub, day: S.dayStepped ? S.day : null,
+            show: S.show, refs: S.refs, enso: S.enso,
+            here: S.here, google: S.google ? S.google.kind : null,
+            then: T ? {lon: T.lon, lat: T.lat, label: T.label, source: T.source, preset: T.preset,
+                       a: sideDay(T, "a"), b: sideDay(T, "b"), names: T.names, split: S.split} : null,
+            storm: S.selected, tabs: shownTabs($("panel"))};
+  }
+  // The place handed across, put back over the page as it opened. It is
+  // read like input, and only what is this page's own is put back: a layer
+  // it draws, a storm it shows, a region it names, a day that is one. A
+  // place the reader had left stays left, though the address opened on it.
+  function restorePlace(k) {
+    function point(p) { return !!p && typeof p === "object" && finite(p.lon) && finite(p.lat) && Math.abs(p.lat) <= 90; }
+    // Leaving the place the address opened on strips the address of it: the
+    // place entered again, the address is put back as it was.
+    var address = /^#then=/.test(location.hash) ? location.href : null;
+    if (S.then) thenLeave();
+    if (drawable(k.layer)) setLayer(k.layer);
+    if (drawable(k.second) && k.second !== S.layer) { S.second = k.second; $("compare-layer").value = S.second; }
+    if (typeof k.compare === "boolean") setCompare(k.compare);
+    if (finite(k.split)) thenSplit(clamp(k.split, 0.05, 0.95));
+    if (finite(k.scrub)) { scrub.value = k.scrub; S.scrub = +scrub.value; }
+    if (realDay(k.day)) { S.day = k.day; S.dayStepped = true; }
+    ticked(k.show, "data-show");
+    ticked(k.refs, "data-ref");
+    readToggles();
+    var enso = ensoKept(k.enso);
+    if (Object.keys(enso).length) setEnso(enso);
+    if (own(BYID, k.storm)) select(k.storm);
+    var tabs = k.tabs && typeof k.tabs === "object" ? k.tabs : {};
+    $("panel").querySelectorAll("section.storm").forEach(function (sec) {
+      var name = own(tabs, sec.id) ? tabs[sec.id] : null;
+      if (Array.prototype.some.call(sec.querySelectorAll("[data-tab]"), function (b) {
+        return b.getAttribute("data-tab") === name;
+      })) tab(sec, name);
+    });
+    // The view before Here, so Google's map opens at the reader's zoom, and
+    // again last, over the flight into a place entered.
+    var h = k.here, t = k.then, v = k.view;
+    var seen = !!v && typeof v === "object" && finite(v.lon) && finite(v.lat) && finite(v.z);
+    function look() {
+      cancelAnimationFrame(anim); anim = 0;
+      S.x = mx(wrap(v.lon)); S.y = my(clamp(v.lat, -85, 85)); S.z = clamp(v.z, MINZ, maxZoom());
+    }
+    if (seen) look();
+    if (point(h)) {
+      hereAt(h.lon, h.lat, typeof h.label === "string" ? h.label : "");
+      if (k.google === "map" || k.google === "satellite" || k.google === "street") googleFrame(k.google);
+    } else if (h === null && S.here) clearHere();
+    if (point(t) && thenSrc(t.source)) {
+      thenEnter(t.lon, t.lat, typeof t.label === "string" && t.label ? t.label : null,
+                {source: t.source, preset: t.preset, a: t.a, b: t.b, names: t.names, instant: true});
+      if (finite(t.split)) thenSplit(clamp(t.split, 0.05, 0.95));
+    }
+    // A loop runs over frames GIBS has yet to give: on Exit, while a place is
+    // entered, and else once they are in view (loopWhenKnown).
+    if (k.loop === true) {
+      if (S.then) S.then.back.loop = true;
+      else S.loopWanted = true;
+    }
+    if (seen) { look(); settle(); }
+    if (address && S.then) {
+      try { history.replaceState(null, "", address); } catch (err) { /* the address stays without it */ }
+    }
+  }
+  // A layer the map can show, as its base or beside it: one of its maps, or
+  // NASA's imagery; not a side of then and now.
+  function drawable(id) {
+    var l = own(LAYERS, id) ? LAYERS[id] : null;
+    return !!l && (l.kind === "map" || l.kind === "imagery") && !l.then;
+  }
+  // The Overlays menu's boxes of one kind, ticked as they were kept, each by
+  // its name; a name the page no longer has is passed over.
+  function ticked(kept, attr) {
+    if (!kept || typeof kept !== "object") return;
+    document.querySelectorAll("[" + attr + "]").forEach(function (box) {
+      var name = box.getAttribute(attr);
+      if (own(kept, name) && typeof kept[name] === "boolean") box.checked = kept[name];
+    });
+  }
+  // El Nino's map as it was kept, as a change of what this page has: a
+  // variable it draws (or none), a season it has, its switches, strengths
+  // from 0 to 1, each of NASA's layers it offers, a region it names.
+  function ensoKept(e) {
+    var patch = {};
+    if (!e || typeof e !== "object") return patch;
+    if (e.variable === null || own(D.enso.grids, e.variable)) patch.variable = e.variable;
+    if (own(D.enso.season_label, e.season)) patch.season = e.season;
+    ["mask", "regions", "boxes"].forEach(function (key) { if (typeof e[key] === "boolean") patch[key] = e[key]; });
+    ["opacity", "tileOpacity"].forEach(function (key) { if (finite(e[key])) patch[key] = clamp(e[key], 0, 1); });
+    if (e.tiles && typeof e.tiles === "object") {
+      patch.tiles = {};
+      ensoTileLayers().forEach(function (l) { patch.tiles[l.id] = own(e.tiles, l.id) && e.tiles[l.id] === true; });
+    }
+    if (e.shown === null || (D.enso.links || []).some(function (l) { return l.region === e.shown; })) patch.shown = e.shown;
+    return patch;
   }
   window.addEventListener("offline", function () { S.imagery = "offline"; dirty(); });
   window.addEventListener("online", function () {
@@ -3958,7 +4196,10 @@ _JS = r"""
     for (var k in DOM) DOM[k].stale = true;
     dirty();
   }, 600000);
-  if (/^https?:$/.test(location.protocol)) setInterval(refresh, 300000);
+  // A new run is taken in place while the page is open (see refresh); one it
+  // cannot take is loaded, the reader's place handed across (see keepPlace).
+  elninoLive.follow({take: refresh, keep: keepPlace, restore: restorePlace,
+                     boxes: ["panel", "legend"]});
 
   window.stormDesk = {
     flyTo: function (id) { return flyTo(id); },

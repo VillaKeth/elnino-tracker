@@ -1296,6 +1296,142 @@ class TestThenResolveRuns(unittest.TestCase):
         self.assertEqual(got, [0, {"gibs": True, "wayback": False}])
 
 
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class TestThenFollowsTheRun(unittest.TestCase):
+    """A run taken in place while a place is entered: sides set by an event go
+    to the dates the new build gives it, NASA's days are asked for again, and
+    the reader's own dates stand."""
+
+    NO_PARTS = "var doc = {getElementById: function () { return null; }};\n"
+
+    def test_sides_set_by_an_event_go_to_the_new_build_s_dates_for_it(self):
+        # Built on 29 September: a year ago and the latest moved on a day.
+        got = _run(self, _want("modis", "2025-09-28", "2026-09-28", preset="now") + SHOWN + self.NO_PARTS + r"""
+          route("gibs/MODIS_Terra_Corr", "<Domain>2000-02-24/2026-09-29/P1D</Domain>");
+          thenResolve(); await flush();
+          var before = shown();
+          thenRefreshed(doc); await flush();
+          console.log(JSON.stringify([before.got, shown().want, shown().got, S.then.preset]));
+        """)
+        self.assertEqual(got, [{"a": "2025-09-28", "b": "2026-09-28"}, {"a": "2025-09-29", "b": "2026-09-29"},
+                               {"a": "2025-09-29", "b": "2026-09-29"}, "now"])
+
+    def test_nasa_s_days_are_asked_for_again_so_the_latest_is_the_latest(self):
+        got = _run(self, _want("modis", "2025-09-29", "2026-09-29") + SHOWN + self.NO_PARTS + r"""
+          route("gibs/MODIS_Terra_Corr", "<Domain>2000-02-24/2026-09-27/P1D</Domain>");
+          thenResolve(); await flush();
+          var first = shown().got.b;
+          route("gibs/MODIS_Terra_Corr", "<Domain>2000-02-24/2026-09-29/P1D</Domain>");
+          thenRefreshed(doc); await flush();
+          console.log(JSON.stringify([first, shown().got.b, shown().want,
+                                      ASKED.filter(function (u) { return u.indexOf("MODIS_Terra_Corr") >= 0; }).length]));
+        """)
+        # The reader's own dates stand, and the latest day NASA has given since is shown.
+        self.assertEqual(got, ["2026-09-27", "2026-09-29", {"a": "2025-09-29", "b": "2026-09-29"}, 2])
+
+    def test_the_sides_stand_as_they_are_while_nasa_is_asked_again(self):
+        # Their words and the reading at the pin too: nothing is said to be
+        # asked for, and nothing read again, unless an answer moves a side;
+        # no answer leaves them as they were.
+        got = _run(self, _want("sst", "2014-11-15", "2015-11-15") + SHOWN + self.NO_PARTS + r"""
+          route("gibs/GHRSST", "<Domain>2002-09-01/2026-09-27/P1D</Domain>");
+          paint("Anomalies/2014-11-15/", [237, 237, 152, 255]);
+          paint("Anomalies/2015-11-15/", [249, 1, 19, 255]);
+          thenResolve(); await flush();
+          var read = S.then.read, images = IMAGES.length;
+          thenRefreshed(doc);
+          var asking = shown().look;
+          await flush();
+          var answered = [shown().look, S.then.read === read, IMAGES.length - images];
+          route("gibs/GHRSST", new Error("GIBS is down"));
+          thenRefreshed(doc); await flush();
+          console.log(JSON.stringify([asking, answered, shown().look, shown().got, shown().fail.gibs,
+                                      S.then.read === read,
+                                      ASKED.filter(function (u) { return u.indexOf("GHRSST") >= 0; }).length]));
+        """)
+        self.assertEqual(got, [{"a": "", "b": ""}, [{"a": "", "b": ""}, True, 0], {"a": "", "b": ""},
+                               {"a": "2014-11-15", "b": "2015-11-15"}, False, True, 3])
+
+    def test_landsat_and_sentinel_2_days_are_looked_for_again_as_quietly(self):
+        # A day NASA had not given when the side was found, given since. A
+        # look that finds no image, or no answer, leaves the sides as they are.
+        got = _run(self, _want("hls", "2014-11-15", "2015-11-15") + SHOWN + self.NO_PARTS + r"""
+          paint("HLS_", [0, 0, 0, 0]);
+          paint("HLS_S30/2014-11-15/", [10, 20, 30, 255]);
+          paint("HLS_L30/2015-11-20/", [10, 20, 30, 255]);
+          thenResolve(); await flush(400);
+          var first = shown().got;
+          paint("HLS_S30/2015-11-15/", [10, 20, 30, 255]);
+          thenRefreshed(doc);
+          var looking = shown().look;
+          await flush(400);
+          var moved = [shown().got, shown().look];
+          PAINT = []; paint("HLS_", [0, 0, 0, 0]);
+          thenRefreshed(doc); await flush(400);
+          var none = [shown().got, shown().look];
+          PAINT = [];
+          thenRefreshed(doc); await flush(400);
+          console.log(JSON.stringify([first, looking, moved, none, [shown().got, shown().look, shown().fail.gibs]]));
+        """)
+        sides, quiet = {"a": "2014-11-15", "b": "2015-11-15"}, {"a": "", "b": ""}
+        self.assertEqual(got, [{"a": "2014-11-15", "b": "2015-11-20"}, quiet, [sides, quiet], [sides, quiet],
+                               [sides, quiet, False]])
+
+    def test_esri_s_captures_stay_as_they_were_found(self):
+        got = _run(self, _entered("archive", 80, 90) + self.NO_PARTS + r"""
+          S.then.preset = ""; S.then.want = {a: "2019-06-26", b: "2024-03-01"};
+          thenRefreshed(doc); await flush();
+          console.log(JSON.stringify([ASKED.length, IMAGES.length]));
+        """)
+        self.assertEqual(got, [0, 0])
+
+    def test_sides_on_an_event_whose_dates_stand_are_left_as_they_are(self):
+        got = _run(self, _want("modis", "2014-11-15", "2015-11-15", preset="ep0-before") + SHOWN + MODIS_DAYS
+                   + self.NO_PARTS + r"""
+          thenResolve(); await flush();
+          var before = [shown(), ASKED.length];
+          thenRefreshed(doc); await flush();
+          console.log(JSON.stringify([before[0].got, before[1], shown().got, ASKED.length, S.then.preset]));
+        """)
+        # NASA is asked again, and its answer leaves them where they are.
+        self.assertEqual(got, [{"a": "2014-11-15", "b": "2015-11-15"}, 1,
+                               {"a": "2014-11-15", "b": "2015-11-15"}, 2, "ep0-before"])
+
+    def test_sides_on_an_event_the_new_build_no_longer_offers_keep_their_dates(self):
+        got = _run(self, _want("modis", "2009-07-15", "2010-07-15", preset="ep5-before") + SHOWN + MODIS_DAYS
+                   + self.NO_PARTS + r"""
+          thenResolve(); await flush();
+          var asked = ASKED.length;
+          thenRefreshed(doc); await flush();
+          console.log(JSON.stringify([shown().want, shown().got, ASKED.length - asked, S.then.preset]));
+        """)
+        self.assertEqual(got, [{"a": "2009-07-15", "b": "2010-07-15"}, {"a": "2009-07-15", "b": "2010-07-15"}, 1, ""])
+
+    def test_menus_the_new_build_left_as_they_were_are_not_written_again(self):
+        # The event menu, open as the run is taken, stays open: only a change
+        # is written.
+        got = _run(self, _want("modis", "2014-11-15", "2015-11-15", preset="ep0-before") + MODIS_DAYS + r"""
+          var writes = {};
+          ["then-event", "then-strip", "then-years"].forEach(function (id) {
+            var el = $(id);
+            el.markup = "<option>" + id + "</option>"; writes[id] = 0;
+            Object.defineProperty(el, "innerHTML", {get: function () { return this.markup; },
+                                                    set: function (html) { writes[id]++; this.markup = html; }});
+          });
+          function build(html) {
+            return {getElementById: function (id) {
+              return {innerHTML: html(id), getAttribute: function () { return "0 0 320 40"; }};
+            }};
+          }
+          thenRefreshed(build(function (id) { return $(id).innerHTML; })); await flush();
+          var same = JSON.parse(JSON.stringify(writes));
+          thenRefreshed(build(function (id) { return "<option>" + id + ", the next build's</option>"; })); await flush();
+          console.log(JSON.stringify([same, writes]));
+        """)
+        self.assertEqual(got, [{"then-event": 0, "then-strip": 0, "then-years": 0},
+                               {"then-event": 1, "then-strip": 1, "then-years": 1}])
+
+
 MODIS_DAYS = 'route("gibs/MODIS_Terra_Corr", "<Domain>2000-02-24/2026-09-28/P1D</Domain>");\n'
 
 
@@ -1498,7 +1634,7 @@ class TestThenBarRuns(unittest.TestCase):
         self.assertEqual(got, ["2026-09-29", "2026-10-04", "2026-10-04"])
 
     def test_a_refresh_brings_the_new_build_s_event_menu_and_strip(self):
-        self.assertIn("thenRefreshed(doc);", _js_function(stormdesk.script(), "refresh"))
+        self.assertIn("thenRefreshed(doc);", _js_function(stormdesk.script(), "takeRun"))
         got = _run(self, r"""
           var fresh = {"then-event": new El("then-event", "select"), "then-strip": new El("then-strip", "svg"),
                        "then-years": new El("then-years")};
@@ -1603,6 +1739,20 @@ class TestThenEnterRuns(unittest.TestCase):
     """Into a place and out again: the pin, the two sides at the divider and
     the flight in; the map as it was on the way out; the place moved by a
     tap; the page's other controls leaving first."""
+
+    def test_a_place_is_entered_again_on_its_event_and_its_names(self):
+        # As a page loaded again for a run puts back the place the reader had
+        # entered: on its event, at the dates this build gives it, with Esri's
+        # names as they were.
+        got = _run(self, r"""
+          thenEnter(-60.025, -3.1, null, {preset: "ep0-before", a: "2001-01-01", b: "2002-01-01", names: false});
+          var on = [S.then.preset, S.then.want.a, S.then.want.b, S.then.names, !!LAYERS["then-a"].over];
+          thenEnter(-60.025, -3.1, null, {preset: "ep7-gone", a: "2001-01-01", b: "2002-01-01"});
+          console.log(JSON.stringify([on, [S.then.preset, S.then.want.a, S.then.want.b]]));
+        """)
+        # An event the build no longer offers: its dates kept, as the reader's own.
+        self.assertEqual(got, [["ep0-before", "2014-11-15", "2015-11-15", False, False],
+                               ["", "2001-01-01", "2002-01-01"]])
 
     def test_entering_flies_in_and_compares_two_dates_at_the_pin(self):
         got = _run(self, BEFORE + r"""
@@ -1760,6 +1910,27 @@ class TestThenEnterRuns(unittest.TestCase):
         """, extra=extra)
         self.assertEqual(got, [True, False, "loopy", True, 2])
 
+    def test_exit_before_gibs_has_given_the_layer_s_frames_runs_the_loop_once_it_has(self):
+        # A place entered across a load: the layer Exit goes back to has had
+        # no frames asked for yet, so its loop runs once GIBS gives them.
+        extra = ("\n".join(_js_function(stormdesk.script(), name)
+                           for name in ("setLoop", "loopWhenKnown", "loopLength", "timed", "framesOf"))
+                 + "\nvar loopTimer = 0;\nfunction tick() {}\n")
+        got = _run(self, r"""
+          LAYERS.loopy = {id: "loopy", kind: "imagery", name: "Loopy", global: "LOOPY", tms: "GoogleMapsCompatible_Level6",
+                          zoom: 6, format: "png", step: "PT10M"};
+          S.layer = "loopy";
+          """ + MANAUS + r"""
+          S.then.back.loop = true;
+          thenLeave();
+          var waiting = [S.layer, S.loop, S.loopWanted];
+          DOM.LOOPY = {frames: [{t: 1, key: "k1"}, {t: 2, key: "k2"}, {t: 3, key: "k3"}]};
+          S.inView = cells("loopy", 0).used;
+          loopWhenKnown();
+          console.log(JSON.stringify([waiting, [S.loop, S.frame, S.loopWanted]]));
+        """, extra=extra)
+        self.assertEqual(got, [["loopy", False, True], [True, 2, False]])
+
     def test_entering_again_moves_the_place_and_keeps_the_source_dates_and_way_back(self):
         got = _run(self, BEFORE + MANAUS + r"""
           S.split = 0.7; S.then.names = false;
@@ -1821,21 +1992,28 @@ class TestThenEnterRuns(unittest.TestCase):
             self.assertIn(control + "\n    if (S.then) thenLeave();", js)
 
     def test_a_refresh_while_entered_draws_the_sides_again(self):
-        extra = _js_function(stormdesk.script(), "refresh") + r"""
+        js = stormdesk.script()
+        extra = "\n".join(_js_function(js, name) for name in ("refresh", "siteCopy", "newer", "takeRun")) + r"""
 function prepare() { note("prepare"); LAYERS = {streets: {id: "streets", kind: "map"}}; }
 function select() {}
 function showHere() {}
 function ages() {}
 function tab() {}
+function ensoControls() {}
+function render() {}
+var geoDirty = false;
 var ensoSaid = "", coastDone = 1, coastD = "M0", coastG = {innerHTML: ""}, STORMS = [], BYID = {}, NEXT = null;
 function DOMParser() {}
 DOMParser.prototype.parseFromString = function () {
   return {getElementById: function (id) { return id === "desk-data" ? {textContent: JSON.stringify(NEXT)} : null; }};
 };
+var elninoLive = {shows: function () { note("shows"); }, sameCode: function () { return true; },
+                  hold: function () { return function () {}; }};
 """
         got = _run(self, MODIS_DAYS + MANAUS + r"""
           await flush();
-          NEXT = JSON.parse(JSON.stringify(D)); NEXT.built = "later";
+          D.built = "2026-09-29T11:00:00Z";
+          NEXT = JSON.parse(JSON.stringify(D)); NEXT.built = "2026-09-29T12:00:00Z";
           route("map.html", "<html></html>");
           refresh(); await flush();
           console.log(JSON.stringify([CALLS.indexOf("prepare") >= 0, S.layer, S.second,

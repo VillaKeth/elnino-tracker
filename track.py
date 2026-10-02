@@ -37,7 +37,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from elnino import atlasview, dashboard, pipeline, report, storage, stormdesk
+from elnino import atlasview, dashboard, live, pipeline, report, storage, stormdesk
 from elnino.alerts import CRITICAL, WARNING
 
 ROOT = Path(__file__).resolve().parent
@@ -114,8 +114,9 @@ def _run_once(args) -> int:
     # should not have to download.
     atlas_path = out_dir / "atlas.html"
     # The storm desk and the map are one page written twice, opened on the
-    # storms or on El Nino's effects. Each reads itself again while it is
-    # open, so a served page follows each --watch run without being reloaded.
+    # storms or on El Nino's effects. Served, they take each new run in place
+    # while they are open; the dashboard and the atlas load again for it
+    # (elnino/live.py).
     desk_path = out_dir / "storms.html"
     map_path = out_dir / "map.html"
     desk_json = out_dir / "storms.json"
@@ -126,6 +127,9 @@ def _run_once(args) -> int:
         map_path.write_text(stormdesk.page(state, focus="world"), encoding="utf-8")
         dashboard.write_json(state, json_path)
         stormdesk.write_json(state, desk_json)
+        # Last of all: a page that finds this run named in the beacon finds
+        # every file of it already written.
+        live.write_run(state.run_at, out_dir / live.BEACON)
 
     if args.json_only:
         print(json.dumps(dashboard.payload(state), indent=2))
@@ -239,8 +243,9 @@ def _where(server, lan: bool) -> str:
 
 def _watch(args) -> int:
     """Re-run on a schedule until interrupted."""
-    # The upstream feeds update daily at most, so anything under about half
-    # an hour is pure load on NOAA for no new information.
+    # The fastest feeds, the tropical cyclone products, change every few
+    # hours, so anything under a quarter of an hour is pure load on NOAA for
+    # no new information.
     interval = max(args.watch, 15) * 60
     print(f"Watching: re-running every {interval // 60} minutes. Ctrl-C to stop.",
           file=sys.stderr)

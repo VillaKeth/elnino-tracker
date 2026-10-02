@@ -860,11 +860,14 @@ _JS = r"""
     return T.got[k] || T.want[k];
   }
   // NASA's daily and 16-day layers: each side at the time GIBS lists
-  // nearest its date.
-  function thenGibs(T, src) {
+  // nearest its date. Asked again quietly (thenAskAgain), the sides stand as
+  // they are until GIBS answers, and stay so if it does not.
+  function thenGibs(T, src, quiet) {
     var q = {a: ++T.ask.a, b: ++T.ask.b};
-    T.look.a = T.look.b = "asking";
-    thenChanged();
+    if (!quiet) {
+      T.look.a = T.look.b = "asking";
+      thenChanged();
+    }
     thenSpans(src).then(function (spans) {
       if (T !== S.then || T.source !== src.id) return;
       T.fail.gibs = false;
@@ -878,7 +881,7 @@ _JS = r"""
       thenOrder(T);
       thenChanged();
     }, function () {
-      if (T !== S.then || T.source !== src.id) return;
+      if (T !== S.then || T.source !== src.id || quiet) return;
       T.fail.gibs = true;
       ["a", "b"].forEach(function (k) { if (q[k] === T.ask[k]) T.look[k] = NO_ANSWER; });
       thenChanged();
@@ -954,7 +957,8 @@ _JS = r"""
       return hlsHunt(days.slice(6), t, still);
     });
   }
-  function thenHls(T, k, by) {
+  // Asked again quietly (thenAskAgain), a side moves only to a day found.
+  function thenHls(T, k, by, quiet) {
     var src = thenSrc("hls"), q = ++T.ask[k], lon = T.lon, lat = T.lat, today = dayZ(Date.now());
     var from = by ? T.got[k] : T.want[k];
     if (!from) return;
@@ -963,10 +967,12 @@ _JS = r"""
       from = from < src.first ? src.first : from > today ? today : from;
     }
     function still() { return T === S.then && T.source === "hls" && T.ask[k] === q && T.lon === lon && T.lat === lat; }
-    T.look[k] = "looking";
-    thenChanged();
+    if (!quiet) {
+      T.look[k] = "looking";
+      thenChanged();
+    }
     hlsHunt(hlsDays(from, by, src.first, today), hlsTile(lon, lat), still).then(function (day) {
-      if (!still()) return;
+      if (!still() || (quiet && (day === null || day === NO_ANSWER))) return;
       T.look[k] = "";
       if (day === NO_ANSWER) { T.look[k] = NO_ANSWER; T.fail.gibs = true; }
       else if (day) {
@@ -991,6 +997,16 @@ _JS = r"""
     if (src.kind === "wayback") thenArchive(T);
     else if (src.kind === "hls") { thenHls(T, "a", 0); thenHls(T, "b", 0); }
     else thenGibs(T, src);
+  }
+  // NASA asked again for each side's day after a refresh, so the latest is
+  // the latest: quietly, the sides standing as they are, words and reading
+  // too, until an answer moves one; no answer leaves them. Esri's captures
+  // stay as they were found.
+  function thenAskAgain(T) {
+    var src = thenSrc(T.source);
+    if (src.kind === "wayback" || S.imagery === "offline" || thenFinding(T)) return;
+    if (src.kind === "hls") { thenHls(T, "a", 0, true); thenHls(T, "b", 0, true); }
+    else thenGibs(T, src, true);
   }
   function thenChanged() {
     thenApply(); thenRead(); dirty();
@@ -1028,6 +1044,7 @@ _JS = r"""
   }
   // Written only when changed, so a control being used is not disturbed.
   function setText(el, text) { if (el.textContent !== text) el.textContent = text; }
+  function setMarkup(el, html) { if (el.innerHTML !== html) el.innerHTML = html; }
   function setHidden(el, on) { if (el.hidden !== on) el.hidden = on; }
   function setValue(el, v) { if (el.value !== v) el.value = v; }
   // Whether a side can step back (by -1) or on (by +1) from its date.
@@ -1281,16 +1298,28 @@ _JS = r"""
   function flightMs(z) { return clamp(600 + 200 * Math.abs(z - S.z), 600, 2000); }
   // A refresh brings a new build's event menu (its "now" names the new
   // build's months) and strip (its new seasons); the controls themselves,
-  // and what listens to them, stay.
+  // and what listens to them, stay, and what the new build left as it was is
+  // not written again, so a menu open stays open. Sides set by an event go to
+  // the dates the new build gives it (a year ago and the latest move on each
+  // day, a peak still to settle moves with it); sides on an event it no
+  // longer offers keep their dates, as the reader's own. Dates that stand
+  // have NASA asked again for their days, which the page forgets (the times
+  // GIBS lists, the days with an image at the pin), so the latest is the latest.
   function thenRefreshed(doc) {
     var events = doc.getElementById("then-event"), strip = doc.getElementById("then-strip");
     var years = doc.getElementById("then-years");
-    if (events) $("then-event").innerHTML = events.innerHTML;
+    if (events) setMarkup($("then-event"), events.innerHTML);
     if (strip) {
-      $("then-strip").innerHTML = strip.innerHTML;
+      setMarkup($("then-strip"), strip.innerHTML);
       $("then-strip").setAttribute("viewBox", strip.getAttribute("viewBox"));
     }
-    if (years) $("then-years").innerHTML = years.innerHTML;
+    if (years) setMarkup($("then-years"), years.innerHTML);
+    SPANS = {}; looks = {};
+    var T = S.then, p = T && T.preset ? presetOf(T.preset) : null;
+    if (!T) return;
+    if (p && (p.left !== T.want.a || p.right !== T.want.b)) { thenPreset(p.id); return; }
+    if (T.preset && !p) { thenOwnDates(T); thenChanged(); }
+    thenAskAgain(T);
   }
   $("then-source").addEventListener("change", function (e) { thenSource(e.target.value); });
   $("then-event").addEventListener("change", function (e) { thenPreset(e.target.value); });
@@ -1338,7 +1367,9 @@ _JS = r"""
   }
   // Into a place: the pin, the two sides compared at the divider, and a
   // flight to the source's zoom. Entered already, the place moves and the
-  // source, the dates and what Exit goes back to are kept.
+  // source, the dates and what Exit goes back to are kept. Asked for, an
+  // event (opts.preset) sets the dates this build gives it; two dates
+  // (opts.a, opts.b) are the reader's own; opts.names sets Esri's names.
   function thenEnter(lon, lat, label, opts) {
     opts = opts || {};
     lon = lonIn(lon); lat = clamp(lat, -85, 85);
@@ -1349,9 +1380,12 @@ _JS = r"""
     // stops waiting for a tap.
     if (S.arming) arm(false);
     var T = thenFresh({lon: lon, lat: lat, label: label || placeLabel(lon, lat), source: src.id, back: back});
-    if (realDay(opts.a) && realDay(opts.b)) { T.preset = ""; T.want = {a: opts.a, b: opts.b}; }
+    var p = presetOf(opts.preset);
+    if (p) { T.preset = p.id; T.want = {a: p.left, b: p.right}; }
+    else if (realDay(opts.a) && realDay(opts.b)) { T.preset = ""; T.want = {a: opts.a, b: opts.b}; }
     else if (old) { T.preset = old.preset; T.want = {a: old.want.a, b: old.want.b}; T.names = old.names; }
-    else { var p = presetOf("now"); T.want = {a: p.left, b: p.right}; }
+    else { p = presetOf("now"); T.want = {a: p.left, b: p.right}; }
+    if (typeof opts.names === "boolean") T.names = opts.names;
     if (!old) thenSplit(0.5);
     S.then = T;
     thenApply();
@@ -1375,9 +1409,10 @@ _JS = r"""
     setCompare(b.compare);
     if (b.loop) {
       // The loop runs over the frames in view, which are the sides' until the
-      // map is drawn again: the layer put back is looked at first.
+      // map is drawn again: the layer put back is looked at first. Frames GIBS
+      // has yet to give (a place entered across a load) start it once in view.
       S.inView = cells(S.layer, S.frame).used;
-      setLoop(true);
+      if (!setLoop(true)) S.loopWanted = true;
     }
     if (S.here) pin(S.here.lon, S.here.lat, S.here.label); else S.pin = null;
     if (/^#then=/.test(location.hash)) {

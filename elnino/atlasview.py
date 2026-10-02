@@ -58,7 +58,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-from . import atlas, atlasdata, coastline, composite, fields, geo, relief
+from . import atlas, atlasdata, coastline, composite, fields, geo, live, relief
 from .impacts import CATALOGUE
 from .svg import esc, table
 
@@ -1971,9 +1971,10 @@ _JS = r"""
     out.textContent = " measuring\u2026";
     // Open-Meteo's elevation endpoint: no key, no account, one point a press,
     // and it answers a browser with Access-Control-Allow-Origin, which the
-    // obvious alternative does not. It is the only request this page makes
-    // that the reader did not ask for by choosing an imagery layer, which is
-    // exactly why it is a button and not something a click does by itself.
+    // obvious alternative does not. It is the only request this page makes to
+    // another site that the reader did not ask for by choosing an imagery
+    // layer, which is exactly why it is a button and not something a click
+    // does by itself.
     fetch("https://api.open-meteo.com/v1/elevation?latitude="
           + btn.dataset.lat + "&longitude=" + btn.dataset.lon)
       .then(function (r) { return r.json(); })
@@ -2127,9 +2128,53 @@ _JS = r"""
   // measured only on a window resize, the vector map kept its old size while
   // the box around it grew, and the field and the coastlines parted.
   if (window.ResizeObserver) { new ResizeObserver(resize).observe(map); }
+
+  // -- following the site (elnino/live.py) -----------------------------------
+  // A page loading again for a new run hands over what the reader had: the
+  // view, the layers and the point picked, its dossier scrolled where it was.
+  // What comes back is read like input: a value that is not one of the
+  // atlas's own leaves that part as the page opens.
+  function own(table, key) { return Object.prototype.hasOwnProperty.call(table, key); }
+  function finite(x) { return typeof x === "number" && isFinite(x); }
+  function keep() {
+    return { view: { lon: view.lon, lat: view.lat, dpp: view.dpp }, variable: variable,
+             season: season, fade: fade, composite: composite, base: base,
+             show: { borders: show.borders, rivers: show.rivers, places: show.places },
+             marked: marked && { lon: marked.lon, lat: marked.lat }, dossier: panel.scrollTop };
+  }
+  function restore(kept) {
+    if (typeof kept.variable === "string" && own(D.grids, kept.variable)) { variable = kept.variable; }
+    if (D.seasons.indexOf(kept.season) >= 0) { season = kept.season; }
+    if (typeof kept.fade === "boolean") { fade = kept.fade; }
+    if (typeof kept.composite === "boolean") { composite = kept.composite; }
+    if (typeof kept.base === "string" && own(BASE, kept.base)) { base = kept.base; }
+    if (kept.show && typeof kept.show === "object") {
+      Object.keys(show).forEach(function (layer) {
+        if (typeof kept.show[layer] === "boolean") { show[layer] = kept.show[layer]; }
+      });
+    }
+    var v = kept.view;
+    if (v && finite(v.lon) && finite(v.lat) && finite(v.dpp) && v.dpp > 0) {
+      // Onto the world first: clampView() wraps a turn at a time, and a view
+      // turned 1e300 degrees would never be done.
+      view = { lon: lon180(v.lon), lat: v.lat, dpp: v.dpp };
+      clampView();
+    }
+    // Picked after the variable and the season are back: the dossier is
+    // written for them.
+    var m = kept.marked;
+    if (m && finite(m.lon) && finite(m.lat) && Math.abs(m.lat) <= 90) {
+      pick(m.lon, m.lat);
+      if (finite(kept.dossier)) { panel.scrollTop = kept.dossier; }
+    }
+    syncBar();
+    schedule();
+  }
+
   syncBar();
   resize();
   fromHash();
+  elninoLive.follow({ keep: keep, restore: restore });
 })();
 """.replace("  /*FIELD*/\n", FIELD_JS)
 
@@ -2254,6 +2299,7 @@ def page(state) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+{live.head(getattr(state, "run_at", None))}
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23eb6834'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23fcd8c6'/%3E%3C/svg%3E">
 <title>El Nino Atlas &mdash; where it lands</title>
 <style>{shell_css()}{fields.ramp_css()}{css()}
@@ -2294,6 +2340,7 @@ def page(state) -> str:
 {_legend()}
 <script>var RELIEF="{relief.png()}";</script>
 <script>var ATLAS={data};</script>
+<script>{live.SCRIPT}</script>
 <script>{_JS}</script>
 </body>
 </html>"""

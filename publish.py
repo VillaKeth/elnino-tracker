@@ -16,8 +16,9 @@ hooks, no signing, no line-ending conversion, no ignore rules), under the
 site's own name and GitHub no-reply address; and git may reach the repository
 over HTTPS only, so no rewrite of its address can send the push over SSH under
 another account. Refused before anything is pushed: a missing, empty or cut-off
-page, a page that names this machine's home folder in any spelling, and a run
-older than the one the site shows.
+page, a page that names this machine's home folder in any spelling, a page of
+another run than latest.json's or naming none, and a run older than the one the
+site shows.
 
 Exit codes: 0 published (or checked, with --dry-run), 2 could not publish.
 
@@ -29,6 +30,7 @@ at a prompt for one.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
@@ -57,6 +59,8 @@ PAGES = {
     "atlas.html": "atlas.html",
     "latest.json": "latest.json",
     "storms.json": "storms.json",
+    # The beacon an open page asks which run the site serves (elnino/live.py).
+    "run.json": "run.json",
 }
 # Branches that hold code, which a publish must never replace.
 CODE_BRANCHES = ("main", "master")
@@ -86,6 +90,10 @@ _SEALED = (
 _WIRE = ("-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
          "-c", "protocol.file.allow=always")
 _SLASHES = re.compile(r"[\\/]+")
+# Where each page names the run it is of: an HTML page in a mark in its head,
+# a data file under a key of its own. latest.json is the run's own record.
+_MARK = re.compile(rb'<meta name="elnino-run" content="([^"]*)">')
+_NAMED = {"storms.json": "built", "run.json": "run_at"}
 
 
 class PublishError(Exception):
@@ -177,14 +185,55 @@ def _check_home(pages: dict[str, bytes], home: Path) -> None:
                            f"this machine's home folder ({home})")
 
 
+def _named_run(name: str, data: bytes) -> str | None:
+    """The run a page names, as it names it; None when it names none, or names
+    it in words no time can be read from."""
+    if name.endswith(".html"):
+        head, closed, _ = data.partition(b"</head>")
+        found = _MARK.search(head) if closed else None
+        run = html.unescape(found.group(1).decode("utf-8", "replace")) if found else None
+    else:
+        try:
+            run = json.loads(data).get(_NAMED[name])
+        except (ValueError, AttributeError):
+            run = None
+    if not isinstance(run, str):
+        return None
+    try:
+        _moment(run)
+    except ValueError:
+        return None
+    return run
+
+
+def _check_one_run(pages: dict[str, bytes], when: str) -> None:
+    """Every page names latest.json's run, compared as moments. A page of
+    another run is half of two runs, and a page that names a run run.json
+    never names would load again for ever, looking for it."""
+    faults = []
+    for name, data in pages.items():
+        if name == "latest.json":
+            continue
+        run = _named_run(name, data)
+        if run is None:
+            faults.append(f"{name} names no run")
+        elif _moment(run) != _moment(when):
+            faults.append(f"{name} names the run of {run}")
+    if faults:
+        raise PublishError(f"{'; '.join(faults)}, where latest.json names the run of {when}: "
+                           "run track.py again")
+
+
 def lay_out(out_dir: Path, site: Path, home: Path | None = None) -> str:
     """Write the last run's pages into site as the site serves them, and
     return the run's time as latest.json gives it. Raises PublishError, having
     written nothing, when a page is missing, empty or cut off, latest.json gives
-    no run time, or a page names this machine's home folder."""
+    no run time, a page names this machine's home folder, or a page is of
+    another run or names none."""
     pages = _read(out_dir)
     when = _run_at(pages["latest.json"])
     _check_home(pages, Path.home() if home is None else home)
+    _check_one_run(pages, when)
     for name, source in PAGES.items():
         (site / name).write_bytes(pages[source])
     # Served as written: without this file GitHub puts the pages through Jekyll.

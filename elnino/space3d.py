@@ -255,7 +255,7 @@ def thermocline(mesh: Mesh, width: int = 620, height: int = 430) -> str:
         "month." if use_anomaly else
         "Colour is absolute depth; the anomaly climatology was unavailable this run."
     )
-    return f"""<section class="card">
+    return f"""<section class="card" id="thermocline-3d">
   <h2>The thermocline, in three dimensions</h2>
   <p class="caption">Depth of the 20 °C isotherm across the TAO/TRITON array, as of
     {esc(mesh.as_of)}. Longitude runs west to east, latitude across, and the surface
@@ -460,7 +460,7 @@ def phase_spiral(state, width: int = 620, height: int = 430) -> str:
         for i, p in enumerate(points)
     ][::-1][:36]
 
-    return f"""<section class="card">
+    return f"""<section class="card" id="phase-spiral">
   <h2>Six years of the oscillator, unrolled</h2>
   <p class="caption">The same recharge loop as the phase panel, with time as the third
     axis so successive orbits stop overlapping. A healthy oscillation is a regular

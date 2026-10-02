@@ -16,7 +16,7 @@ from .classify import Assessment, intensity_tier
 from .parsers import MonthValue, SeasonValue, WeekObservation
 from .sources import Fetched
 
-from . import (alerts, atlas, atlasview, cyclones, fields, geo, globe, impacts,
+from . import (alerts, atlas, atlasview, cyclones, fields, geo, globe, impacts, live,
                panels, space3d, stormdesk, stormfury, storms, worldmap)
 from .svg import (  # noqa: F401 - re-exported for the panel modules
     BAND_STATUS,
@@ -524,6 +524,19 @@ th {{ color: var(--ink2); font-weight: 600; }}
 .themebtn {{ background: var(--surface); color: var(--ink2); border: 1px solid var(--border);
   border-radius: 8px; padding: 5px 11px; font-size: 0.78rem; cursor: pointer;
   font-family: var(--font); }}
+/* --- a page following the site: the notice of a newer run (live.py) ------- */
+.livenote {{ position: fixed; z-index: 1000; left: 16px; right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: flex; justify-content: center; pointer-events: none; }}
+.livenote p {{ pointer-events: auto; display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px 12px; margin: 0; padding: 9px 14px; border-radius: 10px;
+  background: var(--ink); color: var(--surface); font-family: var(--font);
+  font-size: 0.82rem; line-height: 1.4; box-shadow: 0 6px 20px rgba(0,0,0,.18); }}
+.livenote button {{ font: inherit; font-weight: 600; color: inherit; background: none;
+  border: 1px solid currentColor; border-radius: 7px; padding: 3px 10px; cursor: pointer; }}
+.livenote button + button {{ border-color: transparent; font-weight: 400; }}
+.livenote button:focus-visible {{ outline: 2px solid currentColor; outline-offset: 2px; }}
+@media print {{ .livenote {{ display: none; }} }}
 footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
 /* --- panels added by the advanced system ---------------------------------- */
 .tiny {{ fill: var(--muted); font-size: 10px; font-family: var(--font); }}
@@ -740,6 +753,32 @@ __GLOBE__
       root.setAttribute('data-theme', dark ? 'light' : 'dark');
     });
   }
+
+  // The run's time ages while the page stays open, as the storm desk's do.
+  function span(min) {
+    if (min < 60) return min + ' min';
+    var h = Math.floor(min / 60), m = min % 60;
+    if (h < 48) return h + ' h' + (m ? ' ' + m + ' min' : '');
+    return Math.round(h / 24) + ' days';
+  }
+  function ago(ms) {
+    var m = Math.round((Date.now() - ms) / 60000);
+    return m < 0 ? 'in ' + span(-m) : span(m) + ' ago';
+  }
+  function ages() {
+    var list = document.querySelectorAll('time[data-age]');
+    for (var i = 0; i < list.length; i++) {
+      var ms = Date.parse(list[i].getAttribute('datetime'));
+      if (!isNaN(ms)) list[i].textContent = list[i].getAttribute('data-age') + ' (' + ago(ms) + ')';
+    }
+  }
+  ages();
+  setInterval(ages, 60000);
+
+  // A new run is loaded while the page is open, the reader's place kept
+  // (elnino/live.py): held by the part of the page they were reading, found
+  // again by its id, as what the run says above it takes more lines or fewer.
+  elninoLive.follow({ boxes: ['page'] });
 })();
 """.replace("__SCENES__", space3d.SCENE_JS).replace("__GLOBE__", globe.js())
 
@@ -825,7 +864,9 @@ def render(state) -> str:
     weeks = state.series.get("weeks") or []
     discussion = state.discussion or {}
     fetches = state.fetched
-    now = datetime.now(timezone.utc).strftime("%d %b %Y %H:%M UTC")
+    # Dated by its run, as the storm desk is, not by when the page was drawn.
+    run_time = (datetime.fromisoformat(state.run_at.replace("Z", "+00:00"))
+                .astimezone(timezone.utc).strftime("%d %b %Y %H:%M UTC"))
     legacy_map = {(s.season, s.year): s.value for s in legacy}
 
     # --- hero + tiles --------------------------------------------------------
@@ -841,7 +882,7 @@ def render(state) -> str:
         f"&middot; " if rank else ""
     )
     hero = f"""
-<section class="hero">
+<section class="hero" id="hero">
   <div>
     <div class="hero-label">{index_title} &mdash; {esc(a.index_latest.label)}</div>
     <div class="hero-fig">{a.index_latest.value:+.2f}<span class="hero-unit"> °C</span></div>
@@ -928,7 +969,7 @@ def render(state) -> str:
 
     if discussion.get("synopsis"):
         cards.append(
-            f"""<section class="card">
+            f"""<section class="card" id="synopsis">
   <h2>NOAA CPC official synopsis</h2>
   <p class="caption">Issued {esc(discussion.get('issued') or 'n/a')}
     &middot; next update {esc(discussion.get('next_update') or 'n/a')}</p>
@@ -988,7 +1029,7 @@ def render(state) -> str:
         return row
 
     cards.append(
-        f"""<section class="card">
+        f"""<section class="card" id="intensity">
   <h2>Intensity &mdash; {esc(name)}{" and the legacy ONI" if legacy else ""}</h2>
   <p class="caption">{prose(a.episode_status)} Tiers follow the one-decimal value CPC
     prints: +1.46 reads +1.5, Strong.</p>
@@ -1001,7 +1042,7 @@ def render(state) -> str:
 
     if a.scale and a.scale.regions and a.latest_week:
         cards.append(
-            f"""<section class="card">
+            f"""<section class="card" id="regions">
   <h2>Scale &mdash; spatial extent across the Nino regions</h2>
   <p class="caption">Week ending {esc(a.latest_week.label)} &middot;
     {a.scale.active_regions} of 4 regions at or above +0.5 °C &middot; {esc(a.scale.flavour)}
@@ -1032,7 +1073,7 @@ def render(state) -> str:
             return "n/a" if value is None else f"{value:+.2f}"
 
         cards.append(
-            f"""<section class="card">
+            f"""<section class="card" id="weekly">
   <h2>Weekly Nino-3.4 trajectory</h2>
   <p class="caption">Last {len(shown)} weeks of the traditional weekly anomaly, against a fixed
     1991&ndash;2020 base &middot; the relative value CPC now quotes, with the tropical mean
@@ -1057,7 +1098,7 @@ def render(state) -> str:
         for slot, analog in zip(("var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)"), a.analogs):
             legend_items.append((analog.episode.name, slot))
         cards.append(
-            f"""<section class="card">
+            f"""<section class="card" id="analogs">
   <h2>Closest historical analogs</h2>
   <p class="caption">Past events matched on their first {a.seasons_at_threshold}
     season{'s' if a.seasons_at_threshold != 1 else ''} above
@@ -1090,7 +1131,7 @@ def render(state) -> str:
     momentum_rows.append(["Assessment", a.momentum.direction])
     momentum_rows.append(["Coupling verdict", "coupled" if a.coupling.coupled else "not yet clearly coupled"])
     cards.append(
-        f"""<section class="card">
+        f"""<section class="card" id="momentum">
   <h2>Momentum and coupling</h2>
   <p class="caption">Coupling is what turns a warm ocean into global teleconnections; without a
     Walker-circulation response the anomaly stays local.</p>
@@ -1124,7 +1165,7 @@ def render(state) -> str:
     if pills.count("fail"):
         came.append(f"{pills.count('fail')} failed with no cache to fall back on")
     cards.append(
-        f"""<section class="card">
+        f"""<section class="card" id="provenance">
   <h2>Data provenance</h2>
   <p class="caption">Every number on this page comes from these feeds:
     {"; ".join(came)}.</p>
@@ -1162,24 +1203,25 @@ def render(state) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+{live.head(state.run_at)}
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23eb6834'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23fcd8c6'/%3E%3C/svg%3E">
 <title>El Nino Tracker &mdash; {esc(a.index_latest.label)}</title>
 <style>{_css()}{fields.ramp_css()}{globe.css()}{storms.css()}{storms.fury_css()}</style>
 </head>
 <body>
 <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute"><defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="transparent"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--surface)" stroke-width="2.4"/></pattern></defs></svg>
-<div class="wrap">
+<div class="wrap" id="page">
   <header class="top">
     <div>
       <h1>El Nino / Southern Oscillation Tracker</h1>
-      <p class="sub">Generated {esc(now)}{status_line}</p>
+      <p class="sub">Generated {stormdesk._time(state.run_at, run_time)}{status_line}</p>
     </div>
     <button class="themebtn" id="theme" type="button">Toggle theme</button>
   </header>
   {banner}
   {degraded}
   {hero}
-  <div class="tiles">{''.join(tiles)}</div>
+  <div class="tiles" id="indices">{''.join(tiles)}</div>
   {''.join(card for card in cards if card)}
   <footer>
     Sources: NOAA Climate Prediction Center and NOAA Physical Sciences Laboratory.
@@ -1188,6 +1230,7 @@ def render(state) -> str:
   </footer>
 </div>
 <div id="tip" role="status" aria-live="polite"></div>
+<script>{live.SCRIPT}</script>
 <script>{_js()}</script>
 </body>
 </html>"""
