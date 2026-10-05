@@ -9,6 +9,10 @@ on:
     # Twelve past each hour: the products land on the hour, and GitHub queues
     # scheduled runs longest at the top of it.
     - cron: "12 * * * *"
+    # A second chance: GitHub may hold a scheduled run under load, or drop
+    # it, as it dropped the first of all. It stands down when the hour's run
+    # has come.
+    - cron: "42 * * * *"
   workflow_dispatch:
   push:
     branches: [main]
@@ -23,7 +27,32 @@ permissions:
   actions: write   # to keep the schedule from pausing
 
 jobs:
+  # Whether this run is due: only the second chance asks, and it stands down
+  # when the site was published less than 45 minutes ago. Any doubt runs it.
+  due:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.age.outputs.skip }}
+    steps:
+      - name: Stand the second chance down if the hour's run has come
+        id: age
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLOT: ${{ github.event.schedule }}
+        run: |
+          skip=false
+          if [ "$SLOT" = "42 * * * *" ] &&
+             age=$(gh api "repos/$GITHUB_REPOSITORY/commits/gh-pages" \
+                     --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor'); then
+            echo "The site was published $age minutes ago."
+            if [ "$age" -lt 45 ] 2>/dev/null; then skip=true; fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
   run:
+    needs: due
+    if: ${{ !cancelled() && needs.due.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

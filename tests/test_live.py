@@ -4,8 +4,10 @@ the beacon a run writes last, and the hourly run on GitHub that publishes it."""
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -2222,6 +2224,51 @@ class TestTheHourlyRun(unittest.TestCase):
         self.assertIn('    - cron: "12 * * * *"\n', self.live)
         self.assertIn("  workflow_dispatch:\n", self.live)
         self.assertIn("  push:\n    branches: [main]\n", self.live)
+
+    def test_a_dropped_hour_has_a_second_chance_at_42_past(self):
+        # GitHub may hold a scheduled run under load, or drop it, as it dropped
+        # the first of all. The run waits on the check that decides.
+        self.assertIn('    - cron: "42 * * * *"\n', self.live)
+        self.assertIn("  run:\n    needs: due\n"
+                      "    if: ${{ !cancelled() && needs.due.outputs.skip != 'true' }}\n", self.live)
+        self.assertIn("--jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor'", self.live)
+
+    @unittest.skipIf(sys.platform == "win32", "the hourly run is Linux")
+    def test_the_second_chance_is_skipped_only_once_the_hour_s_run_is_out(self):
+        # The check's own script, under bash as the run has it, with a gh that
+        # answers how many minutes ago gh-pages was published, or fails.
+        body = self.live.split("        id: age\n", 1)[1].split("        run: |\n", 1)[1]
+        lines = []
+        for line in body.splitlines():
+            if line.strip() and not line.startswith(" " * 10):
+                break
+            lines.append(line[10:])
+        with tempfile.TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            (here / "check.sh").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+            gh = here / "gh"
+            gh.write_text('#!/bin/sh\necho "$*" >> "$CALLS"\n[ -n "$AGO" ] || exit 1\necho "$AGO"\n',
+                          encoding="utf-8", newline="\n")
+            gh.chmod(0o755)
+            out, calls = here / "output", here / "calls"
+            for slot, ago, skip in (("", "5", "false"), ("12 * * * *", "5", "false"),
+                                    ("42 * * * *", "5", "true"), ("42 * * * *", "44", "true"),
+                                    ("42 * * * *", "45", "false"), ("42 * * * *", "90", "false"),
+                                    ("42 * * * *", "", "false"), ("42 * * * *", "soon", "false")):
+                with self.subTest(slot=slot, ago=ago):
+                    out.write_text("", encoding="utf-8")
+                    calls.unlink(missing_ok=True)
+                    env = dict(os.environ, PATH=f"{here}{os.pathsep}{os.environ['PATH']}", SLOT=slot, AGO=ago,
+                               CALLS=str(calls), GITHUB_OUTPUT=str(out), GITHUB_REPOSITORY="owner/repo")
+                    done = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(here / "check.sh")],
+                                          env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                          timeout=60)
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertEqual(out.read_text(encoding="utf-8"), f"skip={skip}\n")
+                    # Only the second chance asks GitHub anything.
+                    asked = calls.read_text(encoding="utf-8") if calls.exists() else ""
+                    self.assertEqual(asked.startswith("api repos/owner/repo/commits/gh-pages --jq "),
+                                     slot == "42 * * * *", asked)
 
     def test_one_runs_at_a_time_and_none_is_cancelled(self):
         self.assertIn("concurrency:\n  group: live-site\n  cancel-in-progress: false\n", self.live)

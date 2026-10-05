@@ -56,7 +56,10 @@ So the site is kept current when:
   products land on the hour, and GitHub's own docs name the start of the hour
   as when scheduled runs queue longest. Also `workflow_dispatch`, to run it
   from the Actions tab or `gh workflow run live.yml`, and a `push` to `main`,
-  so new code goes live at once.
+  so new code goes live at once. (Amended 2026-10-05, after GitHub dropped the
+  first scheduled run of all: a second `cron: "42 * * * *"` is a second chance.
+  A small `due` job asks when `gh-pages` was last published and stands the run
+  down when that was under 45 minutes ago; any doubt runs it.)
 - **One at a time:** `concurrency: {group: live-site, cancel-in-progress:
   false}`. Two runs never publish over each other or race on the state.
 - **Token:** `permissions: contents: write`, to push `gh-pages`, and

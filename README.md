@@ -1567,7 +1567,7 @@ elnino/worldmap.py       the map: street maps, El Nino's composites and tiles, E
                          what a point is told, Google on request, the geocoder
 elnino/thennow.py        then and now: its sources, every month's RONI season, the events,
                          the bar, and the script that enters a place and compares two dates
-tests/                   1165 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1167 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -1705,9 +1705,12 @@ much more than an hour, plus GitHub's queue, behind the feeds
 
 - **The run.** At twelve minutes past each hour (the products land on the hour,
   and GitHub queues scheduled runs longest at the top of it), on every push to
-  `main`, and on request. One runs at a time. Each calls `./publish.sh`, which
-  runs `track.py --brief` and then publishes the run with `publish.py`, its
-  refusals and all, under the run's own short-lived token.
+  `main`, and on request. GitHub may hold a scheduled run under load, or drop
+  it, as it dropped the first of all, so 42 past is a second chance: it asks
+  when `gh-pages` was last published and stands down if that was under 45
+  minutes ago, running on any doubt. One runs at a time. Each calls
+  `./publish.sh`, which runs `track.py --brief` and then publishes the run with
+  `publish.py`, its refusals and all, under the run's own short-lived token.
 - **The state.** `data/elnino.db` and the cached downloads are carried from one
   run to the next in the Actions cache, so the alerts are reconciled against the
   last run and a failed feed falls back on its last copy. The dated archive is
@@ -1771,7 +1774,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1165 tests, no network required. They cover:
+1167 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2042,7 +2045,8 @@ python -m unittest discover -s tests -v
   and layers kept, junk refused and a view turned any number of times put back
   on the world; and the hourly run's schedule, token, state, remote, keep-alive,
   time limit and actions pinned to commits, no pull request starting it, and the
-  suite's Python and node, read as text;
+  suite's Python and node, read as text, and its second chance at 42 past, whose
+  check runs under bash against a gh that answers or fails;
 - **a full offline run** end to end, then every report section, the 78-column and
   ASCII-only guarantees, dashboard self-containment, a table view for every
   chart, all eight spatial panels and both cyclone cards reaching the page, the
