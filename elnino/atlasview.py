@@ -58,7 +58,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-from . import atlas, atlasdata, coastline, composite, fields, geo, live, relief
+from . import atlas, atlasdata, coastline, composite, fields, geo, live, relief, sitenav
 from .impacts import CATALOGUE
 from .svg import esc, table
 
@@ -371,7 +371,6 @@ body.atlaspage { height: 100vh; display: flex; flex-direction: column;
 .atlasbar .lbl { font-size: 10.5px; letter-spacing: .07em;
   text-transform: uppercase; color: var(--muted); }
 .atlasbar .spacer { flex: 1 1 auto; }
-.atlasbar a { color: var(--ink2); font-size: 12px; }
 .atlaszoom { position: absolute; right: 14px; top: 14px; display: grid;
   gap: 6px; }
 .atlaszoom button { width: 34px; height: 34px; font-size: 16px; line-height: 1;
@@ -2235,7 +2234,6 @@ def _controls() -> str:
     <button type="button" data-layer="places">Places</button>
   </span>
   <span class="spacer"></span>
-  <a href="dashboard.html">&larr; Dashboard</a>
   <span class="grp"><button type="button" id="theme">Theme</button></span>
 </header>"""
 
@@ -2310,8 +2308,9 @@ def page(state) -> str:
 </style>
 </head>
 <body class="atlaspage">
+{sitenav.bar("atlas.html")}
 {_controls()}
-<div class="atlaswrap">
+<main class="atlaswrap">
   <div class="atlasmap" id="map">
     <canvas id="relief" aria-hidden="true"></canvas>
     <div id="tiles" aria-hidden="true"></div>
@@ -2336,7 +2335,7 @@ def page(state) -> str:
     </div>
   </div>
   <aside class="atlaspanel dossier" id="panel">{_HINT}</aside>
-</div>
+</main>
 {_legend()}
 <script>var RELIEF="{relief.png()}";</script>
 <script>var ATLAS={data};</script>

@@ -22,7 +22,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import alerts, coastline, cyclones, exposure, fields, live, outlook, thennow, worldmap
+from . import (alerts, coastline, cyclones, exposure, fields, live, outlook, sitenav, thennow,
+               worldmap)
 from .storms import NEUTRAL, STORM_HUES
 from .svg import esc, table
 
@@ -1385,7 +1386,7 @@ body.deskpage {{ background: var(--plane); }}
 .deskhead h1 {{ font-size: 1.15rem; }}
 .headbtns {{ display: flex; gap: 8px; }}
 .headbtns .themebtn {{ min-height: 44px; min-width: 44px; display: inline-flex;
-  align-items: center; justify-content: center; text-decoration: none; }}
+  align-items: center; justify-content: center; }}
 .desktools {{ display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center;
   padding: 2px 16px 8px; }}
 .deskfind {{ position: relative; flex: 1 1 260px; max-width: 460px; margin: 0; }}
@@ -1638,16 +1639,16 @@ dl.facts dd {{ margin: 0; color: var(--ink); }}
 
 # The two pages the one page is written as: storms.html on the storms and
 # today's imagery, map.html on the street map under El Nino's rainfall. Each
-# names the other in its header, and carries the view across.
+# is a page of the site's menu, and hands the reader's view on to the other.
 FOCUS = {
-    "world": {"title": "El Niño map",
+    "world": {"page": "map.html", "title": "El Niño map",
               "sub": ("El Niño's measured effects on street maps, satellite and Google, "
                       "anywhere on Earth."),
-              "other": ("storms.html", "Storm desk"), "first": "streets"},
-    "storms": {"title": "Storm desk",
+              "other": "storms.html", "first": "streets"},
+    "storms": {"page": "storms.html", "title": "Storm desk",
                "sub": ("Live tropical cyclones on live satellite imagery, with what their "
                        "warning centres have issued."),
-               "other": ("map.html", "El Niño map"), "first": "geocolor"},
+               "other": "map.html", "first": "geocolor"},
 }
 
 
@@ -1678,7 +1679,6 @@ def page(state, focus: str = "storms") -> str:
     enso = thennow.enter_button() + worldmap.controls(focus, data["enso"]["now"],
                                                         data["enso"]["next"])
     now = worldmap.section(state)
-    other, other_name = words["other"]
     # Every "<" escaped, so nothing in a name or a centre's text can close the
     # script element or open a comment inside it.
     raw = json.dumps(data, separators=(",", ":")).replace("<", "\\u003c")
@@ -1694,13 +1694,12 @@ def page(state, focus: str = "storms") -> str:
 <style>{shell_css()}{fields.ramp_css()}{css()}{worldmap.css()}{thennow.css()}</style>
 </head>
 <body class="deskpage">
+{sitenav.bar(words["page"], carry=(words["other"],))}
 <header class="deskhead">
 <div class="headtext"><h1>{esc(words["title"])}</h1>
 <p class="sub"><span class="long">{esc(words["sub"])} </span>Built <span id="built">{built}</span>.</p></div>
 {_find()}
-<div class="headbtns"><a class="themebtn" data-carry="{other}" href="{other}">{esc(other_name)}</a>
-<a class="themebtn" href="dashboard.html">Dashboard</a>
-<button type="button" class="themebtn" id="theme">Dark</button></div>
+<div class="headbtns"><button type="button" class="themebtn" id="theme">Dark</button></div>
 </header>
 {_toolbar(first=words["first"], controls=enso)}
 <main class="desk">

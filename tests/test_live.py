@@ -522,6 +522,57 @@ console.log(JSON.stringify({handed: handed, y: window.scrollY, at: list().getBou
                                            "marks": [{"id": "storm-list", "at": -2400}]}],
                                "y": 6458, "at": -2400})
 
+    def test_a_page_that_pins_its_menu_holds_the_reader_by_what_shows_below_it(self):
+        # The dashboard pins its menu over the top of the view, and says how
+        # far down that reaches (scroll-padding-top: 60px). A reader with the
+        # globe's card 60 px down, where a link to it puts it, has the last
+        # 40 px of the card above under the menu: what they are reading is
+        # the globe's, and it stays where it stood when the card above comes
+        # in 37 px taller.
+        got = self.page(r"""
+SITE = {run_at: RUN1};
+window.getComputedStyle = function () { return {scrollPaddingTop: "60px"}; };
+function dashboard(taller) {
+  return box("page", 45, 20000, node("synopsis", 1000, 2000 + taller),
+             node("globe", 2020 + taller, 4000 + taller));
+}
+load(RUN0, {boxes: ["page"]}, [], [dashboard(0)]);
+window.scrollTo(0, 1960);
+await settled();
+button().click();
+var handed = JSON.parse(DATA[KEY]).place.marks;
+load(RUN1, {boxes: ["page"]}, [], [dashboard(37)]);
+console.log(JSON.stringify({handed: handed, y: window.scrollY,
+                            at: document.getElementById("globe").getBoundingClientRect().top}));
+""")
+        self.assertEqual(got, {"handed": [{"box": "page", "scrolls": False,
+                                           "marks": [{"id": "globe", "at": 60}]}],
+                               "y": 1997, "at": 60})
+
+    def test_a_page_that_pins_nothing_holds_the_reader_by_the_top_of_the_view(self):
+        # The desk, the map and the atlas pin nothing over their view, and a
+        # browser says so ("auto"): what stands at the very top of the view is
+        # held, the card whose foot the reader sees there.
+        got = self.page(r"""
+SITE = {run_at: RUN1};
+window.getComputedStyle = function () { return {scrollPaddingTop: "auto"}; };
+function phone(taller) {
+  return box("page", 0, 20000, node("synopsis", 1000, 2000 + taller),
+             node("globe", 2020 + taller, 4000 + taller));
+}
+load(RUN0, {boxes: ["page"]}, [], [phone(0)]);
+window.scrollTo(0, 1960);
+await settled();
+button().click();
+var handed = JSON.parse(DATA[KEY]).place.marks;
+load(RUN1, {boxes: ["page"]}, [], [phone(37)]);
+console.log(JSON.stringify({handed: handed, y: window.scrollY,
+                            at: document.getElementById("globe").getBoundingClientRect().top}));
+""")
+        self.assertEqual(got, {"handed": [{"box": "page", "scrolls": False,
+                                           "marks": [{"id": "synopsis", "at": -960}]}],
+                               "y": 1960, "at": 97})
+
     def test_the_place_is_held_while_the_page_settles_until_the_view_moves_for_anything_else(self):
         # What is still to come comes: then and now's words (41 px) in a
         # browser that anchors the view itself, then Here's sea (21 px) in one

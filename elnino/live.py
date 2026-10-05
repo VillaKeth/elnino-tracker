@@ -213,14 +213,23 @@ SCRIPT = r"""var elninoLive = (function () {
       .filter(function (box) { return box !== null; });
   }
   // The line a box's marks are found on: its top, in a box that scrolls
-  // itself; the view's, in one the page scrolls, if the box is there. A box,
-  // or a page, at its top has none: what comes in above is the reader's to
-  // see, as a browser that anchors scrolling has it (Here opened at the top
-  // of the panel, a banner at the top of the page).
+  // itself; in one the page scrolls, if the box is there, the top of what
+  // the reader sees of the view, below what the page pins over it (the
+  // dashboard's menu). A box, or a page, at its top has none: what comes in
+  // above is the reader's to see, as a browser that anchors scrolling has it
+  // (Here opened at the top of the panel, a banner at the top of the page).
   function topLine(box, scrolls) {
     var r = box.getBoundingClientRect();
     if (scrolls) return box.scrollTop > 0 ? r.top : null;
-    return window.scrollY > 0 && r.top <= 0 && r.bottom > 0 ? 0 : null;
+    var line = pinned();
+    return window.scrollY > 0 && r.top <= line && r.bottom > line ? line : null;
+  }
+  // How far down the view the page pins something over it, in pixels, as it
+  // tells the browser: its scroll-padding-top, or none where it gives none.
+  function pinned() {
+    var style = window.getComputedStyle ? window.getComputedStyle(document.documentElement) : null;
+    var px = style ? parseFloat(style.scrollPaddingTop) : NaN;
+    return isFinite(px) ? px : 0;
   }
   function marks() {
     return boxes().map(function (box) {

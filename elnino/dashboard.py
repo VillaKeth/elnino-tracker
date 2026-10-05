@@ -17,7 +17,7 @@ from .parsers import MonthValue, SeasonValue, WeekObservation
 from .sources import Fetched
 
 from . import (alerts, atlas, atlasview, cyclones, fields, geo, globe, impacts, live,
-               panels, space3d, stormdesk, stormfury, storms, worldmap)
+               panels, sitenav, space3d, stormdesk, stormfury, storms, worldmap)
 from .svg import (  # noqa: F401 - re-exported for the panel modules
     BAND_STATUS,
     DARK,
@@ -537,6 +537,51 @@ th {{ color: var(--ink2); font-weight: 600; }}
 .livenote button + button {{ border-color: transparent; font-weight: 400; }}
 .livenote button:focus-visible {{ outline: 2px solid currentColor; outline-offset: 2px; }}
 @media print {{ .livenote {{ display: none; }} }}
+/* --- the site's menu, the first thing on every page (sitenav.py) ---------- */
+.sitebar {{ flex: none; display: flex; align-items: center; column-gap: 18px;
+  padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+  font-family: var(--font); overflow-x: auto; scrollbar-width: none; }}
+.sitebar .brand {{ flex: none; display: flex; align-items: center; gap: 8px;
+  min-height: 44px; color: var(--ink); font-size: 0.92rem; font-weight: 650;
+  letter-spacing: -0.01em; text-decoration: none; white-space: nowrap; }}
+/* Sized for itself: the shell sizes every svg to its box. */
+.sitebar .sitemark {{ flex: none; width: 22px; height: 22px; }}
+.sitebar ul {{ display: flex; margin: 0; padding: 0; list-style: none; }}
+.sitebar .tab {{ display: flex; align-items: center; min-height: 44px; padding: 0 12px;
+  color: var(--ink2); font-size: 0.86rem; font-weight: 500; white-space: nowrap;
+  text-decoration: none; box-shadow: inset 0 -2px 0 transparent;
+  transition: color .15s, box-shadow .15s; }}
+.sitebar .tab:hover {{ color: var(--ink); box-shadow: inset 0 -2px 0 var(--border); }}
+.sitebar .tab[aria-current="page"] {{ color: var(--ink); font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--s2); }}
+.sitebar a:focus-visible {{ outline: 2px solid var(--ink); outline-offset: -2px;
+  border-radius: 6px; }}
+/* The dashboard is read a long way down: there the menu stays in reach,
+   pinned over the page's column, its name where the column's words start.
+   What a reader tabs to or opens is scrolled clear of it, 60 px down (its
+   45 and room), and the follower reads the view from there (live.py). */
+.dashpage .sitebar {{ position: sticky; top: 0; z-index: 30;
+  padding-inline: max(16px, (100% - 1080px) / 2 + 16px); }}
+:root:has(> body.dashpage) {{ scroll-padding-top: 60px; }}
+/* A phone shows the mark for the site's name, and the pages close up; the
+   smallest leave the way to the front page to the Dashboard. */
+@media (max-width: 640px) {{
+  .sitebar {{ column-gap: 6px; }}
+  .sitebar .tab {{ padding: 0 6px; }}
+  .sitebar .brand span {{ position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap; }}
+}}
+@media (max-width: 359px) {{
+  .sitebar .brand {{ display: none; }}
+  .sitebar .tab {{ padding: 0 4px; }}
+}}
+/* Forced colours drop the shadow that marks the reader's page: there it is
+   underlined. */
+@media (forced-colors: active) {{
+  .sitebar .tab[aria-current="page"] {{ text-decoration: underline 2px;
+    text-underline-offset: 6px; }}
+}}
+@media print {{ .sitebar {{ display: none; }} }}
 footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
 /* --- panels added by the advanced system ---------------------------------- */
 .tiny {{ fill: var(--muted); font-size: 10px; font-family: var(--font); }}
@@ -1208,9 +1253,10 @@ def render(state) -> str:
 <title>El Nino Tracker &mdash; {esc(a.index_latest.label)}</title>
 <style>{_css()}{fields.ramp_css()}{globe.css()}{storms.css()}{storms.fury_css()}</style>
 </head>
-<body>
+<body class="dashpage">
+{sitenav.bar("dashboard.html")}
 <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute"><defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="transparent"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--surface)" stroke-width="2.4"/></pattern></defs></svg>
-<div class="wrap" id="page">
+<main class="wrap" id="page">
   <header class="top">
     <div>
       <h1>El Nino / Southern Oscillation Tracker</h1>
@@ -1228,7 +1274,7 @@ def render(state) -> str:
     The composite power index is a derived diagnostic of this tracker, not an official product.
     For operational forecasts always consult the CPC ENSO Diagnostic Discussion directly.
   </footer>
-</div>
+</main>
 <div id="tip" role="status" aria-live="polite"></div>
 <script>{live.SCRIPT}</script>
 <script>{_js()}</script>

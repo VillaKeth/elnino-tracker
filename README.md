@@ -11,7 +11,9 @@
 Free, no account, nothing to install. The site refreshes itself every hour:
 GitHub runs the tracker and publishes the run, and a page left open takes each
 new run on its own. The dashboard, the storm desk and the map say when their
-run was.
+run was. Every page opens on one menu of the four, Dashboard, El Niño map,
+Storm desk and Atlas, so each is a click from any other; on the dashboard it
+stays at the top as you scroll.
 
 A diagnostic, forecast and impact system for the current El Niño, built on live
 NOAA observations.
@@ -1081,10 +1083,10 @@ the outlook areas, the pin, the names and, offline, the page's own coastline. A
 tap on any copy flies to the one nearest the view, across the date line if that
 is shorter. Every storm is on
 it, and `storms.html` carries everything the map has, with the composites off
-until asked for. Each page's header links to the other and carries the view
+until asked for. Each page's menu links to the other and carries the view
 across (`map.html#view=LAT,LON,ZOOM`); `map.html#at=LAT,LON` opens *Here* at a
 point, which is how the atlas's dossier hands a point over. The dashboard's map
-card, its storm-desk card and the atlas all link to it.
+card, its storm-desk card and every page's menu link to it.
 
 ### The maps under it
 
@@ -1562,12 +1564,13 @@ elnino/stormfury.py      the STORMFURY recreation: criteria, momentum, confound
 elnino/storms.py         the three cyclone cards: tracks, season verdict, STORMFURY
 elnino/dashboard.py      self-contained HTML + inline SVG, and the JSON payload
 elnino/live.py           pages that follow the site: run.json, each page's run and code, the follower
+elnino/sitenav.py        the site's menu: the four pages, the first thing on each
 elnino/stormdesk.py      the storm desk: live imagery, products, find, here, close in
 elnino/worldmap.py       the map: street maps, El Nino's composites and tiles, El Nino now,
                          what a point is told, Google on request, the geocoder
 elnino/thennow.py        then and now: its sources, every month's RONI season, the events,
                          the bar, and the script that enters a place and compares two dates
-tests/                   1167 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1181 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -1774,7 +1777,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1167 tests, no network required. They cover:
+1181 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -1921,6 +1924,14 @@ python -m unittest discover -s tests -v
   is unknown and never calm, while a place outside the gale field is outside the
   hurricane field; the quadrant follows the bearing from the centre; and a point
   a rounding error from a centre is at the centre;
+- **the site's menu**: the first thing on every page, naming the four pages in
+  one order with the reader's own marked (underlined where colours are
+  forced), the site's name leading to the front page, and each page's main
+  part a landmark past it; on the dashboard pinned, outside the part the
+  follower holds a reader by; never squeezed on the pages laid out as a
+  column, fitting a phone 320 px wide, every link 44 px high, and left off
+  paper; the desk and the map handing the view across through it; and a page
+  the site does not have refused;
 - **the storm desk**: its data survive a JSON round trip; each storm's
   longitudes stay within 180° of its centre across the date line; every imagery
   layer is named as GIBS's capabilities list it, and every reference overlay
@@ -2003,14 +2014,15 @@ python -m unittest discover -s tests -v
   failed part way offered with no Later, a page knowing a run its own code
   wrote, its place handed over and put back (the scroll, the theme before first
   paint, each section by its words, a box that scrolls itself once its sections
-  are open, what stood at the top of the view put back where it stood and held
-  as the page settles, until the view moves for anything else, however slowly,
-  the reader's own hand is on the page or 15 seconds have passed, a page or a
-  box at its top left to show what comes in there, a hidden page holding its
-  place once it is shown, junk refused, the browser's own scroll restoring left
-  out of the follower's loads until the page loaded again has loaded and left to
-  the browser for a page held by its scroll alone, and a load the browser never
-  made given up when the page is shown again), the page's own state failing
+  are open, what stood at the top of the view, below what the page pins over it,
+  put back where it stood and held as the page settles, until the view moves for
+  anything else, however slowly, the reader's own hand is on the page or 15
+  seconds have passed, a page or a box at its top left to show what comes in
+  there, a hidden page holding its place once it is shown, junk refused, the
+  browser's own scroll restoring left out of the follower's loads until the page
+  loaded again has loaded and left to the browser for a page held by its scroll
+  alone, and a load the browser never made given up when the page is shown
+  again), the page's own state failing
   without stopping the following, a run that does not arrive gone for again
   after 2, 5, 10 and 15 minutes, a run older than the page's or than the one
   offered passed over, a take never started twice, answers that name no run

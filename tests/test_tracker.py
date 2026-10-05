@@ -33,7 +33,8 @@ from elnino import (  # noqa: E402
     alerts, atlas, atlasdata, atlasview, atmosphere, coastline, composite,
     cyclones, dashboard, exposure, fields, forecast, geo, globe, grids, history, impacts,
     jtwc, kml, live,
-    outlook, panels, parsers, pipeline, relief, report, sources, space3d, storage, stormdesk, storms,
+    outlook, panels, parsers, pipeline, relief, report, sitenav, sources, space3d, storage, stormdesk,
+    storms,
     tcproducts,
     stormfury, subsurface, svg,
     verification, worldmap,
@@ -8560,6 +8561,30 @@ class TestEndToEnd(unittest.TestCase):
                 theme, style = html.find(live.head(self.state.run_at)), html.find("<style>")
                 self.assertTrue(0 <= theme < style, (theme, style))
 
+    def test_every_page_opens_on_the_site_s_menu(self):
+        # Any page reaches any other: the menu is the first thing on each, and
+        # marks the page the reader is on.
+        for here, html in (("dashboard.html", dashboard.render(self.state)),
+                           ("atlas.html", atlasview.page(self.state)),
+                           ("storms.html", stormdesk.page(self.state)),
+                           ("map.html", stormdesk.page(self.state, focus="world"))):
+            with self.subTest(here):
+                self.assertEqual(html.count('<nav class="sitebar"'), 1)
+                menu = re.search(r'<body[^>]*>\n(<nav class="sitebar".*?</nav>)', html, re.S)
+                self.assertTrue(menu, "the menu is not the first thing on the page")
+                self.assertIn(f'<a class="tab" href="{here}" aria-current="page">', menu.group(1))
+                # And a main part, a landmark a reader can go to past the menu.
+                self.assertEqual(html.count("<main"), 1)
+
+    def test_the_dashboard_s_menu_is_pinned_outside_the_part_being_read(self):
+        # The follower holds a reader by what stands at the top of the box the
+        # page names (elnino/live.py): the menu pinned over the page is never
+        # taken for it.
+        html = dashboard.render(self.state)
+        menu = '<body class="dashpage">\n' + sitenav.bar("dashboard.html") + "\n"
+        self.assertEqual(html.count(menu), 1)
+        self.assertLess(html.index(menu), html.index('<main class="wrap" id="page">'))
+
     def test_a_run_s_pages_publish_as_one_run_naming_no_path_of_this_machine(self):
         import publish
         import track
@@ -8597,7 +8622,7 @@ class TestEndToEnd(unittest.TestCase):
         html = dashboard.render(self.state)
         box = re.findall(r"elninoLive\.follow\(\{ boxes: \['([\w-]+)'\] \}\)", html)
         self.assertEqual(len(box), 1, "the dashboard names no box for the follower")
-        start = html.find(f'<div class="wrap" id="{box[0]}">')
+        start = html.find(f'<main class="wrap" id="{box[0]}">')
         self.assertGreater(start, 0, "the box named is not the page's body")
         body = html[start:html.index("</footer>", start)]
         parts = re.findall(r'<(?:section|div) class="(?:card|hero|tiles)(?: [^"]*)?"[^>]*>', body)
