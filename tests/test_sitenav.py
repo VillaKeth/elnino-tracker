@@ -9,6 +9,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -19,7 +20,7 @@ from elnino import atlas, atlasview, dashboard, sitenav, stormdesk  # noqa: E402
 from test_tracker import _DeskFixtures  # noqa: E402
 
 PAGES = ["dashboard.html", "map.html", "storms.html", "atlas.html"]
-NAMES = ["Dashboard", "El Niño map", "Storm desk", "Atlas"]
+NAMES = ["Dashboard", "El Niño Map", "Storm Desk", "Atlas"]
 
 
 def tabs(html: str) -> list[tuple[str, str, bool, str | None]]:
@@ -66,6 +67,19 @@ class TestTheMenu(unittest.TestCase):
         # reads the name once.
         self.assertIn('aria-hidden="true"', brand.group(2))
 
+    def test_its_mark_is_el_nino_s_warm_tongue_and_the_site_s_icon(self):
+        # The equatorial Pacific as a blue disc, and El Niño's warm tongue
+        # reaching west along the equator from South America, hottest in the
+        # east: a tongue and its core. The tab's icon is the same picture.
+        mark = re.search(r'<svg class="sitemark"[^>]*>(.*?)</svg>',
+                         sitenav.bar("atlas.html"), re.S).group(1)
+        self.assertEqual(re.findall(r"<(circle|path)\b", mark), ["circle", "path", "path"])
+        self.assertNotIn("#fcd8c6", mark)
+        icon = re.fullmatch(r'<link rel="icon" href="data:image/svg\+xml,([^"<>#]*)">', sitenav.ICON)
+        self.assertTrue(icon, sitenav.ICON)
+        self.assertIn(mark, unquote(icon.group(1)))
+        self.assertIn('xmlns="http://www.w3.org/2000/svg"', unquote(icon.group(1)))
+
     def test_it_hands_the_view_on_only_where_it_is_asked_to(self):
         found = tabs(sitenav.bar("storms.html", carry=("map.html",)))
         self.assertEqual([(href, carried) for href, _, _, carried in found if carried],
@@ -104,7 +118,10 @@ class TestTheMenu(unittest.TestCase):
         # The name and each page are 44 px high, as the desk's controls are.
         css = dashboard._css()
         self.assertIn("\nsvg { width: 100%; height: auto;", css)
-        self.assertEqual(rule(css, ".sitebar .sitemark"), "flex: none; width: 22px; height: 22px;")
+        # A logo keeps its colours where colours are forced: flattened to one,
+        # its tongue would vanish into its sea.
+        self.assertEqual(rule(css, ".sitebar .sitemark"),
+                         "flex: none; width: 22px; height: 22px; forced-color-adjust: none;")
         self.assertIn("min-height: 44px;", rule(css, ".sitebar .brand"))
         self.assertIn("min-height: 44px;", rule(css, ".sitebar .tab"))
 

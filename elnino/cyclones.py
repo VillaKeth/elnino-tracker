@@ -97,6 +97,10 @@ ACE_STAGES = {"TS", "HU", "SS", "TY", "ST", "TC"}
 # Atlantic record - enough to move the 1991-2020 normals off NOAA's own.
 NAMED_STAGES = ACE_STAGES
 HURRICANE_STAGES = {"HU", "TY", "ST", "TC"}
+# What ATCF calls a system that is not a tropical or subtropical cyclone: one
+# that was (post-tropical, a remnant low, dissipating) or is yet to be (a
+# disturbance, a wave, a low). NHC's track graphic draws its points open.
+NOT_A_CYCLONE = frozenset({"EX", "LO", "DB", "WV", "DS"})
 SYNOPTIC = (0, 6, 12, 18)
 
 # NHC's operational definition: a 30-knot increase in 24 hours, which is
@@ -221,6 +225,14 @@ class Fix:
     @property
     def short(self) -> str:
         return short_label(self.wind, self.stage, self.formed)
+
+    @property
+    def badge(self) -> str:
+        return badge(self.wind, self.stage)
+
+    @property
+    def hollow(self) -> bool:
+        return hollow(self.stage)
 
 
 def parse_atcf(text: str, techs=None) -> list[Fix]:
@@ -410,7 +422,7 @@ def intensity_label(wind: int | None, stage: str = "", formed: bool = True) -> s
         return "unknown"
     if not formed and stage in {"EX", "LO"}:
         return {"EX": "non-tropical low", "LO": "low"}[stage]
-    if stage in {"EX", "LO", "DB", "WV", "DS"}:
+    if stage in NOT_A_CYCLONE:
         return {"EX": "post-tropical", "LO": "remnant low", "DB": "disturbance",
                 "WV": "tropical wave", "DS": "dissipating"}[stage]
     if stage in {"SD", "SS"}:
@@ -438,15 +450,42 @@ def short_label(wind: int | None, stage: str = "", formed: bool = True) -> str:
         return "unknown"
     if not formed and stage in {"EX", "LO"}:
         return {"EX": "non-trop low", "LO": "low"}[stage]
-    if stage in {"EX", "LO", "DB", "WV", "DS"}:
+    if stage in NOT_A_CYCLONE:
         return {"EX": "post-trop", "LO": "rem low", "DB": "disturbance",
                 "WV": "wave", "DS": "dissipating"}[stage]
+    # Saffir-Simpson is a hurricane's scale: a subtropical storm at hurricane
+    # force is still a subtropical storm, as NHC calls it.
+    if stage in {"SD", "SS"}:
+        return "subtrop storm" if wind >= 34 else "subtrop dep"
     number = category(wind)
     if number:
         return f"Cat {number}"
-    if stage in {"SD", "SS"}:
-        return "subtrop storm" if wind >= 34 else "subtrop dep"
     return "trop storm" if wind >= 34 else "trop dep"
+
+
+def badge(wind: int | None, stage: str = "") -> str:
+    """The mark a forecast map writes on a point, in one character, as NHC's
+    track graphic marks one: the letter of its wind, D under 34 kt, S to 63,
+    H to 95 and M above, and for a hurricane, or its equivalent in another
+    ocean, the number of its category where NHC writes H or M. A system that
+    is no hurricane, subtropical or not a cyclone there at all (``hollow``),
+    keeps NHC's letter: Saffir-Simpson is a hurricane's scale. Nothing
+    without a wind.
+    """
+    if wind is None:
+        return ""
+    if stage not in NOT_A_CYCLONE and stage not in {"SD", "SS"}:
+        number = category(wind)
+        if number:
+            return str(number)
+    return "M" if wind >= 96 else "H" if wind >= 64 else "S" if wind >= 34 else "D"
+
+
+def hollow(stage: str) -> bool:
+    """Whether a forecast map draws a point open, as NHC's track graphic draws
+    a post-tropical or potential cyclone's: where the system is not a
+    tropical or subtropical cyclone."""
+    return stage in NOT_A_CYCLONE
 
 
 def ace(fixes) -> float:

@@ -408,8 +408,24 @@ def _point(fix, ref: float, hour: int | None) -> dict:
         # these, and agrees with the exposure table to the hour only so.
         "lon": _near(fix.lon, ref, None), "lat": fix.lat,
         "wind": fix.wind, "pressure": fix.pressure, "stage": fix.stage,
-        "category": fix.category, "label": fix.label, "radii": _radii(fix),
+        "category": fix.category, "label": fix.label, "short": fix.short,
+        "badge": fix.badge, "hollow": fix.hollow, "formed": fix.formed,
+        "radii": _radii(fix),
     }
+
+
+def _peak(storm) -> dict | None:
+    """The official forecast's strongest point, the first where it reaches
+    that wind more than once: what the storm is forecast to become, and when.
+    None without a forecast wind."""
+    best = None
+    for fix in _forecast(storm):
+        if fix.wind is not None and (best is None or fix.wind > best.wind):
+            best = fix
+    if best is None:
+        return None
+    return {"t": _iso(cyclones.valid_stamp(best)), "hour": best.tau, "wind": best.wind,
+            "short": best.short, "label": best.label, "badge": best.badge}
 
 
 def _path(storm, now, ref: float) -> list:
@@ -548,6 +564,7 @@ def storm_entry(storm) -> dict | None:
         "track": [_point(f, ref, _hours(f.stamp, now.stamp))
                   for f in storm.track if f.tau == 0],
         "forecast": [_point(f, ref, f.tau) for f in _forecast(storm)],
+        "peak": _peak(storm),
         "path": _path(storm, now, ref),
         "exposure": _exposure(storm, ref),
         "view": _view(now),
@@ -856,10 +873,25 @@ def _storm_row(entry, hue: str) -> str:
         f'<div class="stormtext"><button type="button" class="stormname" '
         f'data-select="{key}">{title}</button>'
         f'<div class="stormfacts">{" &middot; ".join(esc(f) for f in facts)}</div>'
+        f'{_peak_line(entry.get("peak"), wind)}'
         f'<div class="stormage">{issued}</div></div>'
         f'<button type="button" class="eyebtn" data-fly="{key}" '
         f'aria-label="Fly to the eye of {title}">Eye</button></li>'
     )
+
+
+def _stronger(peak, wind) -> bool:
+    """Whether the forecast's peak is stronger than the storm is now."""
+    return bool(peak) and (wind is None or peak["wind"] > wind)
+
+
+def _peak_line(peak, wind) -> str:
+    """A storm row's word on what it is forecast to become, if that is more
+    than it is now."""
+    if not _stronger(peak, wind):
+        return ""
+    return (f'<div class="stormpeak">Forecast to peak at {esc(peak["short"])} &middot; '
+            f'{peak["wind"]} kt, {_time(peak["t"])}</div>')
 
 
 def _now_pane(entry) -> str:
@@ -877,6 +909,12 @@ def _now_pane(entry) -> str:
     rows.append(("Intensity", esc(_cap(_latest(entry)[2]))
                  + (" (JTWC's one-minute wind, as its Saffir-Simpson equivalent)"
                     if entry["centre"] == "JTWC" else "")))
+    peak = entry.get("peak")
+    if peak:
+        rows.append(("Forecast peak",
+                     f'{esc(_cap(peak["label"]))}, {peak["wind"]} kt, {_time(peak["t"])}'
+                     if _stronger(peak, _latest(entry)[0])
+                     else "Now: no strengthening is forecast"))
     rows.append(("Motion", esc(_motion_words(entry["motion"]))))
     eye = []
     if entry["eye"]:
@@ -1230,11 +1268,18 @@ def _legend(data, hues: dict) -> str:
         return (f'<span class="linekey{" dash" if dashed else ""}" '
                 f'style="background:{colour}"></span>')
 
+    def badge(mark: str, hollow: bool = False) -> str:
+        return f'<span class="badgekey{" hollow" if hollow else ""}">{esc(mark)}</span>'
+
     storms = [key(fill(hues[e["id"]]), e["title"]) for e in data["storms"]]
     groups = (
         ("Tracks, in the storm's colour", [
             key(line("var(--ink2)"), "Analysed track"),
-            key(line("var(--ink2)", dashed=True), "Official forecast")]),
+            key(line("var(--ink2)", dashed=True), "Official forecast"),
+            key(badge("4"), "Forecast point, marked with its category: 1 to 5, or S storm, "
+                            "D depression"),
+            key(badge("H", hollow=True), "Dashed where it is not a tropical cyclone, lettered "
+                                         "by its wind: D, S, H hurricane force, M major")]),
         ("Wind radii, in the storm's colour", [
             key(fill("var(--ink2)", 0.3), "34 kt"), key(fill("var(--ink2)", 0.55), "50 kt"),
             key(fill("var(--ink2)", 0.85), "64 kt")]),
@@ -1369,6 +1414,7 @@ def _map() -> str:
 
 def _scrubber() -> str:
     return ('<div class="deskscrub"><label for="scrub">Forecast</label>'
+            '<button type="button" class="playbtn" id="play">Play</button>'
             f'<input type="range" id="scrub" min="0" max="{cyclones.HORIZON}" step="1" '
             'value="0" aria-describedby="scrub-read">'
             '<output id="scrub-read" for="scrub">Now</output></div>')
@@ -1408,7 +1454,7 @@ body.deskpage {{ background: var(--plane); }}
 .findsub {{ color: var(--ink2); font-size: 0.76rem; }}
 .findnote {{ padding: 10px 12px; font-size: 0.82rem; color: var(--ink2); }}
 .seg, .toolrow {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }}
-.segbtn, .toolbtn, .toolsel {{ min-height: 44px; padding: 0 12px; border-radius: 10px;
+.segbtn, .toolbtn, .toolsel, .playbtn {{ min-height: 44px; padding: 0 12px; border-radius: 10px;
   border: 1px solid var(--border); background: var(--surface); color: var(--ink);
   font: 500 0.85rem var(--font); cursor: pointer; }}
 .segbtn[aria-pressed="true"], .toolbtn[aria-pressed="true"] {{ background: var(--ink);
@@ -1417,7 +1463,7 @@ body.deskpage {{ background: var(--plane); }}
 .segbtn:disabled {{ cursor: not-allowed; }}
 .toolnote {{ flex-basis: 100%; margin: 0; font-size: 0.82rem; color: var(--ink2); }}
 .toolnote:empty {{ position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }}
-.segbtn:focus-visible, .toolbtn:focus-visible, .eyebtn:focus-visible,
+.segbtn:focus-visible, .toolbtn:focus-visible, .eyebtn:focus-visible, .playbtn:focus-visible,
 .tabs button:focus-visible, #map:focus-visible, #divider:focus-visible {{
   outline: 2px solid var(--s1); outline-offset: 2px; }}
 .menu {{ position: relative; }}
@@ -1487,6 +1533,11 @@ body.deskpage {{ background: var(--plane); }}
   stroke-dasharray: 4 3; }}
 #overlay .ringcase {{ fill: none; stroke: var(--plane); stroke-width: 4.5px; }}
 #overlay .dot {{ fill: var(--surface); stroke-width: 2px; }}
+#overlay .badge circle {{ fill: var(--surface); stroke-width: 2px; }}
+/* Open, as NHC's track graphic draws a point where the system is not a
+   tropical cyclone. */
+#overlay .badge.hollow circle {{ stroke-dasharray: 2.5 2; }}
+#overlay .badge text {{ fill: var(--ink); font: 700 10px var(--font); }}
 #overlay .place {{ fill: var(--ink2); stroke: var(--surface); stroke-width: 1.5px; }}
 #overlay .in34 {{ fill: var(--warning); }}
 #overlay .in50 {{ fill: var(--serious); }}
@@ -1526,6 +1577,9 @@ body.deskpage {{ background: var(--plane); }}
 .deskscrub {{ display: flex; align-items: center; gap: 10px; padding: 4px 16px;
   background: var(--surface); border-top: 1px solid var(--border); font-size: 0.82rem; }}
 .deskscrub input {{ flex: 1; min-width: 0; height: 44px; margin: 0; }}
+/* Wide enough for Pause, so the slider does not move when it changes. */
+.playbtn {{ flex: none; min-width: 5em; }}
+.playbtn:disabled {{ opacity: 0.45; cursor: default; }}
 .deskscrub output {{ flex: 0 1 12em; color: var(--ink2); font-variant-numeric: tabular-nums; }}
 .desklegend {{ display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px;
   padding: 0 16px; font-size: 0.74rem; color: var(--ink2); background: var(--surface);
@@ -1544,6 +1598,11 @@ body.deskpage {{ background: var(--plane); }}
 .ringkey {{ display: inline-block; width: 12px; height: 12px; border-radius: 50%;
   border: 1.5px dashed var(--ink); }}
 .dotkey {{ display: inline-block; width: 10px; height: 10px; border-radius: 50%; }}
+.badgekey {{ display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; margin-right: 6px; border-radius: 50%; box-sizing: border-box;
+  border: 2px solid var(--ink2); background: var(--surface); color: var(--ink);
+  font-size: 9px; font-weight: 700; line-height: 1; }}
+.badgekey.hollow {{ border-style: dashed; }}
 .desklegend .key {{ gap: 6px; }}
 .deskpanel {{ background: var(--surface); padding: 2px 16px 32px;
   border-top: 1px solid var(--border); overflow-wrap: anywhere; min-width: 0; }}
@@ -1564,6 +1623,7 @@ body.deskpage {{ background: var(--plane); }}
   font: 650 0.95rem var(--font); color: var(--ink); text-align: left; cursor: pointer; }}
 .stormfacts {{ font-size: 0.8rem; color: var(--ink); }}
 .stormage {{ font-size: 0.74rem; color: var(--ink2); }}
+.stormpeak {{ font-size: 0.8rem; font-weight: 600; color: var(--ink); }}
 .eyebtn {{ min-width: 52px; min-height: 44px; padding: 0 10px; border-radius: 10px;
   border: 1px solid var(--ink); background: var(--ink); color: var(--surface);
   font: 600 0.84rem var(--font); cursor: pointer; }}
@@ -1623,6 +1683,10 @@ dl.facts dd {{ margin: 0; color: var(--ink); }}
     padding-bottom: 2px; }}
   .seg > *, .toolrow > * {{ flex: 0 0 auto; }}
   .menubody {{ position: fixed; top: auto; left: 16px; right: 16px; min-width: 0; }}
+  /* The slider on a line of its own, under the label, Play and the time it
+     reads: beside them it was 54 px, under half a pixel an hour to drag. */
+  .deskscrub {{ flex-wrap: wrap; row-gap: 0; }}
+  .deskscrub input {{ order: 3; flex-basis: 100%; }}
 }}
 @media (min-width: 900px) {{
   body.deskpage {{ height: 100vh; height: 100dvh; display: flex; flex-direction: column;
@@ -1641,11 +1705,11 @@ dl.facts dd {{ margin: 0; color: var(--ink); }}
 # today's imagery, map.html on the street map under El Nino's rainfall. Each
 # is a page of the site's menu, and hands the reader's view on to the other.
 FOCUS = {
-    "world": {"page": "map.html", "title": "El Niño map",
+    "world": {"page": "map.html", "title": "El Niño Map",
               "sub": ("El Niño's measured effects on street maps, satellite and Google, "
                       "anywhere on Earth."),
               "other": "storms.html", "first": "streets"},
-    "storms": {"page": "storms.html", "title": "Storm desk",
+    "storms": {"page": "storms.html", "title": "Storm Desk",
                "sub": ("Live tropical cyclones on live satellite imagery, with what their "
                        "warning centres have issued."),
                "other": "map.html", "first": "geocolor"},
@@ -1663,7 +1727,8 @@ def page(state, focus: str = "storms") -> str:
     hues = _hues(data["storms"])
     for area in data["outlook"]:
         area["level"] = _level(area)
-    data["style"] = {"hues": hues, "products": dict(PRODUCT_COLOURS),
+    data["style"] = {"categories": [list(floor) for floor in cyclones.CATEGORY_FLOOR],
+                     "hues": hues, "products": dict(PRODUCT_COLOURS),
                      "outlook": dict(OUTLOOK_COLOURS), "surge": SURGE_COLOUR,
                      "cone": dict(CONE_COLOURS)}
     # The gazetteer the search reads, in the atlas's own rows. It is the page's,
@@ -1689,7 +1754,7 @@ def page(state, focus: str = "storms") -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 {live.head(getattr(state, "run_at", None))}
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%232a78d6'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='%23fcfcfb'/%3E%3C/svg%3E">
+{sitenav.ICON}
 <title>{esc(words["title"])}</title>
 <style>{shell_css()}{fields.ramp_css()}{css()}{worldmap.css()}{thennow.css()}</style>
 </head>
@@ -1733,18 +1798,18 @@ _JS = r"""
   function $(id) { return document.getElementById(id); }
   var map = $("map"), svgEl = $("overlay"), coastG = $("coast"), geoG = $("geo"), marksG = $("marks");
   var divider = $("divider"), framePill = $("frame"), statusPill = $("status");
-  var scrub = $("scrub"), scrubRead = $("scrub-read");
+  var scrub = $("scrub"), scrubRead = $("scrub-read"), playBtn = $("play");
   var TILE = 256, MINZ = 1, MAXZ = 13, UNIT = 1048576, HOUR = 3600000, NM = 1.852, ASIDE = 900000, SETTLE = 2700000;
   var EARTH_KM = 6378.137, GEO_KM = 42164.0, CIRCUMFERENCE = 40075.017;
   var THRESHOLDS = ["34", "50", "64"];
   var ORDER = ["Tropical Storm Watch", "Tropical Storm Warning", "Hurricane Watch", "Hurricane Warning"];
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-  var LAYERS = {}, STORMS = [], BYID = {}, DOM = {};
+  var LAYERS = {}, STORMS = [], BYID = Object.create(null), DOM = {};
   var S = {
     x: 0.5, y: 0.45, z: 3, w: 1, h: 1,
     layer: "geocolor", second: "infrared", compare: false, split: 0.5,
-    loop: false, loopWanted: false, frame: 0, scrub: 0, selected: null, inView: {},
+    loop: false, loopWanted: false, frame: 0, scrub: 0, playing: false, selected: null, inView: {},
     show: {}, refs: {}, pin: null, day: null, dayState: "idle", dayStepped: false,
     imagery: navigator.onLine === false ? "offline" : "pending"
   };
@@ -1848,13 +1913,16 @@ _JS = r"""
     bands();
     LAYERS = {};
     D.layers.forEach(function (l) { LAYERS[l.id] = l; });
-    STORMS = []; BYID = {};
+    // Kept in a table that answers to no name every object has
+    // ("constructor"), as an address can name any.
+    STORMS = []; BYID = Object.create(null);
     D.storms.forEach(function (s) {
       var nodes = [];
       s.path.forEach(function (p) {
         var t = Date.parse(p.t);
-        if (!isNaN(t)) nodes.push({t: t, lon: p.lon, lat: p.lat, wind: p.wind,
-                                   radii: p.radii || {}, label: p.label, category: p.category});
+        if (!isNaN(t)) nodes.push({t: t, lon: p.lon, lat: p.lat, wind: p.wind, radii: p.radii || {},
+                                   label: p.label, category: p.category, stage: p.stage,
+                                   formed: p.formed !== false});
       });
       // The advisory's own position replaces the path's at the advisory time.
       var fix = s.advisory_fix;
@@ -1865,7 +1933,8 @@ _JS = r"""
           if (nodes[i].t > at && i > 0) {
             nodes.splice(i, 0, {t: at, lon: fix.lon, lat: fix.lat, wind: fix.wind,
                                 radii: nodes[i - 1].radii, label: nodes[i - 1].label,
-                                category: nodes[i - 1].category});
+                                category: nodes[i - 1].category, stage: nodes[i - 1].stage,
+                                formed: nodes[i - 1].formed});
             break;
           }
         }
@@ -1893,7 +1962,27 @@ _JS = r"""
     var near = f < 0.5 ? a : b;
     return {t: T, lon: a.lon + (b.lon - a.lon) * f, lat: a.lat + (b.lat - a.lat) * f,
             wind: a.wind != null && b.wind != null ? a.wind + (b.wind - a.wind) * f : near.wind,
-            radii: radii, label: near.label, category: near.category};
+            radii: radii, label: near.label, category: near.category, stage: near.stage,
+            formed: near.formed};
+  }
+  // Saffir-Simpson from a wind as a label writes it (cyclones.CATEGORY_FLOOR,
+  // carried in the page's data): 0 short of a hurricane.
+  function categoryOf(kt) {
+    var floors = D.style.categories || [];
+    for (var i = 0; i < floors.length; i++) if (kt >= floors[i][0]) return floors[i][1];
+    return 0;
+  }
+  // What a storm is called at a wind, as cyclones.short_label calls it: the
+  // map names a storm as its forecast runs, at winds no advisory gave.
+  function shortAt(kt, stage, formed) {
+    if (kt == null) return "unknown";
+    if (!formed && (stage === "EX" || stage === "LO")) return stage === "EX" ? "non-trop low" : "low";
+    var gone = {EX: "post-trop", LO: "rem low", DB: "disturbance", WV: "wave", DS: "dissipating"};
+    if (Object.prototype.hasOwnProperty.call(gone, stage)) return gone[stage];
+    if (stage === "SD" || stage === "SS") return kt >= 34 ? "subtrop storm" : "subtrop dep";
+    var n = categoryOf(kt);
+    if (n) return "Cat " + n;
+    return kt >= 34 ? "trop storm" : "trop dep";
   }
   function inside(c, lon, lat) {
     var d = km(c.lon, c.lat, lon, lat), q = Math.floor(bearing(c.lon, c.lat, lon, lat) / 90) % 4;
@@ -2484,16 +2573,18 @@ _JS = r"""
   }
   function buildGeo() {
     geoDirty = false; geoRef = S.x; geoLo = Infinity; geoHi = -Infinity;
-    var h = [ensoGeo()], style = D.style;
-    // Entered (thennow.py), no geometry of today's is drawn over another day's ground.
-    if (S.then) { geoExt = null; geoCopies = geoReach(); geoG.innerHTML = ""; return; }
-    if (S.show.outlook) D.outlook.forEach(function (a) {
+    var entered = !!S.then, h = entered ? [] : [ensoGeo()], style = D.style;
+    // Entered (thennow.py), no geometry of today's is drawn over another
+    // day's ground but the storm picked's: its track, forecast and winds.
+    var storms = entered ? (BYID[S.selected] ? [BYID[S.selected]] : []) : STORMS;
+    if (entered && !storms.length) { geoExt = null; geoCopies = geoReach(); geoG.innerHTML = ""; return; }
+    if (S.show.outlook && !entered) D.outlook.forEach(function (a) {
       var k = near(mx(a.lon)), colour = style.outlook[a.level] || "var(--ink2)";
       var ran = a.alert && a.formation && lapsed(a.formation.until);
       if (a.area && a.area.length > 2) h.push('<path class="area' + (ran ? " lapsed" : "") + '" d="' + line(a.area, k, true) + '" style="fill:' + colour + ";stroke:" + colour + '"/>');
       if (a.arrow && a.arrow.length > 1) h.push('<path class="arrow" d="' + line(a.arrow, k) + '" style="stroke:' + colour + '"/>');
     });
-    STORMS.forEach(function (st) {
+    storms.forEach(function (st) {
       var s = st.d, k = near(st.x0);
       if (S.show.cone && s.cone && s.cone.length > 2) h.push('<path class="cone" d="' + line(s.cone, k, true) + '"/>');
       if (S.show.surge && s.surge) s.surge.forEach(function (a) { h.push('<path class="surge" d="' + line(a.ring, k, true) + '"/>'); });
@@ -2505,10 +2596,10 @@ _JS = r"""
         });
       });
     });
-    (D.invests || []).forEach(function (v) {
+    if (!entered) (D.invests || []).forEach(function (v) {
       if (v.track.length > 1) h.push('<path class="investtrack" d="' + line(v.track.map(pt), near(mx(v.lon))) + '"/>');
     });
-    STORMS.forEach(function (st) {
+    storms.forEach(function (st) {
       var s = st.d, k = near(st.x0), past = s.track.map(pt);
       var ahead = (past.length ? [past[past.length - 1]] : []).concat(s.forecast.map(pt));
       if (past.length > 1) {
@@ -2608,10 +2699,12 @@ _JS = r"""
     }
     // Storms are placed first, so their names win any contest for the space,
     // and drawn last, over every other mark.
-    // Entered (thennow.py), the ground is another day's: today's storms,
-    // outlook areas, invests and regions are not drawn on it.
-    var drawn = [], live = !S.then;
-    if (live) STORMS.forEach(function (st) {
+    // Entered (thennow.py), the ground is another day's: of today's storms,
+    // outlook areas, invests and regions, only the storm picked is drawn on
+    // it, so its forecast can be played over the place.
+    var drawn = [], live = !S.then, picked = BYID[S.selected];
+    var shown = live ? STORMS : (picked ? [picked] : []);
+    shown.forEach(function (st) {
       var b = base(st), c = centreAt(st, b.t + S.scrub * HOUR);
       if (!c) return;
       copies(st.x0, 200).forEach(function (k) {
@@ -2635,9 +2728,14 @@ _JS = r"""
                       '<circle class="ring" cx="' + cx + '" cy="' + cy + '" r="' + r.toFixed(1) + '"/>');
         }
       }
-      // Now, the centre's own figure; ahead, the forecast's, between its times.
+      // Now, the centre's own figure; ahead, the forecast's, between its
+      // times. The wind is written as the centres write theirs, to 5 kt, and
+      // the storm named for that wind: its category, now or to come.
       var fix = s.advisory_fix, kt = S.scrub ? m.c.wind : (fix && fix.wind != null ? fix.wind : s.wind);
-      var wind = kt != null ? Math.round(kt / 5) * 5 + " kt" : "";
+      var kt5 = kt != null ? Math.round(kt / 5) * 5 : null;
+      var wind = kt5 == null ? "" :
+        shortAt(kt5, S.scrub ? m.c.stage : s.stage,
+                S.scrub ? m.c.formed !== false : s.formed !== false) + " \u00b7 " + kt5 + " kt";
       top.push(pieces.join("") + '<g class="hit" data-storm="' + esc(m.st.id) + '">' +
         '<circle class="pad" cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="24"/>' +
         (m.close ? '<circle class="eyecase" cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="' + m.R + '"/>' +
@@ -2647,7 +2745,7 @@ _JS = r"""
     });
     // Close in, each watch or warning and each surge area says what it is
     // beside its official colour.
-    if (live && S.z >= 6) STORMS.forEach(function (st) {
+    if (S.z >= 6) shown.forEach(function (st) {
       var s = st.d;
       copies(st.x0, 200).forEach(function (k) {
         if (S.show.watches && s.watches) s.watches.forEach(function (w) {
@@ -2665,17 +2763,34 @@ _JS = r"""
         });
       });
     });
-    if (live) STORMS.forEach(function (st) {
+    // Each forecast point marked with what the storm is forecast to be there
+    // (cyclones.badge): its category's number, or NHC's letter for its wind,
+    // open where it is not a tropical cyclone (cyclones.hollow). A point
+    // whose mark would cover a storm's marker, a name or another mark keeps
+    // a plain dot, as on the dashboard's track map (storms._marks): NHC's
+    // forecast has a point three hours on, under the storm's own marker at
+    // the zooms the desk opens on. So does a point with no mark to give.
+    var days = [];
+    shown.forEach(function (st) {
       var s = st.d, selected = st.id === S.selected;
       copies(st.x0, 200).forEach(function (k) {
         s.forecast.forEach(function (p) {
-          var x = sx(p.lon, k), y = sy(p.lat);
+          var x = sx(p.lon, k), y = sy(p.lat), cx = x.toFixed(1), cy = y.toFixed(1);
           if (off(x, y, 20)) return;
-          out.push('<circle class="dot" cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="3.5" style="stroke:' + st.hue + '"/>');
-          if (selected && p.hour % 24 === 0) out.push(label(x, y, 4, [["+" + p.hour + " h", "dl2"]]));
+          var room = !!p.badge && free(x - 7.5, y - 7.5, 15, 15);
+          if (room) {
+            out.push('<g class="badge' + (p.hollow ? " hollow" : "") + '"><circle cx="' + cx + '" cy="' + cy + '" r="7.5" style="stroke:' + st.hue + '"/>' +
+                     '<text x="' + cx + '" y="' + (y + 3.5).toFixed(1) + '" text-anchor="middle">' + esc(p.badge) + "</text></g>");
+          } else {
+            out.push('<circle class="dot" cx="' + cx + '" cy="' + cy + '" r="3.5" style="stroke:' + st.hue + '"/>');
+          }
+          if (selected && p.hour % 24 === 0) days.push([x, y, room ? 8 : 4, p.hour]);
         });
       });
     });
+    // The picked storm's days, written where the marks leave room: what the
+    // storm will be matters more than the hour it is that.
+    days.forEach(function (d) { out.push(label(d[0], d[1], d[2], [["+" + d[3] + " h", "dl2"]])); });
     // The place found or tapped: over everything, and always named, in full
     // where that fits beside it on the map, else by its first part.
     var pins = [], named = [];
@@ -3090,6 +3205,7 @@ _JS = r"""
     dayControls();
     if (S.then) thenRender();
     scrubRead.textContent = scrubText();
+    showPlay();
     divider.hidden = !S.compare;
     if (S.compare) divider.style.left = (S.split * S.w).toFixed(1) + "px";
     $("loop").setAttribute("aria-pressed", S.loop ? "true" : "false");
@@ -3122,6 +3238,7 @@ _JS = r"""
     clearTimeout(loopTimer);
     S.loopWanted = false;
     S.loop = !!on && loopLength() > 1;
+    if (S.loop && S.playing) setPlay(false);
     S.frame = S.loop ? loopLength() - 1 : 0;
     if (S.loop) loopTimer = setTimeout(tick, 450);
     dirty();
@@ -3141,13 +3258,67 @@ _JS = r"""
     if (S.loopWanted && loopLength() > 1) setLoop(true);
   }
 
+  // ---- playing the forecast --------------------------------------------------
+  // Play runs the forecast slider on an hour at a time, PLAY_MS an hour, from
+  // where it stands to the end of the forecast of the storm picked (of every
+  // storm on the map, with none picked), and stops there; at the end already,
+  // it starts again from now, and with no forecast ahead to play it is
+  // greyed. The map stays the reader's as it runs: they pan, zoom, change
+  // layer, pick another storm or enter a place. Play and the satellite loop,
+  // which would carry the storms back and forth under it, take turns: the
+  // one the reader started last runs. The slider moved by hand, or an
+  // address followed, stops it.
+  var PLAY_MS = 110, playTimer = 0;
+  function playEnd() {
+    var st = BYID[S.selected], end = null;
+    (st ? [st] : STORMS).forEach(function (s) {
+      var n = s.nodes;
+      if (!n.length) return;
+      var h = Math.floor((n[n.length - 1].t - base(s).t) / HOUR);
+      end = end === null ? h : Math.max(end, h);
+    });
+    return clamp(end === null ? 0 : end, 0, +scrub.max);
+  }
+  function setScrub(h) { S.scrub = h; scrub.value = String(h); dirty(); carryView(); }
+  function setPlay(on) {
+    clearTimeout(playTimer); playTimer = 0;
+    var end = playEnd();
+    S.playing = !!on && end > 0;
+    if (S.playing) {
+      S.loopWanted = false;
+      if (S.loop) setLoop(false);
+      if (S.scrub >= end) setScrub(0);
+      playTimer = setTimeout(playStep, PLAY_MS);
+    }
+    showPlay();
+    return S.playing;
+  }
+  // The button says what pressing it does, greyed with nothing to play.
+  function showPlay() {
+    var text = S.playing ? "Pause" : "Play", off = !S.playing && playEnd() === 0;
+    if (playBtn.textContent !== text) playBtn.textContent = text;
+    if (playBtn.disabled !== off) playBtn.disabled = off;
+  }
+  function playStep() {
+    if (!S.playing) return;
+    var end = playEnd();
+    setScrub(Math.min(S.scrub + 1, end));
+    if (S.scrub >= end) setPlay(false);
+    else playTimer = setTimeout(playStep, PLAY_MS);
+  }
+
   // ---- choosing what to show ------------------------------------------------------
+  // The storm picked, or none (null); a name the page has no storm by
+  // changes nothing. Picked while Play runs past the end of its forecast,
+  // Play starts again from now, as pressed at the end it does.
   function select(id) {
-    if (!BYID[id]) return;
+    if (id !== null && !own(BYID, id)) return;
     S.selected = id;
+    if (S.playing && S.scrub >= playEnd()) setScrub(0);
     document.querySelectorAll("#panel section.storm").forEach(function (sec) { sec.hidden = sec.getAttribute("data-storm") !== id; });
     document.querySelectorAll("#panel .stormrow").forEach(function (row) { row.setAttribute("aria-current", row.getAttribute("data-row") === id ? "true" : "false"); });
     dirty();
+    carryView();
   }
   function tab(section, name) {
     section.querySelectorAll("[data-tab]").forEach(function (b) { b.setAttribute("aria-selected", b.getAttribute("data-tab") === name ? "true" : "false"); });
@@ -3242,19 +3413,26 @@ _JS = r"""
     settle();
   }
   // A place or a view in the address: #at=lat,lon opens Here there, and
-  // #view=lat,lon,zoom shows that view. Anything else is no place at all.
+  // #view=lat,lon,zoom shows that view, with the storm picked and the
+  // forecast's hour after it as the other page hands them across
+  // (&storm=id&hour=n). Anything else is no place at all.
   function parseHash(text) {
-    var m = /^#(at|view)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)(?:,(-?\d+(?:\.\d+)?))?$/.exec(text || "");
-    if (!m || (m[1] === "at") !== (m[4] === undefined)) return null;
+    var m = /^#(at|view)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)(?:,(-?\d+(?:\.\d+)?))?(?:&storm=([a-z0-9]{1,16}))?(?:&hour=(\d{1,3}))?$/.exec(text || "");
+    if (!m || (m[1] === "at") !== (m[4] === undefined) || (m[1] === "at" && (m[5] || m[6]))) return null;
     var lat = +m[2], lon = +m[3];
     if (Math.abs(lat) > 90 || Math.abs(lon) > 360) return null;
     // A longitude inside the world is kept as written: wrap() would make
     // -77.04 into -77.04000000000002.
     if (lon < -180 || lon >= 180) lon = wrap(lon);
-    return m[1] === "at" ? {at: [lat, lon]} : {view: [lat, lon, clamp(+m[4], 1, 19)]};
+    if (m[1] === "at") return {at: [lat, lon]};
+    var h = {view: [lat, lon, clamp(+m[4], 1, 19)]};
+    if (m[5]) h.storm = m[5];
+    if (m[6]) h.hour = +m[6];
+    return h;
   }
   function viewHash() {
-    return "#view=" + latOf(S.y).toFixed(4) + "," + wrap(lonOf(S.x)).toFixed(4) + "," + S.z.toFixed(2);
+    return "#view=" + latOf(S.y).toFixed(4) + "," + wrap(lonOf(S.x)).toFixed(4) + "," + S.z.toFixed(2) +
+      (S.selected ? "&storm=" + S.selected : "") + (S.scrub ? "&hour=" + S.scrub : "");
   }
   // The other page's link opens it on this view.
   function carryView() {
@@ -3268,11 +3446,15 @@ _JS = r"""
     var h = parseHash(text);
     if (!h) return false;
     if (S.then) thenLeave();
+    // An address followed, as the slider moved by hand, stops Play.
+    if (S.playing) setPlay(false);
     cancelAnimationFrame(anim); anim = 0;
     var p = h.at || h.view;
     S.x = mx(p[1]); S.y = my(p[0]); S.z = clamp(h.view ? p[2] : 10, MINZ, maxZoom());
     settle();
     if (h.at) hereAt(p[1], p[0]);
+    if (h.storm && own(BYID, h.storm)) select(h.storm);
+    if (h.hour != null) setScrub(clamp(h.hour, 0, +scrub.max));
     return true;
   }
   function readToggles() {
@@ -3890,7 +4072,8 @@ _JS = r"""
     $("compare-layer").value = S.second;
   });
   $("loop").addEventListener("click", function () { setLoop(!S.loop); });
-  scrub.addEventListener("input", function () { S.scrub = +scrub.value; dirty(); });
+  scrub.addEventListener("input", function () { if (S.playing) setPlay(false); setScrub(+scrub.value); });
+  playBtn.addEventListener("click", function () { setPlay(!S.playing); });
   framePill.addEventListener("click", function () {
     var had = document.activeElement && document.activeElement.classList.contains("pillmore");
     pillOpen = !pillOpen;
@@ -4206,7 +4389,7 @@ _JS = r"""
     enso: function (patch) { return setEnso(patch || {}); },
     compare: function (on) { return setCompare(on); },
     loop: function (on) { return setLoop(on); },
-    scrub: function (hours) { scrub.value = hours; S.scrub = +scrub.value; dirty(); return S.scrub; },
+    scrub: function (hours) { scrub.value = hours; if (S.playing) setPlay(false); setScrub(+scrub.value); return S.scrub; },
     find: function (text) {
       return find(text).map(function (r) { return {kind: r.kind, label: r.label, lon: r.lon, lat: r.lat, zoom: r.zoom}; });
     },

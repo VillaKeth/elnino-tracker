@@ -607,17 +607,18 @@ def _arc(flat: list[float], lon0: float, lat0: float):
 
 def _storms(layer: list[dict], lon0: float, lat0: float, radius: float,
             cx: float, cy: float) -> list[str]:
-    """Spread first and undifferentiated, then the tracks, then the eyes.
+    """Spread first and faint, then the tracks, then the eyes.
 
-    Drawing order is the confidence order: the grey scatter is the width of
-    what is known, the coloured line is the middle of it, and the disc is the
-    one position that is measured rather than forecast.
+    Drawing order is the confidence order: the faint scatter, in its storm's
+    colour, is the width of what is known, the line is the middle of it, and
+    the disc is the one position that is measured rather than forecast.
     """
     out: list[str] = []
     for storm in layer:
+        paint = hue_for(storm["hue"])
         for member in storm["spread"]:
             out.extend(_runs(_arc(member, lon0, lat0), radius, cx, cy,
-                             'class="tcspread"'))
+                             f'class="tcspread" style="stroke:{paint}"'))
     for storm in layer:
         paint = hue_for(storm["hue"])
         out.extend(_runs(_arc(storm["track"], lon0, lat0), radius, cx, cy,
@@ -728,7 +729,8 @@ def card(state, size: int = 640) -> str:
     storm_phrase = (
         f" {len(layer)} live storm{'s' if len(layer) != 1 else ''} "
         f"sit on the sphere with the best track behind, the official forecast "
-        f"ahead and every ensemble member in grey - click one to open it."
+        f"ahead and every ensemble member faintly in the colour of its storm - "
+        f"click one to open it."
     ) if layer else ""
 
     peak_phrase = (f" and at the projected peak of {peak_index:+.2f} in "
@@ -899,7 +901,7 @@ CSS = """
    to relearn which line is which. Intensity is the marker's size and the words
    beside it, never the hue. */
 .storms polyline { fill: none; stroke-linejoin: round; stroke-linecap: round; }
-.tcspread { stroke: var(--muted); stroke-width: 1; opacity: 0.3; }
+.tcspread { stroke-width: 1; opacity: 0.35; }
 .tctrack { stroke-width: 2.2; }
 .tcahead { stroke-width: 2.2; stroke-dasharray: 7 5; }
 /* A surface ring, because the disc sits on top of a coloured field and two
@@ -913,10 +915,12 @@ CSS = """
   background: var(--tc); display: inline-block; margin-right: 6px;
   vertical-align: -1px; }
 .gchip.off { opacity: 0.5; }
+/* The keys in the legend's own ink: each storm wears its own colour on the
+   sphere, and a key in one storm's would read as that storm's alone. */
 .gltrack, .glahead, .glspread { height: 0; border-radius: 0;
-  border-top: 3px solid var(--s1); }
+  border-top: 3px solid currentColor; }
 .glahead { border-top-style: dashed; }
-.glspread { border-top: 2px solid var(--muted); opacity: 0.55; }
+.glspread { border-top-width: 2px; opacity: 0.45; }
 .tckey { display: inline-block; width: 12px; height: 12px; border-radius: 50%;
   margin-right: 8px; vertical-align: -1px; }
 .dsub { margin: 14px 0 5px; font-size: 0.72rem; font-weight: 700;
@@ -1096,7 +1100,7 @@ GLOBE_JS = r"""
       if (!coarse) {
         for (i = 0; i < STORMS.length; i++) {
           for (j = 0; j < STORMS[i].spread.length; j++) {
-            runs(arc(STORMS[i].spread[j]), r, out, 'class="tcspread"');
+            runs(arc(STORMS[i].spread[j]), r, out, 'class="tcspread" style="stroke:' + hue(STORMS[i].hue) + '"');
           }
         }
       }

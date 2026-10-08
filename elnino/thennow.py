@@ -1111,8 +1111,9 @@ _JS = r"""
   }
   // The rest the reader should know: dates outside an archive, a side moved
   // apart, how much Esri's archive answered, the link, and what is not drawn.
-  var HIDDEN = "While a place is entered, today’s storms, outlook areas, NASA’s reference overlays, " +
-    "the ocean and flood tiles and the El Niño composite are not drawn: they belong to today, not to either date.";
+  var HIDDEN = "While a place is entered, the storm picked stays, with its forecast to play over the place; " +
+    "today’s other storms, outlook areas, NASA’s reference overlays, the ocean and flood tiles and " +
+    "the El Niño composite are not drawn: they belong to today, not to either date.";
   function thenNotes(T) {
     var src = thenSrc(T.source), names = {a: "Left", b: "Right"}, out = [];
     ["a", "b"].forEach(function (k) { if (T.note[k]) out.push(names[k] + ": " + T.note[k] + "."); });
@@ -1352,8 +1353,6 @@ _JS = r"""
     setHidden($("then-bar"), !on);
     // Marked, the map keeps its height over the bar on a page that fits the window.
     map.classList.toggle("thenon", !!on);
-    var scrubRow = document.querySelector(".deskscrub");
-    if (scrubRow) setHidden(scrubRow, on);
     if (!on) { setHidden($("then-chip-a"), true); setHidden($("then-chip-b"), true); thenKey(""); }
     else document.querySelectorAll("[data-layer]").forEach(function (b) { b.setAttribute("aria-pressed", "false"); });
   }
@@ -1407,7 +1406,9 @@ _JS = r"""
     S.second = b.second; S.compare = b.compare; thenSplit(b.split);
     setLayer(b.layer);
     setCompare(b.compare);
-    if (b.loop) {
+    // The loop that ran before, unless Play has been pressed since: of the
+    // two, the reader's latest word is the one kept.
+    if (b.loop && !S.playing) {
       // The loop runs over the frames in view, which are the sides' until the
       // map is drawn again: the layer put back is looked at first. Frames GIBS
       // has yet to give (a place entered across a load) start it once in view.
@@ -1613,6 +1614,9 @@ _JS = r"""
   // aside with them (again after a refresh writes the key anew).
   function thenKey(id) {
     ["sst", "ndvi"].forEach(function (k) { setHidden($("then-" + k + "-key"), k !== id); });
-    ["storm-key", "key-more"].forEach(function (k) { if ($(k)) setHidden($(k), !!S.then); });
+    // Entered, today's storms stand aside but the one picked, which the map
+    // still draws with its forecast badged, so the key to its marks stays.
+    if ($("storm-key")) setHidden($("storm-key"), !!S.then);
+    if ($("key-more")) setHidden($("key-more"), !!S.then && !S.selected);
   }
 """

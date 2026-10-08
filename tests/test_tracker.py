@@ -2551,8 +2551,90 @@ class _DeskFixtures:
         return {s["id"]: s for s in stormdesk.payload(self.state(*storms))["storms"]}
 
 
+class TestForecastBadges(unittest.TestCase):
+    """The mark a forecast map writes on each of its points, as NHC's track
+    graphic does: what the storm is forecast to be there."""
+
+    def test_a_point_is_marked_by_its_category_or_by_what_it_falls_short_of(self):
+        for wind, stage, mark in (
+                (140, "HU", "5"), (137, "ST", "5"), (136, "TY", "4"), (115, "HU", "4"),
+                (113, "HU", "4"), (100, "HU", "3"), (96, "TC", "3"), (95, "HU", "2"),
+                (83, "HU", "2"), (65, "HU", "1"), (64, "TY", "1"), (60, "TS", "S"),
+                (34, "SS", "S"), (33, "TD", "D"), (25, "SD", "D"), (None, "HU", "")):
+            with self.subTest(wind=wind, stage=stage):
+                self.assertEqual(cyclones.badge(wind, stage), mark)
+
+    def test_where_it_is_no_hurricane_a_point_is_lettered_by_its_wind_as_nhc_letters_it(self):
+        # NHC's letters, D under 34 kt, S to 63, H to 95 and M above, where
+        # Saffir-Simpson does not reach: a system post-tropical, a remnant
+        # low, a disturbance, a wave or dissipating there, which NHC draws
+        # open, and a subtropical storm, which it does not.
+        for wind, stage, mark, hollow in (
+                (70, "EX", "H", True), (100, "EX", "M", True), (45, "EX", "S", True),
+                (30, "LO", "D", True), (20, "DB", "D", True), (35, "WV", "S", True),
+                (25, "DS", "D", True), (65, "SS", "H", False), (96, "SS", "M", False),
+                (33, "SD", "D", False), (None, "EX", "", True)):
+            with self.subTest(wind=wind, stage=stage):
+                self.assertEqual(cyclones.badge(wind, stage), mark)
+                self.assertEqual(cyclones.hollow(stage), hollow)
+        for stage in ("HU", "TS", "TD", "TY", "ST", "TC", "SS", "SD", ""):
+            self.assertFalse(cyclones.hollow(stage), stage)
+
+    def test_a_subtropical_storm_is_never_given_a_category(self):
+        # Saffir-Simpson is a hurricane's scale: a subtropical storm at
+        # hurricane force is still a subtropical storm, as NHC calls it.
+        self.assertEqual(cyclones.short_label(65, "SS"), "subtrop storm")
+        self.assertEqual(cyclones.intensity_label(65, "SS"), "subtropical storm")
+
+    def test_a_fix_is_marked_as_the_function_marks_it(self):
+        fix = cyclones.Fix(stamp="2026092512", tau=48, lat=17.4, lon=-106.0, wind=115,
+                           pressure=None, stage="HU", tech="OFCL")
+        self.assertEqual((fix.badge, fix.hollow), ("4", False))
+        after = dataclasses.replace(fix, stage="EX", wind=70)
+        self.assertEqual((after.badge, after.hollow), ("H", True))
+
+
 class TestStormDeskPayload(_DeskFixtures, unittest.TestCase):
     """storms.json: what the storm desk is drawn from."""
+
+    def test_each_forecast_point_says_what_the_storm_will_be_and_the_peak_is_named(self):
+        # Surigae, a tropical storm now, is forecast to be a Category
+        # 1-equivalent typhoon in a day: each point carries its short name and
+        # the mark the map writes on it, and the storm the forecast's peak.
+        surigae = self.storms(self.surigae())["wp252026"]
+        self.assertEqual([p["short"] for p in surigae["forecast"]], ["trop storm", "Cat 1"])
+        self.assertEqual([p["badge"] for p in surigae["forecast"]], ["S", "1"])
+        self.assertEqual(surigae["peak"], {
+            "t": "2026-09-26T12:00:00Z", "hour": 24, "wind": 70, "short": "Cat 1",
+            "label": "Category 1-equivalent typhoon", "badge": "1"})
+        # The path, which the page times the storm along, says it hour by hour.
+        self.assertTrue(all({"short", "stage"} <= set(p) for p in surigae["path"]))
+
+    def test_each_point_says_whether_the_system_had_formed_by_then_and_if_it_is_drawn_open(self):
+        # A disturbance forecast to become a storm and then a remnant low:
+        # the low is a remnant, as the tracker names it, and each point where
+        # it is not a cyclone is drawn open, as NHC's track graphic draws it.
+        nine = cyclones.Storm(
+            basin="AL", number=9, year=2026, name="Nine",
+            track=(self.fix("2026092506", 0, 14.0, -50.0, 30, stage="DB"),
+                   self.fix("2026092512", 0, 14.2, -51.0, 30, stage="DB")),
+            forecast=tuple(
+                self.fix("2026092512", tau, lat, lon, wind, stage=stage, tech="OFCL")
+                for tau, lat, lon, wind, stage in (
+                    (12, 14.5, -52.5, 35, "DB"), (24, 15.0, -54.0, 45, "TS"),
+                    (72, 17.0, -58.0, 30, "LO"), (96, 18.0, -60.0, 25, "LO"))),
+            advisory={"advisory": "001", "public": self.PUBLIC,
+                      "last_update": "2026-09-25T15:00:00.000Z"})
+        got = self.storms(nine)["al092026"]
+        self.assertEqual([(p["short"], p["badge"], p["formed"], p["hollow"]) for p in got["forecast"]],
+                         [("disturbance", "S", False, True), ("trop storm", "S", False, False),
+                          ("rem low", "D", True, True), ("rem low", "D", True, True)])
+        self.assertTrue(all({"formed", "hollow"} <= set(p) for p in got["path"]))
+        self.assertEqual((got["path"][0]["formed"], got["path"][-1]["formed"]), (False, True))
+
+    def test_the_peak_of_a_forecast_no_stronger_than_now_is_its_first_strongest_point(self):
+        polo = self.storms(self.polo())["ep172026"]
+        self.assertEqual((polo["peak"]["hour"], polo["peak"]["wind"]), (3, 155))
 
     def test_the_payload_survives_a_json_round_trip(self):
         data = stormdesk.payload(self.state(self.polo(), self.surigae(), self.iona()))
@@ -2794,6 +2876,63 @@ class TestStormDeskPage(_DeskFixtures, unittest.TestCase):
                           html, re.S)
         self.assertIsNotNone(match, key)
         return match.group(0)
+
+    def test_a_storm_forecast_to_strengthen_says_its_peak(self):
+        # In its row, in short; in its Now tab, in full, timed.
+        html = self.page(self.surigae())
+        row = re.search(r'<li class="stormrow" id="row-wp252026".*?</li>', html, re.S).group(0)
+        self.assertIn('<div class="stormpeak">Forecast to peak at Cat 1 &middot; 70 kt, '
+                      '<time datetime="2026-09-26T12:00:00Z" data-age="26 Sep 12:00 UTC">'
+                      '26 Sep 12:00 UTC</time></div>', row)
+        self.assertIn("<dt>Forecast peak</dt><dd>Category 1-equivalent typhoon, 70 kt, "
+                      '<time datetime="2026-09-26T12:00:00Z"', self.section(html, "wp252026"))
+
+    def test_a_storm_at_its_forecast_peak_says_none_stronger_is_forecast(self):
+        html = self.page(self.polo())
+        self.assertNotIn('class="stormpeak"', html)
+        self.assertIn("<dt>Forecast peak</dt><dd>Now: no strengthening is forecast</dd>",
+                      self.section(html, "ep172026"))
+
+    def test_the_forecast_plays_from_a_button_beside_its_slider(self):
+        html = self.page(self.polo())
+        self.assertIn('<div class="deskscrub"><label for="scrub">Forecast</label>'
+                      '<button type="button" class="playbtn" id="play">Play</button>'
+                      '<input type="range" id="scrub"', html)
+        js = stormdesk.script()
+        # The slider moved by hand stops it, at the hour the reader chose.
+        self.assertIn('scrub.addEventListener("input", function () { if (S.playing) setPlay(false); '
+                      'setScrub(+scrub.value); });', js)
+        self.assertIn('playBtn.addEventListener("click", function () { setPlay(!S.playing); });', js)
+        # So does a script's, which moves the slider as a hand does: the
+        # hour the slider takes, carried to the other page's link.
+        self.assertIn("scrub: function (hours) { scrub.value = hours; if (S.playing) setPlay(false); "
+                      "setScrub(+scrub.value); return S.scrub; },", js)
+
+    def test_on_a_phone_the_slider_has_a_line_of_its_own(self):
+        # Beside Play and the time it reads, the slider was 54 px wide on a
+        # phone 390 px wide: under half a pixel an hour to drag along.
+        css = stormdesk.css()
+        phone = css[css.index("@media (max-width: 640px)"):]
+        phone = phone[:phone.index("\n}")]
+        self.assertIn(".deskscrub { flex-wrap: wrap; row-gap: 0; }", phone)
+        self.assertIn(".deskscrub input { order: 3; flex-basis: 100%; }", phone)
+
+    def test_the_key_reads_the_marks_on_the_forecast_points(self):
+        html = self.page(self.polo())
+        key = re.search(r'<details class="keymore" id="key-more">.*?</details>', html, re.S).group(0)
+        self.assertIn('<span class="key"><span class="badgekey">4</span>Forecast point, marked '
+                      'with its category: 1 to 5, or S storm, D depression</span>', key)
+        self.assertIn('<span class="key"><span class="badgekey hollow">H</span>Dashed where it '
+                      'is not a tropical cyclone, lettered by its wind: D, S, H hurricane force, '
+                      'M major</span>', key)
+        self.assertRegex(stormdesk.css(), r"\.badgekey\.hollow \{[^}]*border-style: dashed")
+
+    def test_the_page_carries_saffir_simpson_for_the_labels_it_writes(self):
+        html = self.page(self.polo())
+        data = json.loads(re.search(r'id="desk-data" type="application/json">(.*?)</script>',
+                                    html, re.S).group(1))
+        self.assertEqual(data["style"]["categories"],
+                         [list(floor) for floor in cyclones.CATEGORY_FLOOR])
 
     def test_the_page_embeds_the_payload(self):
         html = self.page(self.polo(), self.surigae())
@@ -3428,6 +3567,9 @@ class TestStormDeskLink(_DeskFixtures, unittest.TestCase):
             self.state(self.polo(), self.surigae(), outlook=[outlook.Disturbance(**self.AREA)]))
         self.assertIn('id="storm-desk"', card)
         self.assertIn('href="storms.html"', card)
+        # Called by its name in the menu.
+        self.assertIn("<h2>Storm Desk</h2>", card)
+        self.assertIn('href="storms.html">Open the Storm Desk &rarr;</a>', card)
         for words in ("Polo", "NHC", "Surigae", "JTWC", "Southwest of Mexico", "90%"):
             self.assertIn(words, card)
 
@@ -4624,8 +4766,8 @@ class TestTwoPages(_DeskFixtures, unittest.TestCase):
 
     def test_the_map_opens_on_streets_under_the_rainfall_composite(self):
         html = stormdesk.page(self.state(self.polo()), focus="world")
-        self.assertIn("<title>El Niño map</title>", html)
-        self.assertIn("<h1>El Niño map</h1>", html)
+        self.assertIn("<title>El Niño Map</title>", html)
+        self.assertIn("<h1>El Niño Map</h1>", html)
         self.assertRegex(html, r'data-layer="streets" aria-pressed="true"')
         self.assertRegex(html, r'data-enso-var="PRECIP"[^>]*aria-pressed="true"')
         self.assertIn('data-carry="storms.html"', html)
@@ -4635,7 +4777,8 @@ class TestTwoPages(_DeskFixtures, unittest.TestCase):
 
     def test_the_storm_desk_opens_as_it_did(self):
         html = stormdesk.page(self.state(self.polo()))
-        self.assertIn("<title>Storm desk</title>", html)
+        self.assertIn("<title>Storm Desk</title>", html)
+        self.assertIn("<h1>Storm Desk</h1>", html)
         self.assertRegex(html, r'data-layer="geocolor" aria-pressed="true"')
         self.assertRegex(html, r'data-enso-var=""[^>]*aria-pressed="true"')
         self.assertIn('data-carry="map.html"', html)
@@ -4658,11 +4801,270 @@ class TestTwoPages(_DeskFixtures, unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
+class TestStormCategoryRuns(unittest.TestCase):
+    """What the desk's map says of each storm's category, now and as the
+    forecast runs, and the mark on each forecast point, run under node."""
+
+    STAGES = ("HU", "TS", "TD", "TY", "ST", "TC", "SS", "SD", "EX", "LO", "DB", "WV", "DS")
+
+    def test_the_page_names_a_storm_as_the_tracker_does_at_every_wind_it_shows(self):
+        # The map writes its own names as the forecast runs: the tracker's,
+        # for every stage and every wind a label shows (5 kt steps).
+        cases = [[kt, stage, formed] for kt in range(0, 181, 5) for stage in self.STAGES
+                 for formed in (True, False)]
+        js = stormdesk.script()
+        got = _node_json(self, "\n".join(_js_function(js, n) for n in ("categoryOf", "shortAt"))
+                         + "\nvar D = {style: {categories: "
+                         + json.dumps([list(f) for f in cyclones.CATEGORY_FLOOR]) + "}};\n"
+                         + "console.log(JSON.stringify(" + json.dumps(cases)
+                         + ".map(function (c) { return shortAt(c[0], c[1], c[2]); })));")
+        self.assertEqual(got, [cyclones.short_label(kt, stage, formed) for kt, stage, formed in cases])
+
+    def draw(self, body: str):
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in ("world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
+            "drawMarks", "ensoLabels", "categoryOf", "shortAt"))
+        return _node_json(self, r"""
+var TILE = 256, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
+var D = {outlook: [], invests: [], style: {outlook: {}, categories: """
+                          + json.dumps([list(f) for f in cyclones.CATEGORY_FLOOR]) + r"""}};
+var storm = {id: "s1", hue: "#f00", d: {title: "Simon", forecast: [], view: null, advisory_fix: null,
+                                        wind: 70, stage: "HU", formed: true}};
+var STORMS = [storm], BYID = {s1: storm}, marksG = {innerHTML: ""};
+var CENTRE = {lon: -100, lat: 15, category: 1, wind: 70, stage: "HU", radii: {}};
+function base() { return {t: 0, image: false}; }
+function centreAt() { return CENTRE; }
+""" + functions + r"""
+var S = {x: mx(-100), y: my(15), z: 3, w: 1200, h: 700, scrub: 0, selected: "s1",
+         show: {outlook: false, places: false, towns: false}, pin: null, enso: {boxes: false, regions: false}};
+storm.x0 = mx(-100);
+""" + body)
+
+    def test_a_storm_is_named_by_its_category_now_and_at_the_forecast_hour(self):
+        got = self.draw(r"""
+function said() {
+  drawMarks();
+  return (marksG.innerHTML.match(/class="dl2">[^<]*/g) || []).map(function (t) { return t.replace('class="dl2">', ""); });
+}
+var out = [said()];
+storm.d.wind = 60; storm.d.stage = "TS"; out.push(said());
+// At +48 h the forecast's wind, 97 kt, is written as the centres write it,
+// 95 kt, and named for that: a Category 2, not the 3 that 97 kt would be.
+S.scrub = 48; CENTRE = {lon: -95, lat: 18, category: 3, wind: 97, stage: "HU", radii: {}}; out.push(said());
+console.log(JSON.stringify(out));
+""")
+        self.assertEqual(got, [["Cat 1 \u00b7 70 kt"], ["trop storm \u00b7 60 kt"],
+                               ["Cat 2 \u00b7 95 kt at +48 h"]])
+
+    def test_each_forecast_point_is_marked_with_its_category_where_there_is_room(self):
+        # A point on top of one already marked keeps a plain dot, as does a
+        # point with no mark to give.
+        got = self.draw(r"""
+storm.d.forecast = [{lon: -104, lat: 15.5, hour: 12, badge: "1"}, {lon: -103.98, lat: 15.51, hour: 24, badge: "2"},
+                    {lon: -90, lat: 18, hour: 48, badge: "4"}, {lon: -85, lat: 20, hour: 72, badge: ""}];
+drawMarks();
+var h = marksG.innerHTML;
+var badges = (h.match(/<g class="badge">.*?<\/g>/g) || []);
+console.log(JSON.stringify([badges.map(function (g) { return g.replace(/^.*>([^<]*)<\/text><\/g>$/, "$1"); }),
+                            (h.match(/class="dot"/g) || []).length,
+                            badges.every(function (g) { return g.indexOf('r="7.5" style="stroke:#f00"') > 0
+                                                            && g.indexOf('text-anchor="middle"') > 0; })]));
+""")
+        self.assertEqual(got, [["1", "4"], 2, True])
+
+    def test_entered_the_storm_picked_is_drawn_and_no_other(self):
+        got = self.draw(r"""
+var other = {id: "s2", hue: "#0f0", x0: mx(-60), d: {title: "Rachel", forecast: [{lon: -61, lat: 16, hour: 24, badge: "S"}],
+             view: null, advisory_fix: null, wind: 60, stage: "TS", formed: true}};
+STORMS.push(other); BYID.s2 = other;
+centreAt = function (st) { return st.id === "s2" ? {lon: -60, lat: 16, category: 0, wind: 60, stage: "TS", radii: {}} : CENTRE; };
+storm.d.forecast = [{lon: -104, lat: 15.5, hour: 24, badge: "1"}];
+function names() { drawMarks(); return ["Simon", "Rachel"].filter(function (n) { return marksG.innerHTML.indexOf(">" + n + "<") >= 0; }); }
+S.then = {}; var entered = [names(), (marksG.innerHTML.match(/class="badge"/g) || []).length];
+S.selected = null; var none = names();
+S.then = null; var after = names();
+console.log(JSON.stringify([entered, none, after]));
+""")
+        self.assertEqual(got, [[["Simon"], 1], [], ["Simon", "Rachel"]])
+
+    def test_a_point_under_the_storm_s_own_marker_keeps_a_plain_dot(self):
+        # NHC's forecast has a point three hours on, a few pixels from the
+        # storm's marker at the zooms the desk opens on: a badge there would
+        # sit under the marker, half hidden.
+        got = self.draw(r"""
+storm.d.forecast = [{lon: -100.45, lat: 15.1, hour: 3, badge: "1"}, {lon: -103, lat: 16, hour: 24, badge: "2"}];
+drawMarks();
+var h = marksG.innerHTML;
+console.log(JSON.stringify([(h.match(/<g class="badge[^"]*">.*?<\/g>/g) || []).map(function (g) { return g.replace(/^.*>([^<]*)<\/text><\/g>$/, "$1"); }),
+                            (h.match(/class="dot"/g) || []).length]));
+""")
+        self.assertEqual(got, [["2"], 1])
+
+    def test_a_mark_is_never_given_up_for_the_hour_written_beside_another(self):
+        # The +24 h label, kept off the storm's marker, would go left of its
+        # point, over the next point's mark: the category matters more than
+        # the hour it is reached, so the label gives way.
+        got = self.draw(r"""
+storm.d.forecast = [{lon: -104, lat: 15.5, hour: 24, badge: "1"}, {lon: -108, lat: 15.6, hour: 36, badge: "2"}];
+drawMarks();
+var h = marksG.innerHTML;
+console.log(JSON.stringify([(h.match(/<g class="badge[^"]*">.*?<\/g>/g) || []).map(function (g) { return g.replace(/^.*>([^<]*)<\/text><\/g>$/, "$1"); }),
+                            (h.match(/class="dl2">\+\d+ h/g) || []).length]));
+""")
+        self.assertEqual(got, [["1", "2"], 0])
+
+    def test_a_point_where_it_is_not_a_tropical_cyclone_is_drawn_open(self):
+        got = self.draw(r"""
+storm.d.forecast = [{lon: -105, lat: 17, hour: 48, badge: "S", hollow: false},
+                    {lon: -118, lat: 21, hour: 96, badge: "H", hollow: true}];
+drawMarks();
+console.log(JSON.stringify(marksG.innerHTML.match(/<g class="badge[^"]*">/g)));
+""")
+        self.assertEqual(got, ['<g class="badge">', '<g class="badge hollow">'])
+        self.assertRegex(stormdesk.css(), r"#overlay \.badge\.hollow circle \{[^}]*stroke-dasharray")
+
+    def test_ahead_a_low_is_named_for_whether_the_system_will_have_formed_by_then(self):
+        # A disturbance now, forecast to become a storm and then a remnant
+        # low: at that hour the low is a remnant, as the tracker names it.
+        got = self.draw(r"""
+storm.d.stage = "DB"; storm.d.wind = 25; storm.d.formed = false;
+S.scrub = 96; CENTRE = {lon: -95, lat: 18, category: 0, wind: 25, stage: "LO", formed: true, radii: {}};
+drawMarks();
+console.log(JSON.stringify((marksG.innerHTML.match(/class="dl2">[^<]*/g) || []).map(function (t) { return t.replace('class="dl2">', ""); })));
+""")
+        self.assertEqual(got, ["rem low \u00b7 25 kt at +96 h"])
+
+    def test_the_map_carries_whether_the_system_had_formed_along_the_path(self):
+        # And the storms the map is given are kept in a table that answers
+        # to no name every object has.
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in ("clamp", "prepare", "centreAt"))
+        got = _node_json(self, functions + r"""
+var THRESHOLDS = ["34", "50", "64"], LAYERS, STORMS, BYID;
+function bands() {}
+function mx(lon) { return (lon + 180) / 360; }
+var D = {layers: [], style: {hues: {}}, storms: [{id: "al092026", lon: -51, lat: 14.2, advisory_fix: null, path: [
+  {t: "2026-09-25T12:00:00Z", lon: -51, lat: 14.2, wind: 30, stage: "DB", formed: false},
+  {t: "2026-09-26T12:00:00Z", lon: -54, lat: 15, wind: 45, stage: "TS", formed: true},
+  {t: "2026-09-28T12:00:00Z", lon: -58, lat: 17, wind: 30, stage: "LO", formed: true}]}]};
+prepare();
+var st = BYID.al092026;
+console.log(JSON.stringify([st.nodes.map(function (n) { return n.formed; }),
+                            centreAt(st, Date.parse("2026-09-28T11:00:00Z")).formed,
+                            centreAt(st, Date.parse("2026-09-25T13:00:00Z")).formed,
+                            Object.getPrototypeOf(BYID) === null]));
+""")
+        self.assertEqual(got, [[False, True, True], True, False, True])
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class TestForecastPlayRuns(unittest.TestCase):
+    """Play: the forecast run on an hour at a time to its end, under node."""
+
+    def play(self, body: str):
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in ("clamp", "playEnd", "setPlay", "playStep",
+                                                              "setScrub", "showPlay"))
+        return _node_json(self, r"""
+var HOUR = 3600000, PLAY_MS = 110, playTimer = 0, TIMERS = [], CALLS = [];
+function setTimeout(f, ms) { TIMERS.push([f, ms]); return TIMERS.length; }
+function clearTimeout() {}
+var S = {scrub: 0, selected: "s1", loop: false, playing: false};
+var scrub = {max: "120", value: "0"}, playBtn = {textContent: "Play"};
+var STORMS = [{id: "s1", nodes: [{t: -6 * HOUR}, {t: 30 * HOUR}]}, {id: "s2", nodes: [{t: 0}, {t: 90 * HOUR}]}];
+var BYID = {s1: STORMS[0], s2: STORMS[1]};
+function base() { return {t: 0, image: false}; }
+function dirty() {}
+function carryView() { CALLS.push("carry " + S.scrub); }
+function setLoop(on) { CALLS.push("setLoop " + on); S.loop = !!on; }
+function run() { var n = 0; while (TIMERS.length && n++ < 1000) { var t = TIMERS.shift(); t[0](); } return n; }
+""" + functions + "\n" + body)
+
+    def test_it_runs_the_storm_picked_to_the_end_of_its_forecast_and_stops(self):
+        got = self.play(r"""
+setPlay(true); var during = playBtn.textContent; var steps = run();
+console.log(JSON.stringify([during, S.scrub, scrub.value, S.playing, playBtn.textContent, steps,
+                            CALLS[CALLS.length - 1]]));
+""")
+        # Its forecast ends 30 h after the time the map draws it for; each
+        # hour a step, the link to the other page kept up with it.
+        self.assertEqual(got, ["Pause", 30, "30", False, "Play", 30, "carry 30"])
+
+    def test_with_no_storm_picked_it_runs_to_the_last_forecast_on_the_map(self):
+        got = self.play("S.selected = null; setPlay(true); run(); console.log(JSON.stringify(S.scrub));")
+        self.assertEqual(got, 90)
+
+    def test_at_the_end_it_starts_again_from_now(self):
+        got = self.play(r"""
+setScrub(30); setPlay(true); var first = S.scrub; run();
+console.log(JSON.stringify([first, S.scrub]));
+""")
+        self.assertEqual(got, [0, 30])
+
+    def test_paused_it_holds_its_hour(self):
+        got = self.play(r"""
+setPlay(true); TIMERS.shift()[0](); TIMERS.shift()[0](); setPlay(false); run();
+console.log(JSON.stringify([S.scrub, S.playing, playBtn.textContent]));
+""")
+        self.assertEqual(got, [2, False, "Play"])
+
+    def test_it_and_the_satellite_loop_take_turns(self):
+        got = self.play(r"""
+S.loop = true; setPlay(true);
+console.log(JSON.stringify([CALLS[0], S.loop, S.playing]));
+""")
+        self.assertEqual(got, ["setLoop false", False, True])
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in ("setLoop",))
+        got = _node_json(self, r"""
+var loopTimer = 0, CALLS = [];
+var S = {loop: false, loopWanted: false, frame: 0, playing: true};
+function clearTimeout() {}
+function setTimeout() { return 1; }
+function loopLength() { return 4; }
+function tick() {}
+function dirty() {}
+function setPlay(on) { CALLS.push("setPlay " + on); S.playing = !!on; }
+""" + functions + r"""
+setLoop(true);
+console.log(JSON.stringify([CALLS, S.loop, S.playing]));
+""")
+        self.assertEqual(got, [["setPlay false"], True, False])
+
+    def test_play_pressed_comes_before_a_loop_still_waiting_for_its_frames(self):
+        # The reader's Loop, pressed before GIBS gave the frames, waits to
+        # start; Play pressed since is their latest word.
+        got = self.play("S.loopWanted = true; setPlay(true); console.log(JSON.stringify([S.loopWanted, S.playing]));")
+        self.assertEqual(got, [False, True])
+
+    def test_with_nothing_to_play_it_does_not_start_and_is_greyed(self):
+        # The storm picked has no forecast left after the time the map draws
+        # it for, or there is no storm at all: Play stays Play, greyed.
+        got = self.play(r"""
+function tried() { var on = setPlay(true), t = TIMERS.length; showPlay();
+                   return [on, S.playing, playBtn.textContent, playBtn.disabled, t]; }
+var out = [];
+STORMS[0].nodes = [{t: -30 * HOUR}, {t: -6 * HOUR}]; out.push(tried());
+STORMS.length = 0; S.selected = null; out.push(tried());
+STORMS.push({id: "s3", nodes: [{t: 0}, {t: 12 * HOUR}]}); out.push(tried());
+console.log(JSON.stringify(out));
+""")
+        self.assertEqual(got, [[False, False, "Play", True, 0], [False, False, "Play", True, 0],
+                               [True, True, "Pause", False, 1]])
+        self.assertRegex(stormdesk.css(), r"\.playbtn:disabled \{[^}]*opacity: 0\.45")
+
+    def test_the_button_is_kept_up_with_what_there_is_to_play(self):
+        # A new run, another storm picked or another frame shown can leave
+        # nothing to play, or something again.
+        self.assertIn("showPlay();", _js_function(stormdesk.script(), "render"))
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
 class TestHashRuns(unittest.TestCase):
     """#at= and #view=, as the page reads them, run under node."""
 
     NAMES = ("clamp", "wrap", "rad", "deg", "mx", "my", "lonOf", "latOf", "parseHash",
-             "viewHash")
+             "viewHash", "own")
 
     def run_page(self, body, before=""):
         js = stormdesk.script()
@@ -4691,6 +5093,127 @@ class TestHashRuns(unittest.TestCase):
                             "var S = {x: mx(-77.0428) + 1, y: my(-12.0464), z: 15.4};")
         self.assertEqual(got, ["#view=-12.0464,-77.0428,15.40",
                                {"view": [-12.0464, -77.0428, 15.4]}])
+
+    def test_the_storm_picked_and_the_forecast_hour_go_across_with_the_view(self):
+        got = self.run_page("[viewHash(), parseHash(viewHash()), parseHash('#view=10,-150,3&storm=al092026'),"
+                            " ['#view=10,-150,3&storm=<b>', '#view=10,-150,3&hour=48&storm=al092026',"
+                            "  '#at=10,-150&storm=al092026', '#view=10,-150,3&hour=-4'].map(parseHash)]",
+                            'var S = {x: mx(-77.0428), y: my(-12.0464), z: 6, selected: "ep172026", scrub: 48};')
+        self.assertEqual(got, ["#view=-12.0464,-77.0428,6.00&storm=ep172026&hour=48",
+                               {"view": [-12.0464, -77.0428, 6], "storm": "ep172026", "hour": 48},
+                               {"view": [10, -150, 3], "storm": "al092026"},
+                               [None, None, None, None]])
+
+    def test_the_other_page_opens_on_the_storm_and_the_hour_it_was_handed(self):
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in self.NAMES + ("applyHash",))
+        got = _node_json(self, functions + r"""
+var TILE = 256, MINZ = 1, anim = 0, CALLS = [];
+var S = {x: 0.5, y: 0.5, z: 3, selected: null, scrub: 0, then: null};
+var BYID = {ep172026: {}}, scrub = {max: "120"};
+function cancelAnimationFrame() {}
+function maxZoom() { return 19; }
+function settle() { CALLS.push("settle"); }
+function select(id) { CALLS.push("select " + id); S.selected = id; }
+function setScrub(h) { CALLS.push("scrub " + h); S.scrub = h; }
+function hereAt() {}
+function thenHashApply() { return false; }
+applyHash("#view=10,-150,3&storm=ep172026&hour=48");
+applyHash("#view=10,-150,3&storm=gone2026&hour=500");
+console.log(JSON.stringify(CALLS));
+""")
+        # A storm the page does not have is not picked; an hour past the
+        # slider's end is its end.
+        self.assertEqual(got, ["settle", "select ep172026", "scrub 48", "settle", "scrub 120"])
+
+    def test_a_name_every_object_answers_to_is_no_storm(self):
+        # "constructor" is in the address's grammar and on every object: an
+        # address naming it picks nothing, nor does anything the page's own
+        # select is given that is not one of its storms.
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in self.NAMES + ("applyHash", "select"))
+        got = _node_json(self, functions + r"""
+var TILE = 256, MINZ = 1, anim = 0, CALLS = [];
+var S = {x: 0.5, y: 0.5, z: 3, selected: "ep172026", scrub: 0, then: null, playing: false};
+var BYID = {ep172026: {}}, scrub = {max: "120"};
+var document = {querySelectorAll: function () { CALLS.push("panel"); return []; }};
+function cancelAnimationFrame() {}
+function maxZoom() { return 19; }
+function settle() {}
+function dirty() {}
+function carryView() {}
+function setScrub(h) { S.scrub = h; }
+function hereAt() {}
+function thenHashApply() { return false; }
+applyHash("#view=10,-150,3&storm=constructor");
+["constructor", "__proto__", "toString", "hasOwnProperty", undefined].forEach(function (id) { select(id); });
+console.log(JSON.stringify([S.selected, CALLS]));
+""")
+        self.assertEqual(got, ["ep172026", []])
+
+    def test_an_address_followed_stops_play(self):
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in self.NAMES + ("applyHash",))
+        got = _node_json(self, functions + r"""
+var TILE = 256, MINZ = 1, anim = 0, CALLS = [];
+var S = {x: 0.5, y: 0.5, z: 3, selected: null, scrub: 30, then: null, playing: true};
+var BYID = {}, scrub = {max: "120"};
+function cancelAnimationFrame() {}
+function maxZoom() { return 19; }
+function settle() {}
+function setPlay(on) { CALLS.push("setPlay " + on); S.playing = !!on; }
+function setScrub(h) { CALLS.push("scrub " + h); S.scrub = h; }
+function hereAt() {}
+function thenHashApply() { return false; }
+applyHash("#view=10,-150,3&hour=12");
+console.log(JSON.stringify(CALLS));
+""")
+        self.assertEqual(got, ["setPlay false", "scrub 12"])
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class TestPickRuns(unittest.TestCase):
+    """The storm picked, as the page's select changes it, under node."""
+
+    def pick(self, body: str):
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in ("own", "clamp", "select", "playEnd", "setPlay",
+                                                              "playStep", "setScrub", "showPlay"))
+        return _node_json(self, r"""
+var HOUR = 3600000, PLAY_MS = 110, playTimer = 0, TIMERS = [], CALLS = [];
+function setTimeout(f, ms) { TIMERS.push([f, ms]); return TIMERS.length; }
+function clearTimeout() {}
+var S = {scrub: 0, selected: "s2", loop: false, loopWanted: false, playing: false};
+var scrub = {max: "120", value: "0"}, playBtn = {textContent: "Play", disabled: false};
+var STORMS = [{id: "s1", nodes: [{t: -6 * HOUR}, {t: 30 * HOUR}]}, {id: "s2", nodes: [{t: 0}, {t: 90 * HOUR}]}];
+var BYID = {s1: STORMS[0], s2: STORMS[1]};
+var document = {querySelectorAll: function () { return []; }};
+function base() { return {t: 0, image: false}; }
+function dirty() {}
+function carryView() { CALLS.push("carry " + S.selected); }
+function setLoop(on) { S.loop = !!on; }
+function run() { var n = 0; while (TIMERS.length && n++ < 1000) { var t = TIMERS.shift(); t[0](); } return n; }
+""" + functions + "\n" + body)
+
+    def test_given_no_storm_it_picks_none(self):
+        # A run taken in place with no storm left in it: none is picked, so
+        # none is carried to the other page or keyed for.
+        got = self.pick("select(null); console.log(JSON.stringify([S.selected, CALLS]));")
+        self.assertEqual(got, [None, ["carry null"]])
+
+    def test_a_storm_picked_while_playing_plays_on_from_now_when_past_its_end(self):
+        # Playing s2 at +60 h, s1 is picked: its forecast ends at +30 h, so
+        # Play starts again from now and runs to its end. Picked at +20 h,
+        # it plays on from there.
+        got = self.pick(r"""
+setPlay(true); for (var i = 0; i < 60; i++) TIMERS.shift()[0]();
+var at = S.scrub; select("s1"); var picked = [S.scrub, S.playing]; run();
+var end = [S.scrub, S.playing];
+select("s2"); setScrub(0); setPlay(true); for (i = 0; i < 20; i++) TIMERS.shift()[0]();
+select("s1"); var near = [S.scrub, S.playing];
+console.log(JSON.stringify([at, picked, end, near]));
+""")
+        self.assertEqual(got, [60, [0, True], [30, False], [20, True]])
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
@@ -5481,7 +6004,8 @@ console.log(JSON.stringify([geoG.attrs.transform, coastG.attrs.transform]));
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in (
             "world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
-            "drawMarks", "ensoLabels"))
+            "drawMarks", "ensoLabels",
+            "categoryOf", "shortAt"))
         got = _node_json(self, r"""
 var TILE = 256, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
 var S = {x: 0.5, y: 0.5, z: 1, w: 1920, h: 600, scrub: 0, selected: null,
@@ -5544,7 +6068,8 @@ console.log(JSON.stringify(flown));
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in (
             "world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
-            "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels"))
+            "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels",
+            "categoryOf", "shortAt"))
         got = _node_json(self, r"""
 var TILE = 256, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
 var LAYERS = {streets: {kind: "map"}, satellite: {kind: "map"}, geocolor: {kind: "imagery"}};
@@ -5580,7 +6105,8 @@ console.log(JSON.stringify([view("geocolor", "streets"), view("streets", "geocol
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in (
             "world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
-            "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels"))
+            "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels",
+            "categoryOf", "shortAt"))
         got = _node_json(self, r"""
 var TILE = 256, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
 var LAYERS = {streets: {kind: "map"}, geocolor: {kind: "imagery"}};
@@ -5656,7 +6182,8 @@ console.log(JSON.stringify(out));
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in (
             "world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
-            "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels", "signedText"))
+            "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels", "signedText",
+            "categoryOf", "shortAt"))
         boxes = [dict(b, anomaly=a) for b, a in zip(worldmap._boxes(None), (0.1, 2.2, 2.9, 3.9))]
         got = _node_json(self, r"""
 var TILE = 256, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
@@ -6780,6 +7307,13 @@ def _label_boxes(drawn: str) -> list:
     return boxes
 
 
+def _curve_ends(d: str) -> list:
+    """The x of each point a drawn curve passes through: where it starts,
+    and where each cubic in it ends."""
+    numbers = [float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", d)]
+    return [numbers[0]] + numbers[6::6]
+
+
 def _first_overlap(boxes):
     """The words of the first two boxes that overlap, or None."""
     for i, a in enumerate(boxes):
@@ -7662,6 +8196,7 @@ class TestStormAssembly(unittest.TestCase):
             basin="EP", number=17, year=2026, name=over.get("name", "Polo"),
             track=track, forecast=forecast,
             ensemble=over.get("ensemble", {}),
+            guidance=over.get("guidance", {}),
             advisory=over.get("advisory", {"advisory": "011a"}),
         )
 
@@ -7870,9 +8405,12 @@ class TestStormAssembly(unittest.TestCase):
         degrees = re.findall(r'class="tick">(\d+&#176;[EW]?)</text>', drawn)
         self.assertEqual(len(degrees), len(set(degrees)), degrees)
         self.assertLessEqual(len(degrees), 6, degrees)
-        # The member runs west across the date line, and so does its line.
-        [member] = re.findall(r'<path d="([^"]+)"[^>]*opacity="0.30"', drawn)
-        xs = [float(x) for x in re.findall(r"[ML]([-\d.]+) ", member)]
+        # The member runs west across the date line, and so does its curve,
+        # through the eye and each point after it: a piece for each day.
+        pieces = [d for inner in re.findall(r'<g class="tcmembers"[^>]*>(.*?)</g>', drawn)
+                  for d in re.findall(r'<path d="([^"]+)"/>', inner)]
+        self.assertEqual(len(pieces), 3)
+        xs = [x for piece in pieces for x in _curve_ends(piece)]
         self.assertEqual(xs, sorted(xs, reverse=True))
 
     def test_a_fix_past_the_date_line_is_hovered_at_its_own_longitude(self):
@@ -7974,6 +8512,152 @@ class TestStormAssembly(unittest.TestCase):
             r'class="tick">([^<]*)</text>', "".join(plot.parts))]
         self.assertEqual(labels, ["160°E", "170°E", "180°", "170°W", "160°W",
                                   "150°W", "10°S", "EQ", "10°N"])
+
+    @staticmethod
+    def member(tech, shift=0.0):
+        """A member from Polo's 23 September 12Z cycle to day five, and a
+        point past the horizon."""
+        return tuple(
+            _fix(stamp="2026092312", tau=tau, lat=lat + shift, lon=lon - shift,
+                 wind=100, tech=tech)
+            for tau, lat, lon in ((12, 15.6, -102.4), (24, 16.1, -103.6),
+                                  (48, 17.0, -106.0), (72, 18.1, -108.7),
+                                  (96, 19.3, -111.2), (120, 20.6, -113.4),
+                                  (132, 21.2, -114.5)))
+
+    def test_the_members_are_curves_in_their_storm_s_colour_fainter_by_the_day(self):
+        # They were straight grey segments, one cloud for every storm, each
+        # starting wherever its cycle put it rather than at the storm.
+        drawn = storms.track_map([self.storm(ensemble={
+            "AP01": self.member("AP01"), "AP02": self.member("AP02", 0.6)})])
+        days = re.findall(r'<g class="tcmembers" fill="none" stroke="([^"]+)" '
+                          r'stroke-width="1.2" stroke-opacity="([\d.]+)" '
+                          r'clip-path="url\(#tcclip\)">(.*?)</g>', drawn)
+        # Each member a curve cut where each day of lead ends, a day's pieces
+        # drawn together at that day's strength, their paint said once: five
+        # days to day five, and nothing past it.
+        self.assertEqual({stroke for stroke, _, _ in days}, {"var(--s1)"})
+        self.assertEqual([float(o) for _, o, _ in days], [0.42, 0.32, 0.24, 0.16, 0.1])
+        pieces = [re.findall(r'<path d="([^"]+)"/>', inner) for _, _, inner in days]
+        self.assertEqual([len(day) for day in pieces], [2] * 5)
+        for d in sum(pieces, []):
+            self.assertRegex(d, r"^M[-\d.]+ [-\d.]+( C[-\d.]+ [-\d.]+ [-\d.]+ "
+                                r"[-\d.]+ [-\d.]+ [-\d.]+)+$")
+            # The controls to the unit, the points they join to a tenth.
+            self.assertEqual(len(re.findall(r" C-?\d+ -?\d+ -?\d+ -?\d+ -?\d+\.\d -?\d+\.\d", d)),
+                             d.count(" C"), d)
+        # From the storm's marker, each piece where the last one ended.
+        now = re.search(r'<circle class="tcnow" cx="([-\d.]+)" cy="([-\d.]+)"', drawn)
+        for first in pieces[0]:
+            self.assertTrue(first.startswith(f"M{now.group(1)} {now.group(2)} C"), first)
+        for member in (0, 1):
+            for a, b in zip(pieces, pieces[1:]):
+                self.assertEqual(b[member].split(" C")[0][1:], " ".join(a[member].split()[-2:]))
+
+    def test_a_curve_goes_through_its_points_and_never_loops_on_a_short_step(self):
+        segments = storms._curve([(0.0, 0.0), (10.0, 0.0), (20.0, 0.0), (30.0, 0.0)])
+        self.assertEqual([(s[0], s[3]) for s in segments],
+                         [((0.0, 0.0), (10.0, 0.0)), ((10.0, 0.0), (20.0, 0.0)),
+                          ((20.0, 0.0), (30.0, 0.0))])
+        # Evenly spaced in a line, the controls are the thirds between.
+        self.assertAlmostEqual(segments[1][1][0], 40 / 3)
+        self.assertAlmostEqual(segments[1][2][0], 50 / 3)
+        # A step of a hundred units, then one of a unit, as a member that
+        # slows to a stall gives: a uniform spline's control runs out to
+        # 116.8 and back, a loop no member forecast. This one stays between.
+        _, (_, c1, c2, _) = storms._curve([(0.0, 0.0), (100.0, 0.0), (101.0, 0.0)])
+        self.assertTrue(100.0 <= c1[0] <= 101.0 and 100.0 <= c2[0] <= 101.0, (c1, c2))
+        # A point given twice divides by nothing.
+        self.assertEqual(len(storms._curve([(5.0, 5.0), (5.0, 5.0), (9.0, 7.0)])), 2)
+
+    def test_the_best_track_is_a_line_with_a_bead_every_six_hours_and_one_marker(self):
+        # Every hurricane-strength fix was a disc the size of its category,
+        # each over the last: a caterpillar along the track.
+        track = tuple(_fix(stamp=stamp, lat=lat, lon=lon, wind=wind, stage="HU")
+                      for stamp, lat, lon, wind in (
+                          ("2026092200", 13.8, -99.0, 45), ("2026092203", 13.9, -99.2, 50),
+                          ("2026092206", 14.0, -99.5, 60), ("2026092212", 14.4, -100.2, 90),
+                          ("2026092218", 14.6, -100.6, 115), ("2026092300", 14.8, -100.9, 130)))
+        drawn = storms.track_map([self.storm(track=track)])
+        # A bead at each synoptic hour behind the storm, not at the special
+        # 03Z fix, in the storm's colour.
+        beads = re.findall(rf'<circle class="tcbead" cx="[-\d.]+" cy="[-\d.]+" r="{storms.BEAD_R}" '
+                           r'fill="([^"]+)"/>', drawn)
+        self.assertLess(storms.BEAD_R, 2.0)
+        self.assertEqual(beads, ["var(--s1)"] * 4)
+        # Where it is now, the size of its category: a Category 4's marker.
+        now = re.findall(r'<circle class="tcnow" cx="[-\d.]+" cy="[-\d.]+" r="([\d.]+)" '
+                         r'fill="([^"]+)"', drawn)
+        self.assertEqual(now, [(f"{storms.RADIUS[4]:.1f}", "var(--s1)")])
+        # Nothing else is filled in the storm's colour.
+        self.assertEqual(len(re.findall(r'fill="var\(--s1\)"', drawn)), 5)
+        # Each bead and the marker answer a hover.
+        hovered = [unescape(label) for label in
+                   re.findall(r'class="hit"[^>]*data-label="([^"]*)"', drawn)]
+        for label in ("Polo 22 Sep 00Z", "Polo 22 Sep 06Z", "Polo 22 Sep 12Z",
+                      "Polo 22 Sep 18Z", "Polo 23 Sep 00Z"):
+            self.assertIn(label, hovered)
+
+    def test_each_forecast_point_is_badged_with_its_category_where_there_is_room(self):
+        forecast = tuple(
+            _fix(stamp="2026092312", tau=tau, lat=lat, lon=lon, wind=wind, stage=stage,
+                 tech="OFCL")
+            for tau, lat, lon, wind, stage in (
+                (3, 15.25, -101.6, 130, "HU"), (12, 15.6, -102.8, 135, "HU"),
+                (24, 16.3, -104.2, 100, "HU"), (48, 17.6, -106.8, 60, "TS"),
+                (72, 19.0, -109.4, 30, "TD"), (96, 20.4, -112.0, 25, "EX"),
+                (120, 21.8, -114.6, None, "EX")))
+        drawn = storms.track_map([self.storm(forecast=forecast)])
+        badges = re.findall(r'<g class="tcbadge( hollow)?"><circle cx="([-\d.]+)" cy="([-\d.]+)" '
+                            r'r="7.5" fill="var\(--surface\)" stroke="var\(--s1\)" '
+                            r'stroke-width="2"( stroke-dasharray="2.5 2")?/><text x="\2" y="([-\d.]+)" '
+                            r'text-anchor="middle" class="tcmark">([^<]+)</text></g>', drawn)
+        # At 96 h, post-tropical, the point is lettered by its wind and drawn
+        # open, its ring dashed, as NHC's track graphic draws it.
+        self.assertEqual([(b[5], bool(b[0]), bool(b[3])) for b in badges],
+                         [("4", False, False), ("3", False, False), ("S", False, False),
+                          ("D", False, False), ("D", True, True)])
+        for _, _, cy, _, y, _ in badges:
+            self.assertAlmostEqual(float(y), float(cy) + 3.5, delta=0.11)
+        # The point three hours on, under the storm's own marker, and the one
+        # with no wind to mark keep a plain dot.
+        dots = re.findall(r'<circle class="tcpoint" cx="[-\d.]+" cy="[-\d.]+" r="3.0" '
+                          r'fill="var\(--surface\)" stroke="var\(--s1\)"', drawn)
+        self.assertEqual(len(dots), 2)
+        # Under every badge, so no dot is drawn over a badge's mark.
+        self.assertLess(max(m.start() for m in re.finditer('class="tcpoint"', drawn)),
+                        min(m.start() for m in re.finditer('class="tcbadge', drawn)))
+        # No label is written over a badge.
+        boxes = _label_boxes(drawn)
+        self.assertGreater(len(boxes), 5)
+        self.assertIsNone(_first_overlap(boxes))
+
+    def test_the_card_says_what_each_mark_on_the_map_is(self):
+        def card(storm):
+            return storms.tracks_card(SimpleNamespace(cyclones=SimpleNamespace(
+                available=True, active=(storm,), as_of="2026-09-23T15:00")))
+
+        ensemble = card(self.storm(ensemble={"AP01": self.member("AP01")}))
+        self.assertIn("solid line is the best track, a dot every six hours; dashed is "
+                      "the official forecast, each point marked with its category; the "
+                      "faint lines in each storm&#x27;s colour are its ensemble members, "
+                      "fainter with each day of lead", ensemble)
+        keys = re.findall(r'<span class="key"><svg class="keyglyph" viewBox="0 0 30 16" '
+                          r'width="30" height="16" aria-hidden="true">.*?</svg>([^<]+)</span>',
+                          ensemble)
+        self.assertEqual(keys, ["Best track, a dot every 6 h",
+                                "Official forecast, each point its category: 1 to 5, "
+                                "S storm, D depression",
+                                "Dashed where it is not a tropical cyclone, lettered by its "
+                                "wind: D, S, H hurricane force, M major",
+                                "Ensemble members, fainter by the day"])
+        self.assertNotIn("grey", ensemble)
+        guidance = card(self.storm(guidance={"AVNO": self.member("AVNO")}))
+        self.assertIn("are the models&#x27; guidance tracks, fainter", guidance)
+        self.assertIn("Model guidance tracks, fainter by the day</span>", guidance)
+        bare = card(self.storm())
+        self.assertNotIn("faint lines", bare)
+        self.assertNotIn("fainter by the day", bare)
 
 
 class TestSeasonClimatology(unittest.TestCase):
@@ -8207,6 +8891,27 @@ class TestCyclonesOnTheGlobe(unittest.TestCase):
             self.assertNotIn("fill", tag)
         self.assertIsNone(re.search(r'class="tcname".{0,160}?style="fill:',
                                     globe.js(), re.S))
+
+    def test_the_globe_s_line_keys_are_drawn_in_the_legend_s_ink(self):
+        # Each storm wears its own colour on the sphere: a key in the first
+        # storm's colour would read as that storm's alone.
+        rules = re.findall(r"\.gl(?:track|ahead|spread)\b[^{]*\{[^}]*\}", globe.CSS)
+        self.assertTrue(rules)
+        self.assertTrue(all("var(--s1)" not in rule for rule in rules), rules)
+        self.assertIn("currentColor", " ".join(rules))
+
+    def test_the_spread_on_the_globe_wears_its_storm_s_colour(self):
+        # One grey cloud for every storm; where two storms' clouds cross,
+        # which storm a member belongs to is the information.
+        layer = [{"hue": 1, "name": "Test", "lon": -100.0, "lat": 15.0, "cat": 2,
+                  "track": [-99.0, 14.5, -100.0, 15.0], "ahead": [],
+                  "spread": [[-100.0, 15.0, -101.0, 16.0, -102.0, 17.0]]}]
+        drawn = "".join(globe._storms(layer, -100.0, 15.0, 200.0, 320.0, 320.0))
+        self.assertIn('class="tcspread" style="stroke:var(--s2)"', drawn)
+        self.assertIn("'class=\"tcspread\" style=\"stroke:' + hue(STORMS[i].hue) + '\"'",
+                      globe.js())
+        rule = re.search(r"\.tcspread \{[^}]*\}", globe.css()).group(0)
+        self.assertEqual(rule, ".tcspread { stroke-width: 1; opacity: 0.35; }")
 
     def test_a_run_with_no_storms_still_draws_the_globe(self):
         state = self.state()
@@ -8576,6 +9281,15 @@ class TestEndToEnd(unittest.TestCase):
                 # And a main part, a landmark a reader can go to past the menu.
                 self.assertEqual(html.count("<main"), 1)
 
+    def test_every_page_wears_the_site_s_icon(self):
+        # One icon for the site, the menu's mark, in every page's tab.
+        for here, html in (("dashboard.html", dashboard.render(self.state)),
+                           ("atlas.html", atlasview.page(self.state)),
+                           ("storms.html", stormdesk.page(self.state)),
+                           ("map.html", stormdesk.page(self.state, focus="world"))):
+            with self.subTest(here):
+                self.assertEqual(re.findall(r'<link rel="icon"[^>]*>', html), [sitenav.ICON])
+
     def test_the_dashboard_s_menu_is_pinned_outside_the_part_being_read(self):
         # The follower holds a reader by what stands at the top of the box the
         # page names (elnino/live.py): the menu pinned over the page is never
@@ -8702,6 +9416,8 @@ class TestEndToEnd(unittest.TestCase):
         self.assertLess(card, html.find('id="atlas"'))
         desk = html[html.find('id="storm-desk"'):]
         self.assertIn('href="map.html"', desk[:desk.find("</section>")])
+        # Called by its name in the menu.
+        self.assertIn('href="map.html">Open the El Ni&ntilde;o Map &rarr;</a>', html)
 
     def test_brief_is_a_subset_of_the_full_report(self):
         brief = report.brief(self.state)

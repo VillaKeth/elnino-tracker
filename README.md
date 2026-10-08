@@ -2,8 +2,8 @@
 
 ### **[→ Open the live dashboard](https://villaketh.github.io/elnino-tracker/)**
 
-[Storm desk](https://villaketh.github.io/elnino-tracker/storms.html) ·
-[El Niño map](https://villaketh.github.io/elnino-tracker/map.html) ·
+[Storm Desk](https://villaketh.github.io/elnino-tracker/storms.html) ·
+[El Niño Map](https://villaketh.github.io/elnino-tracker/map.html) ·
 [Atlas](https://villaketh.github.io/elnino-tracker/atlas.html) ·
 [latest.json](https://villaketh.github.io/elnino-tracker/latest.json) ·
 [storms.json](https://villaketh.github.io/elnino-tracker/storms.json)
@@ -11,9 +11,11 @@
 Free, no account, nothing to install. The site refreshes itself every hour:
 GitHub runs the tracker and publishes the run, and a page left open takes each
 new run on its own. The dashboard, the storm desk and the map say when their
-run was. Every page opens on one menu of the four, Dashboard, El Niño map,
-Storm desk and Atlas, so each is a click from any other; on the dashboard it
-stays at the top as you scroll.
+run was. Every page opens on one menu of the four, Dashboard, El Niño Map,
+Storm Desk and Atlas, so each is a click from any other; on the dashboard it
+stays at the top as you scroll. The mark beside the site's name, which is also
+every page's icon, is El Niño's warm tongue reaching west along the equatorial
+Pacific.
 
 A diagnostic, forecast and impact system for the current El Niño, built on live
 NOAA observations.
@@ -287,8 +289,9 @@ The one panel that answers a question about *you* rather than about the Pacific.
   half a ramp step, which the tests bound.
 
 - **Live storms are drawn on the sphere**: the observed track, the official
-  forecast track, the current position sized by category, and a chip per storm
-  above the panel. They rotate and cull with everything else.
+  forecast track, the ensemble members faint in the storm's colour, the current
+  position sized by category, and a chip per storm above the panel. They rotate
+  and cull with everything else.
 
 Seven preset views (Pacific, Americas, Africa, Asia-Pacific, Atlantic, and each
 pole) exist so the reader can get to a hemisphere without learning to drive.
@@ -530,6 +533,26 @@ not the spread at day five.
 of longitude; the window used to be stretched to a fixed frame, and on
 24 September 2026 the storms from Hawaii to the mid-Atlantic came out 2.17 times
 too tall, with Polo's west-north-west track reading as north-west.
+
+**How the track map draws a storm.** The best track is a line with a dot at
+each six-hourly fix, so the spacing is the storm's speed, and one marker where
+the storm is now, the size of its category. The official forecast runs on from
+it dashed, each point badged with what the storm is forecast to be there, as
+NHC's track graphic marks its points: the category's number for a hurricane or
+its equivalent, S for a storm, D for a depression. Where the system is not a
+tropical cyclone (post-tropical, a remnant low, a disturbance or a wave) the
+point is drawn open, its ring dashed, and lettered by its wind as NHC letters
+it, D, S, H at hurricane force and M from 96 kt; a subtropical storm keeps
+NHC's letter too, Saffir-Simpson being a hurricane's scale. A point whose
+badge would cover the storm's marker or another badge keeps a plain dot, and no
+label is written over a badge. Underneath, the ensemble members (the models'
+guidance, where a deck carried no ensemble) run from where the storm is now, in
+its colour and fainter with each day of lead, as smooth curves through their
+points: centripetal Catmull-Rom splines, which never loop or cusp on a short
+step beside a long one as a uniform spline does. Until 8 October 2026 they were
+one grey cloud of straight segments for every storm, each starting wherever its
+cycle put it; where two storms' clouds cross, which storm a member belongs to
+is the information. The globe draws each storm's members in its colour too.
 
 **Accumulated cyclone energy** is computed the way the definition reads and not
 loosely: 10^-4 × Σ v² over six-hourly synoptic fixes at 34 kt or above, warm-core
@@ -978,7 +1001,26 @@ the parallax offset, and rings the place the eye appears on the image.
 official forecast and its cone, the 34, 50 and 64 kt radii by quadrant, the coast
 under each kind of watch and warning, and the peak storm surge areas with NHC's
 depths. The forecast slider moves every storm along its official forecast hour by
-hour. The formation outlook draws NHC's and CPHC's areas with their chances and
+hour, and **Play** runs it on an hour at a time to the end of the forecast of the
+storm picked (of every storm, with none picked) and stops there, or starts again
+from now when it is at the end already, and is greyed with no forecast ahead to
+play. The map stays the reader's while it plays, and a storm picked meanwhile
+plays on from the hour shown, or from now when that is past the end of its
+forecast. Play and the satellite loop take turns, the one started last running:
+leaving a place brings back a loop that ran before only if Play has not been
+pressed since. The slider moved by hand, or an address followed, stops Play.
+On a phone the slider has a line of its own, the width of the screen, under
+Play and the time it reads.
+Each storm is named on the map for its wind at the hour shown, as the centres
+name it: "Cat 4 · 115 kt" now, "Cat 2 · 95 kt at +48 h" ahead. Each point of its
+forecast is marked with what it is forecast to be there, as NHC's track graphic
+marks its points: the category's number for a hurricane or its equivalent, S
+for a storm, D for a depression, and where it is not a tropical cyclone NHC's
+letter for its wind (D, S, H, M) in a dashed ring; a point keeps a plain dot
+where its mark would cover a storm's marker, a name or another mark. A storm
+forecast to strengthen says in its row what it
+peaks at and when, and its *Now* tab the peak in full.
+The formation outlook draws NHC's and CPHC's areas with their chances and
 JTWC's disturbances with their potential, a formation alert's box in its colour
 with the time it runs to and the system's winds, pressure and motion, and the
 invests are marked. An alert whose time passes, even while the page is open, is
@@ -1083,8 +1125,9 @@ the outlook areas, the pin, the names and, offline, the page's own coastline. A
 tap on any copy flies to the one nearest the view, across the date line if that
 is shorter. Every storm is on
 it, and `storms.html` carries everything the map has, with the composites off
-until asked for. Each page's menu links to the other and carries the view
-across (`map.html#view=LAT,LON,ZOOM`); `map.html#at=LAT,LON` opens *Here* at a
+until asked for. Each page's menu links to the other and carries the view,
+the storm picked and the forecast's hour across
+(`map.html#view=LAT,LON,ZOOM&storm=ID&hour=H`); `map.html#at=LAT,LON` opens *Here* at a
 point, which is how the atlas's dossier hands a point over. The dashboard's map
 card, its storm-desk card and every page's menu link to it.
 
@@ -1329,10 +1372,12 @@ to +2.1 °C; a change of about +1.7 °C." The key under the map shows that colou
 map. A clear pixel is no data: land, ice or a gap for the ocean, water, cloud
 or a gap for vegetation. For the imagery it names each side's capture or day.
 
-While a place is entered, what belongs to today is not drawn: the storms and
-their key, the outlook areas, NASA's reference overlays, the ocean and flood
-tiles and the El Niño composite. Esri's roads and place names can go over either
-side. The status line says when NASA GIBS or Esri's archive did not answer, or
+While a place is entered, the storm picked stays, with its track, forecast,
+cone and winds, the slider and **Play**, and the key to its marks, so its
+forecast can be played out over the place. The rest of what belongs to today is
+not drawn: the other storms and the key to them, the outlook areas, NASA's
+reference overlays, the ocean and flood tiles and the El Niño composite. Esri's
+roads and place names can go over either side. The status line says when NASA GIBS or Esri's archive did not answer, or
 answered only in part, and Retry asks again; offline, the pill says the source
 needs the network, and what is drawn stays. **Copy link** (once both sides are
 found) gives
@@ -1570,7 +1615,7 @@ elnino/worldmap.py       the map: street maps, El Nino's composites and tiles, E
                          what a point is told, Google on request, the geocoder
 elnino/thennow.py        then and now: its sources, every month's RONI season, the events,
                          the bar, and the script that enters a place and compares two dates
-tests/                   1181 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1227 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -1777,7 +1822,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1181 tests, no network required. They cover:
+1227 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -1843,13 +1888,28 @@ python -m unittest discover -s tests -v
   sub-gale one and a forecast one are each present in the fixture and each
   excluded — rapid intensification is measured over a true 24 hours rather than
   over four rows, category floors land on the Saffir-Simpson boundaries exactly,
-  and a storm crossing 140W under two ids is one storm;
+  each forecast point is marked as NHC's track graphic marks it (a category's
+  number, else NHC's letter for its wind, drawn open where the system is not a
+  tropical cyclone, never a category for a subtropical storm, nothing without a
+  wind), the forecast's peak is its first
+  strongest point, and a storm crossing 140W under two ids is one storm;
 - **the season verdict**: climatology is cut at the same calendar date rather
   than compared against a full-season normal, a year with no storms is a zero
   and not a gap, and the El Niño composite excludes the year being scored;
 - **the storm overlay**: tracks project onto the globe and cull with it, a
   forecast track is drawn dashed and distinctly from the observed one, and a
   chip's status colour never travels without its label;
+- **the track map**: each member a curve in its storm's colour from where the
+  storm is now, cut where each day of lead ends and fainter with each, nothing
+  past the horizon; the curve through every point, never looping on a short
+  step beside a long one nor dividing by a point given twice; the best track a
+  line with a bead at each synoptic fix and one marker, now, the size of its
+  category; each forecast point badged with its category where the badge
+  clears the storm's marker and the other badges, lettered by its wind and
+  dashed where it is not a tropical cyclone, and no label over a badge; the
+  card saying what each mark is, the ensemble's members or the models'
+  guidance as the decks carried them; and the globe's spread in its storm's
+  colour, its keys in the legend's ink;
 - **level of detail**: the visible-cap radius matches a hand-computed
   orthographic window, the stride keeps the visible cell count under budget at
   every zoom, a coastline level is a strict subset of the level below it — which
@@ -1930,14 +1990,27 @@ python -m unittest discover -s tests -v
   part a landmark past it; on the dashboard pinned, outside the part the
   follower holds a reader by; never squeezed on the pages laid out as a
   column, fitting a phone 320 px wide, every link 44 px high, and left off
-  paper; the desk and the map handing the view across through it; and a page
-  the site does not have refused;
+  paper; its mark El Niño's warm tongue, and every page's icon; the desk and
+  the map handing the view, the storm picked and the hour across through it;
+  and a page the site does not have refused;
 - **the storm desk**: its data survive a JSON round trip; each storm's
   longitudes stay within 180° of its centre across the date line; every imagery
   layer is named as GIBS's capabilities list it, and every reference overlay
   waits to be asked for; the search box is labelled and lists what it finds; the
   path carries the forecast centres unrounded, so that *Here* and the exposure
-  table agree to the hour; and the dashboard links to the desk;
+  table agree to the hour; each storm is named on the map for its wind at the
+  hour shown as `short_label` names it, at every wind and stage, a low ahead
+  named for whether the system will have formed by then, and each forecast
+  point marked with its category where the mark clears every storm's marker,
+  name and other marks (not the point three hours on, under the storm's own),
+  drawn open where the system is not a tropical cyclone; Play runs the
+  forecast to the end of the storm picked's, or every storm's with none picked,
+  and stops, starts again from now at the end, holds when paused, is greyed
+  with nothing to play, plays on for a storm picked meanwhile and takes turns
+  with the satellite loop, the one started last running; an address followed
+  stops it; a name every object answers to ("constructor") picks no storm, and
+  a run with no storm left picks none; a storm forecast to strengthen says its
+  peak in its row and its Now tab; and the dashboard links to the desk;
 - **the map**: every street map is a keyless https tile address, to zoom 19,
   with a credit, and OpenStreetMap's is offered only to a served page; only
   Esri's grey placeholder is set aside for a coarser
@@ -1982,8 +2055,10 @@ python -m unittest discover -s tests -v
   network (a chain of releases, a stop, a failure, a query given up after
   20 s); each side drawn at its own date, never at today's; entering and
   leaving putting the map back; the figure pressed, tapped and carried; the
-  readouts' colour lookups and the key that shows their scale; both sides of
-  the date line; and the address;
+  readouts' colour lookups and the key that shows their scale; the storm
+  picked staying, its forecast and slider with it, and the key to its marks;
+  Exit keeping Play, pressed while entered, over the loop that ran before;
+  both sides of the date line; and the address;
 - **the server**: it refuses `..` however it is spelled, lists no directory,
   marks every page no-cache, answers `/` with the desk, names the map's address
   beside it, and listens beyond this machine only when `--lan` says so;

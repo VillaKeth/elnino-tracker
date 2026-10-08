@@ -986,11 +986,12 @@ class TestThenHooks(unittest.TestCase):
         self.assertIn('S.refs[l.id] && S.imagery === "ok" && !S.then', _js_function(stormdesk._JS, "tiles"))
 
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
-    def test_entered_the_marks_are_the_pin_and_the_towns(self):
+    def test_entered_the_marks_are_the_pin_the_towns_and_the_storm_picked(self):
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in (
             "world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
-            "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels"))
+            "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels",
+            "categoryOf", "shortAt"))
         got = _node_json(self, r"""
 var TILE = 256, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
 var LAYERS = {"then-a": {kind: "imagery", then: true, over: null}, "then-b": {kind: "imagery", then: true, over: null}};
@@ -1020,15 +1021,21 @@ function marks(then) {
           dots: h.indexOf('class="dot"') >= 0, area: h.indexOf("data-area") >= 0, invest: h.indexOf("Invest 90L") >= 0,
           box: h.indexOf(">Box<") >= 0, places: h.indexOf(">Town<") >= 0, base: drawn};
 }
-console.log(JSON.stringify([marks({}), marks(null)]));
+var entered = marks({}), out = marks(null);
+S.selected = null;
+console.log(JSON.stringify([entered, out, marks({})]));
 """)
-        self.assertEqual(got[0], {"pin": True, "town": True, "storm": False, "dots": False, "area": False,
-                                  "invest": False, "box": False, "places": False, "base": 0})
+        # Entered, the storm picked stays, with its forecast, to be played
+        # over the place; nothing else of today's is drawn.
+        self.assertEqual(got[0], {"pin": True, "town": True, "storm": True, "dots": True, "area": False,
+                                  "invest": False, "box": False, "places": False, "base": 1})
         self.assertEqual(got[1], {"pin": True, "town": True, "storm": True, "dots": True, "area": True,
                                   "invest": True, "box": True, "places": True, "base": 1})
+        self.assertEqual(got[2], {"pin": True, "town": True, "storm": False, "dots": False, "area": False,
+                                  "invest": False, "box": False, "places": False, "base": 0})
 
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
-    def test_entered_no_geometry_of_today_s_is_drawn(self):
+    def test_entered_no_geometry_of_today_s_is_drawn_but_the_storm_picked(self):
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in (
             "world", "clamp", "rad", "mx", "my", "near", "X", "Y", "line", "pt", "geoReach", "repeated", "buildGeo"))
@@ -1037,17 +1044,22 @@ var TILE = 256, UNIT = 1048576, NM = 1.852, THRESHOLDS = ["34", "50", "64"], ORD
 var geoDirty = true, geoRef = null, geoCopies = 0, geoLo = 0, geoHi = 0, geoExt = null, geoG = {innerHTML: ""};
 var D = {outlook: [{lon: -61, lat: -2, level: "high", area: [[-62, -1], [-60, -1], [-60, -3]], arrow: []}],
          invests: [], style: {outlook: {}, products: {}}};
-var STORMS = [{x0: mx(-60), hue: "red", d: {track: [{lon: -58, lat: -2}, {lon: -60, lat: -3}],
+var STORMS = [{id: "al01", x0: mx(-60), hue: "red", d: {track: [{lon: -58, lat: -2}, {lon: -60, lat: -3}],
                forecast: [{lon: -61, lat: -4}], cone: null, surge: null, watches: null}}];
+var BYID = {al01: STORMS[0]};
 var geo = 0;
 function ensoGeo() { geo++; return '<path class="region"/>'; }
 """ + functions + r"""
-var S = {x: mx(-60), y: my(-3), z: 5, w: 800, h: 600, show: {outlook: true, radii: false}};
+var S = {x: mx(-60), y: my(-3), z: 5, w: 800, h: 600, show: {outlook: true, radii: false}, selected: null};
 function draw(then) { S.then = then; buildGeo(); var h = geoG.innerHTML;
   return [h.indexOf('class="track"') >= 0, h.indexOf('class="area"') >= 0, h.indexOf('class="region"') >= 0, geoCopies]; }
-console.log(JSON.stringify([draw({}), draw(null)]));
+var none = draw({}), out = draw(null);
+S.selected = "al01";
+console.log(JSON.stringify([none, out, draw({})]));
 """)
-        self.assertEqual(got, [[False, False, False, 0], [True, True, True, 0]])
+        # Entered, the storm picked is drawn, its track and forecast, and no
+        # other geometry of today's: not the outlook, not El Nino's regions.
+        self.assertEqual(got, [[False, False, False, 0], [True, True, True, 0], [True, False, False, 0]])
 
 
 def _want(source: str, a: str, b: str, preset: str = "") -> str:
@@ -1536,7 +1548,7 @@ class TestThenBarRuns(unittest.TestCase):
         self.assertTrue(got[1].startswith("1 Mar 2024 · "))
         self.assertTrue(got[2].startswith("A version whose capture date Esri’s metadata did not give is named "
                                           "by the release that first showed it. While a place is entered, "
-                                          "today’s storms"))
+                                          "the storm picked stays"))
 
     def test_the_ocean_s_temperature_is_read_at_the_pin_on_both_sides(self):
         got = _run(self, _want("sst", "2014-11-15", "2015-11-15") + r"""
@@ -1778,7 +1790,8 @@ class TestThenEnterRuns(unittest.TestCase):
         self.assertEqual(got["pin"], ["-60.025000", -3.1, "Manaus, Amazonas, Brazil"])
         # From zoom 3 to the archive's 16: the longest flight, 2 s.
         self.assertEqual(got["flight"], [True, True, 16, 2000])
-        self.assertEqual((got["bar"], got["scrub"], got["pressed"]), (False, True, "false"))
+        # The slider stays, for the storm picked.
+        self.assertEqual((got["bar"], got["scrub"], got["pressed"]), (False, False, "false"))
 
     def test_a_point_at_sea_opens_on_the_ocean_and_on_land_on_the_archive(self):
         got = _run(self, r"""
@@ -1804,7 +1817,7 @@ class TestThenEnterRuns(unittest.TestCase):
                                       calls: CALLS, bar: $("then-bar").hidden, scrub: scrubRow.hidden,
                                       chips: [$("then-chip-a").hidden, $("then-chip-b").hidden], again: thenLeave()}));
         """)
-        self.assertEqual(got, {"during": [True, False], "then": None, "sides": [False, False],
+        self.assertEqual(got, {"during": [False, False], "then": None, "sides": [False, False],
                                "map": ["satellite", "infrared", False, 0.3], "view": [0.34, 11.5], "pin": None,
                                "calls": ["setLayer satellite", "setCompare false", "dirty"], "bar": True,
                                "scrub": False, "chips": [True, True], "again": False})
@@ -1886,9 +1899,22 @@ class TestThenEnterRuns(unittest.TestCase):
           console.log(JSON.stringify([during, after, S.loop,
                                       CALLS.filter(function (c) { return c.indexOf("setLoop") === 0; })]));
         """)
-        # The scrubber is hidden while entered and keeps its hour; a loop
-        # left off stays off.
-        self.assertEqual(got, [[False, True, True], [True, 6, False], False, ["setLoop false", "setLoop true"]])
+        # The slider stays while entered, for the storm picked, and keeps its
+        # hour; a loop left off stays off.
+        self.assertEqual(got, [[False, True, False], [True, 6, False], False, ["setLoop false", "setLoop true"]])
+
+    def test_exit_with_play_running_leaves_the_loop_off(self):
+        # Play pressed while entered is the reader's latest word: Exit keeps
+        # it running, and does not start the loop that ran before.
+        got = _run(self, r"""
+          S.loop = true;
+          """ + MANAUS + r"""
+          S.playing = true;
+          thenLeave();
+          console.log(JSON.stringify([S.loop, S.playing,
+                                      CALLS.filter(function (c) { return c.indexOf("setLoop") === 0; })]));
+        """)
+        self.assertEqual(got, [False, True, ["setLoop false"]])
 
     def test_exit_runs_the_page_s_own_loop_again_over_the_layer_put_back(self):
         # The page's own loop, which runs only over frames in view: until the
@@ -2425,17 +2451,25 @@ class TestThenKeyRuns(unittest.TestCase):
         self.assertEqual(got, ["sst", [False, True], [True, False], [True, True], [True, True], [True, True],
                                [False, True], [True, True]])
 
-    def test_today_s_storm_key_and_the_key_to_its_marks_stand_aside_while_entered(self):
+    def test_today_s_storm_key_stands_aside_while_entered_and_the_marks_key_with_none_picked(self):
+        # The storm picked is still drawn over the place, its forecast
+        # badged, so the key to its marks stays; the key to today's storms,
+        # most of them not drawn, stands aside.
         got = _run(self, r"""
           function hidden() { return [$("storm-key").hidden, $("key-more").hidden]; }
-          var before = hidden();
-          thenEnter(-60.025, -3.1, "Manaus", {source: "modis", a: "2014-11-15", b: "2015-11-15"});
-          thenRender();
-          var during = hidden();
-          thenLeave();
-          console.log(JSON.stringify([before, during, hidden()]));
+          var out = [hidden()];
+          [undefined, "al01"].forEach(function (id) {
+            S.selected = id;
+            thenEnter(-60.025, -3.1, "Manaus", {source: "modis", a: "2014-11-15", b: "2015-11-15"});
+            thenRender();
+            out.push(hidden());
+            thenLeave();
+            out.push(hidden());
+          });
+          console.log(JSON.stringify(out));
         """)
-        self.assertEqual(got, [[False, False], [True, True], [False, False]])
+        self.assertEqual(got, [[False, False], [True, True], [False, False],
+                               [True, False], [False, False]])
 
 
 class TestThenDocumented(unittest.TestCase):

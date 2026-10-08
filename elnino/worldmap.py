@@ -335,8 +335,8 @@ def card(state) -> str:
     season = atlas.SEASON_LABEL[season_of(_built_day(state))]
     return f"""<section class="card" id="world-map">
   <h2>The map</h2>
-  <p class="prose"><a class="bigalink" href="map.html">Open the El Ni&ntilde;o map
-    &rarr;</a> From the whole planet down to a single street, on Esri's street,
+  <p class="prose"><a class="bigalink" href="map.html">Open the El Ni&ntilde;o Map &rarr;</a>
+    From the whole planet down to a single street, on Esri's street,
     satellite and terrain maps, with Google's own map, satellite view and Street
     View of any point on request. Over them go this tracker's El Ni&ntilde;o
     composites for {esc(season)}, the season now: what the El Ni&ntilde;o seasons

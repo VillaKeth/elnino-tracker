@@ -2298,7 +2298,7 @@ def page(state) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 {live.head(getattr(state, "run_at", None))}
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23eb6834'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23fcd8c6'/%3E%3C/svg%3E">
+{sitenav.ICON}
 <title>El Nino Atlas &mdash; where it lands</title>
 <style>{shell_css()}{fields.ramp_css()}{css()}
 .plab {{ font: 500 11px var(--font); fill: var(--ink); paint-order: stroke;

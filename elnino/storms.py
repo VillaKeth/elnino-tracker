@@ -18,10 +18,12 @@ Two panels, because a reader has two different questions:
 
 On colour. A storm's hue identifies the storm and nothing else: it does not
 encode intensity, and it does not change when another storm forms or
-dissipates. Intensity is carried by marker size and by a direct label, which
-survives both colour-vision deficiency and a monochrome print. The ensemble
-members are deliberately not categorical - they are one undifferentiated grey
-cloud, because the identity of member seventeen is not information.
+dissipates. Intensity is carried by the size of the storm's marker where it
+is now, by the category written on each point of its forecast, and by a
+direct label, all of which survive colour-vision deficiency and a monochrome
+print. The ensemble members wear their storm's hue, faintly, and fainter
+with each day of lead: which member is which is not information, but which
+storm a member belongs to is, wherever two storms' clouds cross.
 """
 
 from __future__ import annotations
@@ -41,10 +43,25 @@ from .svg import boxes_clear as _clear, label_box as _label_box
 STORM_HUES = ("var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)")
 NEUTRAL = "var(--ink2)"
 
-# Marker radius by Saffir-Simpson category. Eight pixels is the floor for a
-# hit target you can actually hit; the top of the ramp is large enough that a
-# Category 5 is unmistakable at a glance without a legend lookup.
+# The marker where a storm is now, its radius by Saffir-Simpson category.
+# Eight pixels is the floor for a hit target you can actually hit; the top of
+# the ramp is large enough that a Category 5 is unmistakable at a glance
+# without a legend lookup.
 RADIUS = {0: 4.5, 1: 6.0, 2: 7.0, 3: 8.0, 4: 9.5, 5: 11.0}
+
+# Behind the storm, a bead at each six-hourly fix of the best track, so the
+# spacing is its speed. Ahead, on each forecast point, a badge with what the
+# storm is forecast to be there (cyclones.badge), as NHC's track graphic
+# marks its points; a point whose badge would cover a storm's marker or
+# another badge, or with no wind to mark, keeps a plain dot.
+BEAD_R = 1.8
+BADGE_R = 7.5
+DOT_R = 3.0
+SYNOPTIC_HOURS = {f"{hour:02d}" for hour in cyclones.SYNOPTIC}
+
+# A member's opacity by the day of lead it reaches, the first to the fifth:
+# the further out, the less any one member's track is worth.
+FADE = (0.42, 0.32, 0.24, 0.16, 0.10)
 
 MAP_W = 940
 PAD = (18, 116, 34, 44)
@@ -138,9 +155,63 @@ def _fit(lon_min: float, lon_max: float, lat_min: float, lat_max: float,
     return lon_min, lon_max, lat_min, lat_max, plot_h
 
 
-def _path(plot: Plot, fixes) -> str:
-    return "M" + " L".join(f"{plot.sx(f.lon):.1f} {plot.sy(f.lat):.1f}"
-                           for f in fixes)
+def _curve(points) -> list:
+    """A centripetal Catmull-Rom spline through ``points``, as cubic Beziers:
+    (start, control, control, end) for each pair of neighbours.
+
+    Centripetal, alpha one half, rather than uniform, because a track's
+    points are hours apart however far the storm goes in those hours: a
+    uniform spline overshoots a short step beside a long one into a loop
+    nobody forecast, and a centripetal one never loops or cusps (Yuksel,
+    Schaefer and Keyser 2011). Each end stands in for the neighbour it lacks.
+    """
+    out = []
+    for i in range(len(points) - 1):
+        p0, p1, p2 = points[max(i - 1, 0)], points[i], points[i + 1]
+        p3 = points[min(i + 2, len(points) - 1)]
+        d1, d2, d3 = (math.dist(a, b) ** 0.5 for a, b in ((p0, p1), (p1, p2), (p2, p3)))
+        c1, c2 = p1, p2
+        if d1 > 1e-9:
+            w = 3 * d1 * (d1 + d2)
+            c1 = tuple((m * (2 * d1 * d1 + 3 * d1 * d2 + d2 * d2) - a * d2 * d2 + b * d1 * d1) / w
+                       for a, m, b in zip(p0, p1, p2))
+        if d3 > 1e-9:
+            w = 3 * d3 * (d3 + d2)
+            c2 = tuple((m * (2 * d3 * d3 + 3 * d3 * d2 + d2 * d2) + a * d3 * d3 - b * d2 * d2) / w
+                       for a, m, b in zip(p1, p2, p3))
+        out.append((p1, c1, c2, p2))
+    return out
+
+
+def _xy(plot: Plot, fixes) -> list:
+    return [(plot.sx(f.lon), plot.sy(f.lat)) for f in fixes]
+
+
+def _step(segment) -> str:
+    """A cubic's part of a path. Its controls to the unit: rounding one moves
+    the curve at most 3t(1 - t) of a half unit, under four tenths, and takes
+    a fifth off every path; the points it joins to a tenth, as the map's."""
+    _, c1, c2, end = segment
+    return f" C{c1[0]:.0f} {c1[1]:.0f} {c2[0]:.0f} {c2[1]:.0f} {end[0]:.1f} {end[1]:.1f}"
+
+
+def _smooth(points) -> str:
+    """A path through ``points`` along ``_curve``."""
+    return f"M{points[0][0]:.1f} {points[0][1]:.1f}" + "".join(map(_step, _curve(points)))
+
+
+def _pieces(points, taus) -> list[tuple[float, str]]:
+    """A member's curve, cut where each day of its lead ends: (opacity,
+    path) for each piece in turn, the first day's to the fifth's."""
+    pieces: list[list] = []
+    for segment, tau in zip(_curve(points), taus[1:]):
+        fade = FADE[min(max(math.ceil(tau / 24), 1), len(FADE)) - 1]
+        if pieces and pieces[-1][0] == fade:
+            pieces[-1][1] += _step(segment)
+        else:
+            start = segment[0]
+            pieces.append([fade, f"M{start[0]:.1f} {start[1]:.1f}" + _step(segment)])
+    return [(fade, d) for fade, d in pieces]
 
 
 def _coast(plot: Plot, lon_min: float, lon_max: float,
@@ -336,16 +407,59 @@ def _places(plot: Plot, lon_min: float, lon_max: float,
     return names
 
 
-def _marked(storm) -> list:
-    """The fixes that get a marker on the track map.
+def _inside(plot: Plot, x: float, y: float) -> bool:
+    return (plot.left <= x <= plot.left + plot.plot_w
+            and plot.top <= y <= plot.top + plot.plot_h)
 
-    Every sixth-hourly analysis at hurricane strength, plus every forecast
-    point; the weaker history is a line only, because a track of forty
-    identical small dots is a dotted line.
+
+def _disc(x: float, y: float, r: float) -> tuple[float, float, float, float]:
+    return (x - r, y - r, x + r, y + r)
+
+
+def _marks(plot: Plot, live) -> tuple[list, list, list]:
+    """Where every marker on the map goes, before any label does.
+
+    For each storm with an analysis: its marker where it is now, a bead at
+    each synoptic fix behind it, and each forecast point to the horizon,
+    badged where the badge clears every storm's marker and every badge
+    already down. A three-hour point lies under the storm's own marker, and
+    a stalling storm's points one on another; a badge there would cover the
+    one beneath. As (storm's index, fix, x, y), with the marker's radius or
+    the point's badge after, "" for a plain dot. Off the plot, nothing.
     """
-    history = [f for f in storm.track if f.tau == 0]
-    ahead = [f for f in storm.forecast if f.tau <= cyclones.HORIZON]
-    return [f for f in history if f.category >= 1] + ahead
+    eyes, beads, points = [], [], []
+    for index, storm in enumerate(live):
+        now = storm.latest
+        if now is None:
+            continue
+        x, y = plot.sx(now.lon), plot.sy(now.lat)
+        if _inside(plot, x, y):
+            eyes.append((index, now, x, y, RADIUS.get(now.category, 4.5)))
+        for fix in [f for f in storm.track if f.tau == 0][:-1]:
+            x, y = plot.sx(fix.lon), plot.sy(fix.lat)
+            if fix.stamp[8:10] in SYNOPTIC_HOURS and _inside(plot, x, y):
+                beads.append((index, fix, x, y))
+    badged = [_disc(x, y, radius + 1.0) for _, _, x, y, radius in eyes]
+    for index, storm in enumerate(live):
+        if storm.latest is None:
+            continue
+        for fix in storm.forecast:
+            x, y = plot.sx(fix.lon), plot.sy(fix.lat)
+            if fix.tau > cyclones.HORIZON or not _inside(plot, x, y):
+                continue
+            box = _disc(x, y, BADGE_R + 1.0)
+            badge = fix.badge if fix.badge and _clear(box, badged) else ""
+            if badge:
+                badged.append(box)
+            points.append((index, fix, x, y, badge))
+    return eyes, beads, points
+
+
+def _hover(storm, fix, x: float, y: float) -> str:
+    """A mark's hover: the storm and when, its wind and what it is, where."""
+    when = f"+{fix.tau} h" if fix.tau > 0 else _clock(fix.stamp)
+    return _hit(x, y, f"{storm.title} {when}", f"{fix.wind or 0} kt, {fix.label}",
+                _degrees(fix) + (f", {fix.pressure} mb" if fix.pressure else ""))
 
 
 def track_map(storms) -> str:
@@ -377,81 +491,105 @@ def track_map(storms) -> str:
         for gap, fix, place in storm.threats(350.0):
             if (fix.wind or 0) >= 34:
                 threatened[place.name] = min(gap, threatened.get(place.name, gap))
-    # The storms' names go down first, so a place gives way to them, and
-    # a place name keeps off the storms' markers where it can.
-    taken, marks = [], []
-    for storm in live:
-        for fix in _marked(storm):
-            x, y = plot.sx(fix.lon), plot.sy(fix.lat)
-            radius = RADIUS.get(fix.category, 4.5) + 1.0
-            marks.append((x - radius, y - radius, x + radius, y + radius))
+    # Every marker goes down before any label. No label goes over a badge,
+    # whose category would be lost under it; the storms' names go down
+    # next, so a place gives way to them; and a place name keeps off the
+    # other markers where it can.
+    eyes, beads, points = _marks(plot, live)
+    taken = [_disc(x, y, BADGE_R + 1.0) for _, _, x, y, badge in points if badge]
+    marks = ([_disc(x, y, radius + 1.0) for _, _, x, y, radius in eyes]
+             + [_disc(x, y, BEAD_R + 1.0) for _, _, x, y in beads]
+             + [_disc(x, y, DOT_R + 1.0) for _, _, x, y, badge in points if not badge])
     placed = _place_storm_labels(plot, live, taken, marks)
     names = _places(plot, lon_min, lon_max, lat_min, lat_max, threatened,
                     taken, marks)
+    hues = [STORM_HUES[index] if index < len(STORM_HUES) else NEUTRAL
+            for index in range(len(live))]
 
-    # --- the spread, underneath everything, in one undifferentiated grey
-    for storm in live:
-        for track in storm.scatter.values():
-            inside = [f for f in track if f.tau <= cyclones.HORIZON]
-            if len(inside) > 1:
-                plot.add(
-                    f'<path d="{_path(plot, inside)}" fill="none" '
-                    f'stroke="var(--muted)" stroke-width="1" opacity="0.30" '
-                    f'stroke-linecap="round" clip-path="url(#tcclip)"/>'
-                )
-
+    # --- the spread, underneath everything: each member a curve in its
+    # storm's colour, from where the storm is now, fainter by the day. A
+    # storm's pieces of one day are drawn together, their paint said once;
+    # each paints its own stroke, so where members agree they build up.
     for index, storm in enumerate(live):
-        hue = STORM_HUES[index] if index < len(STORM_HUES) else NEUTRAL
+        start = [storm.latest] if storm.latest is not None else []
+        days: dict[float, list[str]] = {}
+        for track in storm.scatter.values():
+            fixes = start + [f for f in track if f.tau <= cyclones.HORIZON]
+            if len(fixes) > 1:
+                for fade, d in _pieces(_xy(plot, fixes), [f.tau for f in fixes]):
+                    days.setdefault(fade, []).append(f'<path d="{d}"/>')
+        for fade in sorted(days, reverse=True):
+            plot.add(
+                f'<g class="tcmembers" fill="none" stroke="{hues[index]}" '
+                f'stroke-width="1.2" stroke-opacity="{fade:.2f}" '
+                f'clip-path="url(#tcclip)">{"".join(days[fade])}</g>'
+            )
+
+    # --- the best track behind each storm, and the official forecast ahead
+    # of it, dashed, from where it is now
+    for index, storm in enumerate(live):
         history = [f for f in storm.track if f.tau == 0]
         if len(history) > 1:
             plot.add(
-                f'<path d="{_path(plot, history)}" fill="none" stroke="{hue}" '
-                f'stroke-width="2" stroke-linejoin="round" stroke-linecap="round" '
-                f'clip-path="url(#tcclip)"/>'
+                f'<path d="{_smooth(_xy(plot, history))}" fill="none" '
+                f'stroke="{hues[index]}" stroke-width="2" stroke-linejoin="round" '
+                f'stroke-linecap="round" clip-path="url(#tcclip)"/>'
             )
         now = storm.latest
         ahead = [f for f in storm.forecast if f.tau <= cyclones.HORIZON]
         if ahead and now is not None:
             plot.add(
-                f'<path d="{_path(plot, [now] + ahead)}" fill="none" '
-                f'stroke="{hue}" stroke-width="2" stroke-dasharray="7 5" '
+                f'<path d="{_smooth(_xy(plot, [now] + ahead))}" fill="none" '
+                f'stroke="{hues[index]}" stroke-width="2" stroke-dasharray="7 5" '
                 f'stroke-linecap="round" clip-path="url(#tcclip)"/>'
             )
 
-        for fix in _marked(storm):
-            x, y = plot.sx(fix.lon), plot.sy(fix.lat)
-            if not (plot.left <= x <= plot.left + plot.plot_w
-                    and plot.top <= y <= plot.top + plot.plot_h):
-                continue
-            radius = RADIUS.get(fix.category, 4.5)
-            forecast = fix.tau > 0
+    # --- the marks: the beads; the forecast points, the plain dots under
+    # every badge, so none is drawn over a badge's mark; and on top each
+    # storm where it is now
+    for index, fix, x, y in beads:
+        plot.add(f'<circle class="tcbead" cx="{x:.1f}" cy="{y:.1f}" r="{BEAD_R}" '
+                 f'fill="{hues[index]}"/>')
+        plot.add(_hover(live[index], fix, x, y))
+    for index, fix, x, y, badge in sorted(points, key=lambda point: bool(point[4])):
+        if badge:
+            # Open where the system is not a tropical cyclone, as NHC's track
+            # graphic draws such a point.
+            dashed = ' stroke-dasharray="2.5 2"' if fix.hollow else ""
             plot.add(
-                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius:.1f}" '
-                f'fill="{"var(--surface)" if forecast else hue}" stroke="{hue}" '
-                f'stroke-width="2"/>'
+                f'<g class="tcbadge{" hollow" if fix.hollow else ""}"><circle cx="{x:.1f}" '
+                f'cy="{y:.1f}" r="{BADGE_R}" fill="var(--surface)" stroke="{hues[index]}" '
+                f'stroke-width="2"{dashed}/>'
+                f'<text x="{x:.1f}" y="{y + 3.5:.1f}" text-anchor="middle" '
+                f'class="tcmark">{esc(badge)}</text></g>'
             )
-            when = f"+{fix.tau} h" if forecast else _clock(fix.stamp)
-            plot.add(_hit(
-                x, y, f"{storm.title} {when}",
-                f"{fix.wind or 0} kt, {fix.label}",
-                f"{_degrees(fix)}"
-                + (f", {fix.pressure} mb" if fix.pressure else ""),
-            ))
+        else:
+            plot.add(
+                f'<circle class="tcpoint" cx="{x:.1f}" cy="{y:.1f}" r="{DOT_R:.1f}" '
+                f'fill="var(--surface)" stroke="{hues[index]}" stroke-width="2"/>'
+            )
+        plot.add(_hover(live[index], fix, x, y))
+    for index, now, x, y, radius in eyes:
+        plot.add(
+            f'<circle class="tcnow" cx="{x:.1f}" cy="{y:.1f}" r="{radius:.1f}" '
+            f'fill="{hues[index]}" stroke="var(--surface)" stroke-width="2"/>'
+        )
+        plot.add(_hover(live[index], now, x, y))
 
-        if index in placed:
-            # The name in text ink: the eye and the track beside it carry the
-            # storm's colour, and a name painted in that colour loses contrast
-            # against the surface in one theme or the other.
-            (tx, ty), (wx, wy), anchor, _ = placed[index]
-            plot.add(
-                f'<text x="{tx:.1f}" y="{ty:.1f}" text-anchor="{anchor}" '
-                f'class="endlabel halo">{esc(storm.title)}</text>'
-            )
-            plot.add(
-                f'<text x="{wx:.1f}" y="{wy:.1f}" text-anchor="{anchor}" '
-                f'class="tick halo">{now.wind or 0} kt &middot; '
-                f'{esc(now.short)}</text>'
-            )
+    # --- each storm's name and intensity. The name in text ink: the marker
+    # and the track beside it carry the storm's colour, and a name painted in
+    # that colour loses contrast against the surface in one theme or the other.
+    for index, ((tx, ty), (wx, wy), anchor, _) in placed.items():
+        now = live[index].latest
+        plot.add(
+            f'<text x="{tx:.1f}" y="{ty:.1f}" text-anchor="{anchor}" '
+            f'class="endlabel halo">{esc(live[index].title)}</text>'
+        )
+        plot.add(
+            f'<text x="{wx:.1f}" y="{wy:.1f}" text-anchor="{anchor}" '
+            f'class="tick halo">{now.wind or 0} kt &middot; '
+            f'{esc(now.short)}</text>'
+        )
 
     # Place names last, over every track, each with a halo of the map's
     # own ground.
@@ -460,9 +598,11 @@ def track_map(storms) -> str:
 
     return plot.svg(
         "Live tropical cyclone tracks and forecasts",
-        "Best track behind each storm, official forecast ahead of it as a "
-        "dashed line, and every available ensemble member drawn in grey "
-        "underneath to show the width of the forecast.",
+        "Best track behind each storm, a dot every six hours; the official "
+        "forecast ahead of it as a dashed line, each point marked with its "
+        "category; and every ensemble member or model track drawn faintly "
+        "underneath, in its storm's colour and fainter with each day of lead, "
+        "to show the width of the forecast.",
     )
 
 
@@ -606,6 +746,59 @@ def _status_for(fix) -> str:
     return "warning" if (fix.wind or 0) >= 34 else "good"
 
 
+# What the faint lines on the map are (Storm.scatter): the ensemble's
+# members where a storm's deck carried one, the models' guidance where it did
+# not. In the card's caption, then in its legend.
+SPREAD = {
+    "ensemble": ("its ensemble members", "Ensemble members"),
+    "guidance": ("the models' guidance tracks", "Model guidance tracks"),
+    "both": ("its ensemble members, or the models' guidance tracks where no "
+             "ensemble ran", "Ensemble members, or model guidance tracks"),
+}
+
+
+def _spread(live) -> str:
+    """Which of SPREAD the map's faint lines are, "" with none drawn."""
+    kinds = {"ensemble" if s.ensemble else "guidance" for s in live if s.scatter}
+    return "both" if len(kinds) > 1 else kinds.pop() if kinds else ""
+
+
+def _track_keys(spread: str) -> str:
+    """The legend's keys for the marks on the map, each drawn as the map
+    draws it, in the legend's own ink."""
+    def key(art: str, words: str) -> str:
+        return (f'<span class="key"><svg class="keyglyph" viewBox="0 0 30 16" '
+                f'width="30" height="16" aria-hidden="true">{art}</svg>{esc(words)}</span>')
+
+    keys = [
+        key('<path d="M2 8H28" fill="none" stroke="currentColor" stroke-width="2"/>'
+            + "".join(f'<circle cx="{x}" cy="8" r="{BEAD_R}" fill="currentColor"/>'
+                      for x in (5, 15, 25)),
+            "Best track, a dot every 6 h"),
+        key('<path d="M2 8H28" fill="none" stroke="currentColor" stroke-width="2" '
+            'stroke-dasharray="4 3"/><circle cx="20" cy="8" r="6.5" fill="var(--surface)" '
+            'stroke="currentColor" stroke-width="1.5"/>'
+            '<text x="20" y="11.5" text-anchor="middle" class="tcmark">4</text>',
+            "Official forecast, each point its category: 1 to 5, S storm, "
+            "D depression"),
+        key('<circle cx="15" cy="8" r="6.5" fill="var(--surface)" stroke="currentColor" '
+            'stroke-width="1.5" stroke-dasharray="2.5 2"/>'
+            '<text x="15" y="11.5" text-anchor="middle" class="tcmark">H</text>',
+            "Dashed where it is not a tropical cyclone, lettered by its wind: D, S, "
+            "H hurricane force, M major"),
+    ]
+    if spread:
+        # Two members parting, each fainter by the day, as on the map.
+        lines = (((2, 9), (11, 7), (20, 5), (28, 3)),
+                 ((2, 9), (11, 10), (20, 11.5), (28, 13)))
+        art = "".join(
+            f'<path d="M{a[0]} {a[1]}L{b[0]} {b[1]}" fill="none" stroke="currentColor" '
+            f'stroke-width="1.5" stroke-opacity="{FADE[day]:.2f}"/>'
+            for line in lines for (a, b), day in zip(zip(line, line[1:]), (0, 2, 4)))
+        keys.append(key(art, f"{SPREAD[spread][1]}, fainter by the day"))
+    return "".join(keys)
+
+
 def tracks_card(state) -> str:
     """The live storms: map, per-storm summary, and the full forecast table."""
     storms = getattr(state, "cyclones", None)
@@ -640,7 +833,15 @@ def tracks_card(state) -> str:
 
     keyed = [(name, hue) for (name, hue) in
              zip([s.title for s in live], STORM_HUES)]
-    legend = _legend(keyed + [("ensemble members", "var(--muted)")])
+    spread = _spread(live)
+    legend = _legend(keyed, _track_keys(spread))
+    reading = ("solid line is the best track, a dot every six hours; dashed is "
+               "the official forecast, each point marked with its category")
+    width = ""
+    if spread:
+        reading += (f"; the faint lines in each storm's colour are "
+                    f"{SPREAD[spread][0]}, fainter with each day of lead")
+        width = " The faint lines behind each forecast are the honest width of it."
 
     blocks = []
     for storm in live:
@@ -721,8 +922,7 @@ def tracks_card(state) -> str:
   <h2>Tropical cyclones &mdash; live tracks and forecast spread</h2>
   <p class="caption">{len(live)} active
     &middot; decks as of {esc(storms.as_of[:16].replace('T', ' ') or 'this run')}
-    &middot; solid line is the best track, dashed is the official forecast,
-    grey is every ensemble member</p>
+    &middot; {esc(reading)}</p>
   {track_map(live)}
   {legend}
   {elsewhere}
@@ -733,8 +933,7 @@ def tracks_card(state) -> str:
   <p class="prose">Distances are to the forecast centre line. The wind field is
     wider than the line &mdash; hurricane-force wind reaches tens of kilometres
     either side of it and tropical-storm force roughly twice that &mdash; so a
-    two-hundred-kilometre pass is not a miss. The grey cloud behind each
-    forecast is the honest width of it.</p>
+    two-hundred-kilometre pass is not a miss.{width}</p>
 </section>"""
 
 
@@ -842,6 +1041,10 @@ def css() -> str:
 .tcchip[data-status="good"] { color: var(--good); }
 .tcchip span { color: var(--ink); }
 @media (max-width: 640px) { .tcgrid { grid-template-columns: 1fr; } }
+/* The category on a forecast point, and the legend's keys, drawn as the map
+   draws its marks; every svg on the page is otherwise drawn full width. */
+.tcmark { fill: var(--ink); font: 700 10px var(--font); }
+.legend svg.keyglyph { width: 30px; height: 16px; display: inline-block; flex: none; }
 """
 
 

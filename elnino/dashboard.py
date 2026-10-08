@@ -544,8 +544,9 @@ th {{ color: var(--ink2); font-weight: 600; }}
 .sitebar .brand {{ flex: none; display: flex; align-items: center; gap: 8px;
   min-height: 44px; color: var(--ink); font-size: 0.92rem; font-weight: 650;
   letter-spacing: -0.01em; text-decoration: none; white-space: nowrap; }}
-/* Sized for itself: the shell sizes every svg to its box. */
-.sitebar .sitemark {{ flex: none; width: 22px; height: 22px; }}
+/* Sized for itself: the shell sizes every svg to its box. A logo keeps its
+   colours where colours are forced. */
+.sitebar .sitemark {{ flex: none; width: 22px; height: 22px; forced-color-adjust: none; }}
 .sitebar ul {{ display: flex; margin: 0; padding: 0; list-style: none; }}
 .sitebar .tab {{ display: flex; align-items: center; min-height: 44px; padding: 0 12px;
   color: var(--ink2); font-size: 0.86rem; font-weight: 500; white-space: nowrap;
@@ -883,10 +884,10 @@ def storm_desk_card(state) -> str:
     listed = f'<ul class="reasons">{"".join(named)}</ul>' if named else ""
 
     return f"""<section class="card" id="storm-desk">
-  <h2>Storm desk</h2>
+  <h2>Storm Desk</h2>
   <p class="caption">{" &middot; ".join(counts)}</p>
-  <p class="prose"><a class="bigalink" href="{STORM_DESK['page']}">Open the storm
-    desk &rarr;</a> Every live storm on the newest satellite frame, drawn at
+  <p class="prose"><a class="bigalink" href="{STORM_DESK['page']}">Open the Storm Desk &rarr;</a>
+    Every live storm on the newest satellite frame, drawn at
     the time that frame was taken, with its forecast track, cone and wind
     field. Zoom to the eye, swipe between imagery layers, loop the last two
     hours, and move the forecast forward to see the places each wind
@@ -1249,7 +1250,7 @@ def render(state) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 {live.head(state.run_at)}
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23eb6834'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23fcd8c6'/%3E%3C/svg%3E">
+{sitenav.ICON}
 <title>El Nino Tracker &mdash; {esc(a.index_latest.label)}</title>
 <style>{_css()}{fields.ramp_css()}{globe.css()}{storms.css()}{storms.fury_css()}</style>
 </head>

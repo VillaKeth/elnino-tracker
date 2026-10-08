@@ -294,11 +294,12 @@ def table(caption: str, headers: list[str], rows: list[list[str]],
     )
 
 
-def _legend(items: list[tuple[str, str]]) -> str:
+def _legend(items: list[tuple[str, str]], extra: str = "") -> str:
+    """A key for each colour, and after them ``extra``: keys drawn otherwise."""
     keys = "".join(
         f'<span class="key"><span class="swatch" style="background:{colour}"></span>{esc(name)}</span>'
         for name, colour in items
     )
-    return f'<div class="legend">{keys}</div>'
+    return f'<div class="legend">{keys}{extra}</div>'
 
 
