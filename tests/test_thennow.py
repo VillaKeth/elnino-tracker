@@ -991,9 +991,10 @@ class TestThenHooks(unittest.TestCase):
         functions = "\n".join(_js_function(js, n) for n in (
             "world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
             "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels",
-            "categoryOf", "shortAt"))
+            "categoryOf", "shortAt", "pad2", "zulu"))
         got = _node_json(self, r"""
 var TILE = 256, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 var LAYERS = {"then-a": {kind: "imagery", then: true, over: null}, "then-b": {kind: "imagery", then: true, over: null}};
 var PLACES = [["Itacoatiara", "Brazil", "", 100000, -58.44, -3.14, false]], BYPOP = null;
 var D = {outlook: [{key: "a1", lon: -61, lat: -2, level: "high", label: "Area", centre: "NHC",
@@ -1002,7 +1003,8 @@ var D = {outlook: [{key: "a1", lon: -61, lat: -2, level: "high", label: "Area", 
          enso: {boxes: [{lon0: -61, lon1: -59, lat0: -4, lat1: -2, label: "Box", anomaly: null}]}};
 var drawn = 0;
 var st = {id: "al01", x0: mx(-60), hue: "red", d: {id: "al01", title: "Storm", lon: -60, lat: -3,
-          forecast: [{lon: -60.5, lat: -3.5, hour: 24}], exposure: [{place: "Town", lon: -60.2, lat: -3.2}],
+          forecast: [{lon: -60.5, lat: -3.5, hour: 24, day: true, t: "2026-10-09T12:00:00Z"}],
+          exposure: [{place: "Town", lon: -60.2, lat: -3.2}],
           watches: [], surge: [], view: {}}};
 var STORMS = [st], BYID = {al01: st}, marksG = {innerHTML: ""};
 function base() { drawn++; return {t: 0, image: false}; }
@@ -1019,20 +1021,21 @@ function marks(then) {
   var h = marksG.innerHTML;
   return {pin: h.indexOf('class="pin"') >= 0, town: h.indexOf(">Itacoatiara<") >= 0, storm: h.indexOf("data-storm") >= 0,
           dots: h.indexOf('class="dot"') >= 0, area: h.indexOf("data-area") >= 0, invest: h.indexOf("Invest 90L") >= 0,
-          box: h.indexOf(">Box<") >= 0, places: h.indexOf(">Town<") >= 0, base: drawn};
+          box: h.indexOf(">Box<") >= 0, places: h.indexOf(">Town<") >= 0, day: h.indexOf(">9 Oct 12Z<") >= 0,
+          base: drawn};
 }
 var entered = marks({}), out = marks(null);
 S.selected = null;
 console.log(JSON.stringify([entered, out, marks({})]));
 """)
-        # Entered, the storm picked stays, with its forecast, to be played
-        # over the place; nothing else of today's is drawn.
+        # Entered, the storm picked stays, with its forecast and its days, to
+        # be played over the place; nothing else of today's is drawn.
         self.assertEqual(got[0], {"pin": True, "town": True, "storm": True, "dots": True, "area": False,
-                                  "invest": False, "box": False, "places": False, "base": 1})
+                                  "invest": False, "box": False, "places": False, "day": True, "base": 1})
         self.assertEqual(got[1], {"pin": True, "town": True, "storm": True, "dots": True, "area": True,
-                                  "invest": True, "box": True, "places": True, "base": 1})
+                                  "invest": True, "box": True, "places": True, "day": True, "base": 1})
         self.assertEqual(got[2], {"pin": True, "town": True, "storm": False, "dots": False, "area": False,
-                                  "invest": False, "box": False, "places": False, "base": 0})
+                                  "invest": False, "box": False, "places": False, "day": False, "base": 0})
 
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
     def test_entered_no_geometry_of_today_s_is_drawn_but_the_storm_picked(self):

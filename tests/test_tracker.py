@@ -2632,6 +2632,28 @@ class TestStormDeskPayload(_DeskFixtures, unittest.TestCase):
         self.assertTrue(all({"formed", "hollow"} <= set(p) for p in got["path"]))
         self.assertEqual((got["path"][0]["formed"], got["path"][-1]["formed"]), (False, True))
 
+    def test_a_forecast_s_days_are_whole_days_after_the_cycle_it_was_issued_from(self):
+        # Polo's case: the 06Z forecast while the best track runs to 12Z. Its
+        # leads are counted from the 12Z analysis, 6, 18, 30 and 42 h, and its
+        # days are still the cycle's 24 and 48 h, valid at 06Z. A forecast
+        # from the analysis's own cycle has its days at 24 and 48 h.
+        track = (self.fix("2026092506", 0, 14.0, -50.0, 60, stage="TS"),
+                 self.fix("2026092512", 0, 14.2, -51.0, 65))
+
+        def forecast(cycle):
+            return tuple(self.fix(cycle, tau, 14.0 + tau / 24, -50.0 - tau / 12, 70, tech="OFCL")
+                         for tau in (12, 24, 36, 48))
+        got = []
+        for number, cycle in ((9, "2026092506"), (10, "2026092512")):
+            storm = cyclones.Storm(basin="AL", number=number, year=2026, name="Test", track=track,
+                                   forecast=cyclones.rebase(forecast(cycle), "2026092512"),
+                                   advisory={"advisory": "001", "public": self.PUBLIC,
+                                             "last_update": "2026-09-25T15:00:00.000Z"})
+            got.append([(p["hour"], p["t"][8:13], p["day"])
+                        for p in self.storms(storm)[f"al{number:02d}2026"]["forecast"]])
+        self.assertEqual(got, [[(6, "25T18", False), (18, "26T06", True), (30, "26T18", False), (42, "27T06", True)],
+                               [(12, "26T00", False), (24, "26T12", True), (36, "27T00", False), (48, "27T12", True)]])
+
     def test_the_peak_of_a_forecast_no_stronger_than_now_is_its_first_strongest_point(self):
         polo = self.storms(self.polo())["ep172026"]
         self.assertEqual((polo["peak"]["hour"], polo["peak"]["wind"]), (3, 155))
@@ -4820,12 +4842,13 @@ class TestStormCategoryRuns(unittest.TestCase):
                          + ".map(function (c) { return shortAt(c[0], c[1], c[2]); })));")
         self.assertEqual(got, [cyclones.short_label(kt, stage, formed) for kt, stage, formed in cases])
 
-    def draw(self, body: str):
+    def draw(self, body: str, tz: str | None = None):
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in ("world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
-            "drawMarks", "ensoLabels", "categoryOf", "shortAt"))
+            "drawMarks", "ensoLabels", "categoryOf", "shortAt", "pad2", "zulu"))
         return _node_json(self, r"""
 var TILE = 256, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 var D = {outlook: [], invests: [], style: {outlook: {}, categories: """
                           + json.dumps([list(f) for f in cyclones.CATEGORY_FLOOR]) + r"""}};
 var storm = {id: "s1", hue: "#f00", d: {title: "Simon", forecast: [], view: null, advisory_fix: null,
@@ -4838,7 +4861,7 @@ function centreAt() { return CENTRE; }
 var S = {x: mx(-100), y: my(15), z: 3, w: 1200, h: 700, scrub: 0, selected: "s1",
          show: {outlook: false, places: false, towns: false}, pin: null, enso: {boxes: false, regions: false}};
 storm.x0 = mx(-100);
-""" + body)
+""" + body, tz=tz)
 
     def test_a_storm_is_named_by_its_category_now_and_at_the_forecast_hour(self):
         got = self.draw(r"""
@@ -4858,10 +4881,13 @@ console.log(JSON.stringify(out));
 
     def test_each_forecast_point_is_marked_with_its_category_where_there_is_room(self):
         # A point on top of one already marked keeps a plain dot, as does a
-        # point with no mark to give.
+        # point with no mark to give. The days' times, written after the
+        # marks, take nothing from them.
         got = self.draw(r"""
-storm.d.forecast = [{lon: -104, lat: 15.5, hour: 12, badge: "1"}, {lon: -103.98, lat: 15.51, hour: 24, badge: "2"},
-                    {lon: -90, lat: 18, hour: 48, badge: "4"}, {lon: -85, lat: 20, hour: 72, badge: ""}];
+storm.d.forecast = [{lon: -104, lat: 15.5, hour: 12, t: "2026-10-09T00:00:00Z", day: false, badge: "1"},
+                    {lon: -103.98, lat: 15.51, hour: 24, t: "2026-10-09T12:00:00Z", day: true, badge: "2"},
+                    {lon: -90, lat: 18, hour: 48, t: "2026-10-10T12:00:00Z", day: true, badge: "4"},
+                    {lon: -85, lat: 20, hour: 72, t: "2026-10-11T12:00:00Z", day: true, badge: ""}];
 drawMarks();
 var h = marksG.innerHTML;
 var badges = (h.match(/<g class="badge">.*?<\/g>/g) || []);
@@ -4901,17 +4927,91 @@ console.log(JSON.stringify([(h.match(/<g class="badge[^"]*">.*?<\/g>/g) || []).m
         self.assertEqual(got, [["2"], 1])
 
     def test_a_mark_is_never_given_up_for_the_hour_written_beside_another(self):
-        # The +24 h label, kept off the storm's marker, would go left of its
-        # point, over the next point's mark: the category matters more than
-        # the hour it is reached, so the label gives way.
+        # The first day's time, kept off the storm's marker, would go left of
+        # its point, over the next point's mark: the category matters more
+        # than the hour it is reached, so the time gives way, and the storm's
+        # own label is the only one written.
         got = self.draw(r"""
-storm.d.forecast = [{lon: -104, lat: 15.5, hour: 24, badge: "1"}, {lon: -108, lat: 15.6, hour: 36, badge: "2"}];
+storm.d.forecast = [{lon: -104, lat: 15.5, hour: 24, t: "2026-10-09T12:00:00Z", day: true, badge: "1"},
+                    {lon: -108, lat: 15.6, hour: 36, t: "2026-10-10T00:00:00Z", day: false, badge: "2"}];
 drawMarks();
 var h = marksG.innerHTML;
 console.log(JSON.stringify([(h.match(/<g class="badge[^"]*">.*?<\/g>/g) || []).map(function (g) { return g.replace(/^.*>([^<]*)<\/text><\/g>$/, "$1"); }),
-                            (h.match(/class="dl2">\+\d+ h/g) || []).length]));
+                            (h.match(/class="dl2">[^<]*/g) || []).map(function (t) { return t.replace('class="dl2">', ""); })]));
 """)
-        self.assertEqual(got, [["1", "2"], 0])
+        self.assertEqual(got, [["1", "2"], ["Cat 1 \u00b7 70 kt"]])
+
+    def test_the_picked_storm_s_days_are_written_as_the_clock_reads_them(self):
+        # The slider counts hours from the frame on screen or the clock, a
+        # point's lead from the latest analysis: three hours after the 12Z
+        # cycle, the slider's +21 h was the point marked "+24 h". Each day is
+        # written as the time it is valid, in UTC wherever the page is read
+        # (here, UTC+14). The days are the points the payload names
+        # (stormdesk._day), whatever their leads: a forecast a cycle behind
+        # the best track has them at 18 and 42 h. A point whose time is not
+        # known is left unwritten.
+        got = self.draw(r"""
+storm.d.forecast = [{lon: -97, lat: 18, hour: 6, day: false, t: "2026-10-09T18:00:00Z"},
+                    {lon: -93, lat: 22, hour: 18, day: true, t: "2026-10-10T06:00:00Z"},
+                    {lon: -91, lat: 24, hour: 24, day: false, t: "2026-10-10T12:00:00Z"},
+                    {lon: -86, lat: 28, hour: 42, day: true, t: "2026-10-11T06:00:00Z"},
+                    {lon: -80, lat: 33, hour: 66, day: true, t: "not a time"}];
+drawMarks();
+console.log(JSON.stringify((marksG.innerHTML.match(/class="dl2">[^<]*/g) || []).map(function (t) { return t.replace('class="dl2">', ""); })));
+""", tz="Pacific/Kiritimati")
+        self.assertCountEqual(got, ["Cat 1 \u00b7 70 kt", "10 Oct 06Z", "11 Oct 06Z"])
+
+    def test_a_label_in_the_smaller_face_keeps_only_the_room_it_takes(self):
+        # A day's time is set in the 11 px face, not the 12.5 px of a storm's
+        # name: sized as the larger, "10 Oct 06Z" reached over the next
+        # point's mark and, with the point before marked on its left, was
+        # left out though it fits.
+        got = self.draw(r"""
+storm.d.forecast = [{lon: -95.27, lat: 25, hour: 12, badge: "S"},
+                    {lon: -90, lat: 25, hour: 24, day: true, t: "2026-10-10T06:00:00Z"},
+                    {lon: -75.32, lat: 25, hour: 36, badge: "2"}];
+drawMarks();
+console.log(JSON.stringify((marksG.innerHTML.match(/class="dl2">[^<]*/g) || []).map(function (t) { return t.replace('class="dl2">', ""); })));
+""")
+        self.assertCountEqual(got, ["Cat 1 \u00b7 70 kt", "10 Oct 06Z"])
+
+    OTHERS = r"""
+centreAt = function (st) { return st.c || CENTRE; };
+function other(id, title, lon, lat) {
+  var st = {id: id, hue: "#0f0", x0: mx(lon), c: {lon: lon, lat: lat, category: 0, wind: 60, stage: "TS", radii: {}},
+            d: {title: title, forecast: [], view: null, advisory_fix: null, wind: 60, stage: "TS", formed: true}};
+  BYID[id] = st;
+  return st;
+}
+"""
+
+    def test_the_storm_picked_is_named_before_the_others(self):
+        # Rachel, listed first, up and to the right of Simon, the storm
+        # picked: named first, her name took the room right of Simon's
+        # marker. Simon's own is written there now, and hers, with no room
+        # left either side, is not.
+        got = self.draw(self.OTHERS + r"""
+STORMS = [other("s2", "Rachel", -96.48, 18.4), storm];
+drawMarks();
+var h = marksG.innerHTML;
+console.log(JSON.stringify([(h.match(/text-anchor="(start|end)" class="dl">Simon</) || [])[1], h.indexOf(">Rachel<") >= 0]));
+""")
+        self.assertEqual(got, ["start", False])
+
+    def test_a_name_written_where_there_is_no_room_keeps_its_room_and_is_drawn_on_top(self):
+        # Simon, the storm picked, has Rachel's marker on his right and
+        # Tomas's on his left: his name is written on the right regardless.
+        # Rachel's, placed after, went over it, and so did her marker, drawn
+        # after his. Now his name keeps its room, so hers gives way, and he
+        # is drawn over the others.
+        got = self.draw(self.OTHERS + r"""
+STORMS = [storm, other("s2", "Rachel", -92.97, 14.15), other("s3", "Tomas", -107.03, 14.15)];
+drawMarks();
+var h = marksG.innerHTML;
+console.log(JSON.stringify([(h.match(/text-anchor="(start|end)" class="dl">Simon</) || [])[1], h.indexOf(">Rachel<") >= 0,
+                            h.indexOf('data-storm="s1"') > Math.max(h.indexOf('data-storm="s2"'), h.indexOf('data-storm="s3"'))]));
+""")
+        self.assertEqual(got, ["start", False, True])
 
     def test_a_point_where_it_is_not_a_tropical_cyclone_is_drawn_open(self):
         got = self.draw(r"""
@@ -5348,13 +5448,15 @@ def _js_assignment(js: str, head: str) -> str:
         i += 1
 
 
-def _node_json(case: unittest.TestCase, script: str):
-    """What a script run under node prints, read as JSON."""
+def _node_json(case: unittest.TestCase, script: str, tz: str | None = None):
+    """What a script run under node prints, read as JSON; run in time zone
+    ``tz`` when one is given, else in this machine's."""
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "w.js"
         path.write_text(script, encoding="utf-8")
         done = subprocess.run(["node", str(path)], capture_output=True, text=True,
-                              encoding="utf-8", timeout=60)
+                              encoding="utf-8", timeout=60,
+                              env=dict(os.environ, TZ=tz) if tz else None)
     case.assertEqual(done.returncode, 0, done.stderr[-2000:])
     return json.loads(done.stdout)
 
@@ -6175,10 +6277,12 @@ console.log(JSON.stringify(out));
         self.assertEqual(got, [["Peru"], ["Peru", "Chile"], []])
 
     def test_a_nino_name_with_no_room_above_its_box_goes_below_it(self):
-        # At zoom 3 the four boxes' names, each above its box's northwest
-        # corner, left Nino 3's out: the name of Nino 3.4 fills the 20 degrees
-        # between their western edges. Where there is no room above, a name
-        # now goes under its box before it is left out.
+        # Each name goes above its box's northwest corner where there is room,
+        # and under its box where there is not, before it is left out. At
+        # zoom 3 all four fit above: sized as a storm's 12.5 px name, Nino
+        # 3.4's had seemed to fill the 20 degrees to Nino 3's corner, and
+        # Nino 3's went under. At zoom 2 Nino 4's name covers Nino 3.4's
+        # corner, 30 degrees east, and Nino 3.4's goes under.
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in (
             "world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
@@ -6192,19 +6296,24 @@ var D = {outlook: [], invests: [], style: {outlook: {}}, enso: {boxes: """ + jso
 function base() { return {t: 0, image: false}; }
 function centreAt() { return null; }
 """ + functions + r"""
-var S = {x: mx(-150), y: my(0), z: 3, w: 1540, h: 600, scrub: 0, selected: null, pin: null,
+var S = {x: mx(-150), y: my(0), z: 3, w: 1000, h: 600, scrub: 0, selected: null, pin: null,
          show: {towns: false, outlook: false, places: false}, enso: {boxes: true, regions: false},
          layer: "geocolor", compare: false};
-var o = origin(), out = [];
-drawMarks();
-D.enso.boxes.forEach(function (b) {
-  var at = marksG.innerHTML.match(new RegExp('y="([-0-9.]+)"[^>]*>' + b.label.split("+").join("[+]") + " "));
-  out.push(at ? [b.label, +at[1] < my(b.lat1) * o.W + o.top ? "above" : +at[1] > my(b.lat0) * o.W + o.top ? "below" : "inside"] : [b.label, null]);
+var out = [];
+[3, 2].forEach(function (z) {
+  S.z = z;
+  var o = origin(), row = [];
+  drawMarks();
+  D.enso.boxes.forEach(function (b) {
+    var at = marksG.innerHTML.match(new RegExp('y="([-0-9.]+)"[^>]*>' + b.label.split("+").join("[+]") + " "));
+    row.push(at ? [b.label, +at[1] < my(b.lat1) * o.W + o.top ? "above" : +at[1] > my(b.lat0) * o.W + o.top ? "below" : "inside"] : [b.label, null]);
+  });
+  out.push(row);
 });
 console.log(JSON.stringify(out));
 """)
-        self.assertEqual(got, [["Niño 4", "above"], ["Niño 3.4", "above"],
-                               ["Niño 3", "below"], ["Niño 1+2", "above"]])
+        self.assertEqual(got, [[["Niño 4", "above"], ["Niño 3.4", "above"], ["Niño 3", "above"], ["Niño 1+2", "above"]],
+                               [["Niño 4", "above"], ["Niño 3.4", "below"], ["Niño 3", "above"], ["Niño 1+2", "above"]]])
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
 class TestEsriCoverageRuns(unittest.TestCase):

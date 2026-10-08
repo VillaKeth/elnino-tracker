@@ -1017,8 +1017,15 @@ forecast is marked with what it is forecast to be there, as NHC's track graphic
 marks its points: the category's number for a hurricane or its equivalent, S
 for a storm, D for a depression, and where it is not a tropical cyclone NHC's
 letter for its wind (D, S, H, M) in a dashed ring; a point keeps a plain dot
-where its mark would cover a storm's marker, a name or another mark. A storm
-forecast to strengthen says in its row what it
+where its mark would cover a storm's marker, a name or another mark. Each day
+of the storm picked's forecast, a whole number of days after the cycle it was
+issued from, is written beside its point by the clock, "9 Oct 12Z", as the
+slider reads time. A lead would not do, the slider counting from now: three
+hours after the cycle, when its advisory is issued, the forecast's +24 h is the
+slider's +21 h. The storm picked is named before the others, whose names give
+way to its own, and drawn over them; its name is written even where there is
+no room, and keeps that room from every mark placed after it. A storm forecast
+to strengthen says in its row what it
 peaks at and when, and its *Now* tab the peak in full.
 The formation outlook draws NHC's and CPHC's areas with their chances and
 JTWC's disturbances with their potential, a formation alert's box in its colour
@@ -1615,7 +1622,7 @@ elnino/worldmap.py       the map: street maps, El Nino's composites and tiles, E
                          what a point is told, Google on request, the geocoder
 elnino/thennow.py        then and now: its sources, every month's RONI season, the events,
                          the bar, and the script that enters a place and compares two dates
-tests/                   1227 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1232 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -1822,7 +1829,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1227 tests, no network required. They cover:
+1232 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -1891,7 +1898,8 @@ python -m unittest discover -s tests -v
   each forecast point is marked as NHC's track graphic marks it (a category's
   number, else NHC's letter for its wind, drawn open where the system is not a
   tropical cyclone, never a category for a subtropical storm, nothing without a
-  wind), the forecast's peak is its first
+  wind), its days are those a whole number of days after the cycle it was issued
+  from, whatever analysis its leads count from, the forecast's peak is its first
   strongest point, and a storm crossing 140W under two ids is one storm;
 - **the season verdict**: climatology is cut at the same calendar date rather
   than compared against a full-season normal, a year with no storms is a zero
@@ -2003,7 +2011,12 @@ python -m unittest discover -s tests -v
   named for whether the system will have formed by then, and each forecast
   point marked with its category where the mark clears every storm's marker,
   name and other marks (not the point three hours on, under the storm's own),
-  drawn open where the system is not a tropical cyclone; Play runs the
+  drawn open where the system is not a tropical cyclone, the storm picked's
+  days written by the clock in UTC wherever the page is read (9 Oct 12Z), not
+  as leads, those of a forecast a cycle behind the best track too, none where a
+  point's time is not known, and each label given the room of its own face;
+  the storm picked named before the others and drawn over them, its name
+  keeping the room it is written in where there was none; Play runs the
   forecast to the end of the storm picked's, or every storm's with none picked,
   and stops, starts again from now at the end, holds when paused, is greyed
   with nothing to play, plays on for a storm picked meanwhile and takes turns

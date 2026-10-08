@@ -414,6 +414,13 @@ def _point(fix, ref: float, hour: int | None) -> dict:
     }
 
 
+def _day(fix) -> bool:
+    """Whether a forecast fix is one of its forecast's days: a whole number of
+    days after the cycle it was issued from, as 24, 48 and 72 h are, whatever
+    analysis its lead is counted from now (``cyclones.rebase``)."""
+    return _hours(cyclones.valid_stamp(fix), fix.issued or fix.stamp) % 24 == 0
+
+
 def _peak(storm) -> dict | None:
     """The official forecast's strongest point, the first where it reaches
     that wind more than once: what the storm is forecast to become, and when.
@@ -563,7 +570,7 @@ def storm_entry(storm) -> dict | None:
         "rmw": now.rmw, "eye": now.eye, "radii": _radii(now),
         "track": [_point(f, ref, _hours(f.stamp, now.stamp))
                   for f in storm.track if f.tau == 0],
-        "forecast": [_point(f, ref, f.tau) for f in _forecast(storm)],
+        "forecast": [dict(_point(f, ref, f.tau), day=_day(f)) for f in _forecast(storm)],
         "peak": _peak(storm),
         "path": _path(storm, now, ref),
         "exposure": _exposure(storm, ref),
@@ -1867,6 +1874,12 @@ _JS = r"""
     return d.getUTCDate() + " " + MONTHS[d.getUTCMonth()] + " " +
            pad2(d.getUTCHours()) + ":" + pad2(d.getUTCMinutes()) + " UTC";
   }
+  // The same, as the map writes it beside a forecast point, where room is
+  // short: forecast points fall on the hour.
+  function zulu(ms) {
+    var d = new Date(ms);
+    return d.getUTCDate() + " " + MONTHS[d.getUTCMonth()] + " " + pad2(d.getUTCHours()) + "Z";
+  }
   function isoZ(ms) { return new Date(ms).toISOString().slice(0, 19) + "Z"; }
   function dayZ(ms) { return new Date(ms).toISOString().slice(0, 10); }
   function span(min) {
@@ -2679,15 +2692,19 @@ _JS = r"""
     }
     // A label to the right of its mark, else to the left, else left out:
     // the mark keeps its place and a tap still names it. A label that must
-    // keep to part of the screen says which spans it may take (fits).
+    // keep to part of the screen says which spans it may take (fits). Each
+    // line takes the room of its face: a name's 12.5 px, the rest 11 px.
     function label(x, y, r, lines, always, fits) {
       var w = 0;
-      lines.forEach(function (l, i) { w = Math.max(w, l[0].length * (i ? 6.2 : 7.2)); });
+      lines.forEach(function (l) { w = Math.max(w, l[0].length * (l[1] === "dl" ? 7.2 : 6.2)); });
       var hgt = lines.length * 14, top = y - 10;
       var right = x + r + 5, left = x - r - 5 - w;
       var at = (!fits || fits(right, right + w)) && free(right, top, w, hgt) ? [right, "start", right]
              : (!fits || fits(left, left + w)) && free(left, top, w, hgt) ? [left, "end", x - r - 5]
-             : always ? [right, "start", right] : null;
+             : null;
+      // One that must be written goes on the right, over what is there, and
+      // keeps its room from whatever is placed after it.
+      if (!at && always) { boxes.push([right, top, right + w, top + hgt]); at = [right, "start", right]; }
       if (!at) return "";
       return lines.map(function (l, i) {
         return '<text x="' + at[2].toFixed(1) + '" y="' + (y + 3 + i * 14).toFixed(1) + '" text-anchor="' + at[1] + '" class="' + l[1] + '">' + esc(l[0]) + "</text>";
@@ -2698,7 +2715,9 @@ _JS = r"""
       return '<path class="xcase" d="' + d + '"/><path class="x" d="' + d + '" style="stroke:' + colour + '"/>';
     }
     // Storms are placed first, so their names win any contest for the space,
-    // and drawn last, over every other mark.
+    // and drawn last, over every other mark: the storm picked is named first
+    // of them, so the others' names give way to its own, and drawn last of
+    // them, over the others.
     // Entered (thennow.py), the ground is another day's: of today's storms,
     // outlook areas, invests and regions, only the storm picked is drawn on
     // it, so its forecast can be played over the place.
@@ -2716,6 +2735,8 @@ _JS = r"""
         drawn.push({st: st, c: c, x: x, y: y, R: R, image: b.image, close: close});
       });
     });
+    drawn.sort(function (a, b) { return (b.st === picked) - (a.st === picked); });
+    var over = [];
     drawn.forEach(function (m) {
       var s = m.st.d, selected = m.st.id === S.selected, pieces = [];
       if (m.image && !S.scrub && s.view && s.view.parallax) {
@@ -2736,13 +2757,14 @@ _JS = r"""
       var wind = kt5 == null ? "" :
         shortAt(kt5, S.scrub ? m.c.stage : s.stage,
                 S.scrub ? m.c.formed !== false : s.formed !== false) + " \u00b7 " + kt5 + " kt";
-      top.push(pieces.join("") + '<g class="hit" data-storm="' + esc(m.st.id) + '">' +
+      (selected ? over : top).push(pieces.join("") + '<g class="hit" data-storm="' + esc(m.st.id) + '">' +
         '<circle class="pad" cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="24"/>' +
         (m.close ? '<circle class="eyecase" cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="' + m.R + '"/>' +
                    '<circle class="eye hollow" cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="' + m.R + '" style="stroke:' + m.st.hue + '"/>'
                  : '<circle class="eye" cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="' + m.R + '" style="fill:' + m.st.hue + '"/>') +
         label(m.x, m.y, m.R, [[s.title, "dl"], [wind + (S.scrub ? " at +" + S.scrub + " h" : ""), "dl2"]], selected) + "</g>");
     });
+    top.push.apply(top, over);
     // Close in, each watch or warning and each surge area says what it is
     // beside its official colour.
     if (S.z >= 6) shown.forEach(function (st) {
@@ -2784,13 +2806,16 @@ _JS = r"""
           } else {
             out.push('<circle class="dot" cx="' + cx + '" cy="' + cy + '" r="3.5" style="stroke:' + st.hue + '"/>');
           }
-          if (selected && p.hour % 24 === 0) days.push([x, y, room ? 8 : 4, p.hour]);
+          if (selected && p.day) days.push([x, y, room ? 8 : 4, Date.parse(p.t)]);
         });
       });
     });
-    // The picked storm's days, written where the marks leave room: what the
-    // storm will be matters more than the hour it is that.
-    days.forEach(function (d) { out.push(label(d[0], d[1], d[2], [["+" + d[3] + " h", "dl2"]])); });
+    // The picked storm's days (stormdesk._day), each written as the time it
+    // is valid, as the slider's readout gives time: a lead counts from the
+    // latest analysis, the slider from the frame on screen or the clock.
+    // Written where the marks leave room, since what the storm will be
+    // matters more than the hour it is that; a time not known is not written.
+    days.forEach(function (d) { if (!isNaN(d[3])) out.push(label(d[0], d[1], d[2], [[zulu(d[3]), "dl2"]])); });
     // The place found or tapped: over everything, and always named, in full
     // where that fits beside it on the map, else by its first part.
     var pins = [], named = [];
