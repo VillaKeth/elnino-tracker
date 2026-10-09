@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from elnino import atlas, atlasview, dashboard, live, stormdesk, worldmap  # noqa: E402
+from elnino import assets, atlas, atlasview, dashboard, live, stormdesk, worldmap  # noqa: E402
 # The helpers only: importing a TestCase class here would run it twice.
 from test_tracker import _DeskFixtures, _js_function, _named_run, _node_json  # noqa: E402
 
@@ -172,7 +172,7 @@ Object.defineProperty(El.prototype, "textContent", {
   set: function (text) { this.own = String(text); this.children = []; }
 });
 
-var MARK = null, CODEMARK = null, SUMMARIES = [], LISTENING = {};
+var MARK = null, CODEMARK = null, ASSETS = [], SUMMARIES = [], LISTENING = {};
 function listen(name, fn) { (LISTENING[name] = LISTENING[name] || []).push(fn); }
 function fire(name, said) {
   var e = Object.assign({type: name}, said || {});
@@ -192,6 +192,7 @@ var document = {
   },
   querySelectorAll: function (sel) {
     if (sel === "details > summary") return SUMMARIES;
+    if (sel === 'script[src^="assets/"]') return ASSETS;
     throw new Error("no fake for " + sel);
   },
   addEventListener: function (type, fn) { listen("document:" + type, fn); }
@@ -387,6 +388,59 @@ await pass(2 * MINUTE);
 console.log(JSON.stringify([fromFile, [ASKED.length, document.body.children.length], RELOADS]));
 """)
         self.assertEqual(got, [[0, 0], [0, 0], []])
+
+    # The site's worker, faked: what a page registers and tells it.
+    WORKER = r"""
+var REGISTERED = [], POSTED = [], REFUSE = false;
+Object.defineProperty(globalThis, "navigator", {configurable: true, writable: true, value: {serviceWorker: {
+  register: function (url) {
+    REGISTERED.push(String(url));
+    return REFUSE ? Promise.reject(new Error("SecurityError")) : Promise.resolve({});
+  },
+  ready: Promise.resolve({active: {postMessage: function (m) { POSTED.push(m); }}})
+}}});
+function script(src) { var s = new El("script"); s.setAttribute("src", src); return s; }
+"""
+
+    def test_a_served_page_has_the_site_s_worker_keep_the_assets_it_names(self):
+        # GitHub Pages sends every file again after each publish; the worker
+        # beside the pages (sw.js) keeps the assets, named for their
+        # contents, told this page's at once so they are kept from a first
+        # visit on.
+        got = self.page(self.WORKER + r"""
+SITE = {run_at: RUN0};
+window.isSecureContext = true;
+ASSETS = [script("assets/follower.0123456789.js"), script("assets/dashboard.abcdef0123.js")];
+load(RUN0);
+await settled();
+console.log(JSON.stringify([REGISTERED, POSTED]));
+""")
+        self.assertEqual(got, [["sw.js"], [{"keep": [
+            "https://villaketh.github.io/elnino-tracker/assets/follower.0123456789.js",
+            "https://villaketh.github.io/elnino-tracker/assets/dashboard.abcdef0123.js"]}]])
+
+    def test_a_page_from_a_file_or_an_insecure_origin_or_refused_a_worker_goes_on_without_one(self):
+        got = self.page(self.WORKER + r"""
+SITE = {run_at: RUN0};
+ASSETS = [script("assets/follower.0123456789.js")];
+location.protocol = "file:";
+window.isSecureContext = true;
+load(RUN0);
+await settled();
+var fromFile = REGISTERED.length;
+location.protocol = "http:";
+window.isSecureContext = false;
+load(RUN0);
+await settled();
+var insecure = REGISTERED.length;
+window.isSecureContext = true;
+REFUSE = true;
+load(RUN0);
+await settled();
+console.log(JSON.stringify([fromFile, insecure, REGISTERED.length, POSTED, ASKED.length > 0]));
+""")
+        # Refused, the page follows the site as before.
+        self.assertEqual(got, [0, 0, 1, [], True])
 
     def test_a_page_taking_runs_in_place_takes_a_new_one_once(self):
         got = self.page(r"""
@@ -870,7 +924,8 @@ console.log(JSON.stringify([RELOADS, window.history.scrollRestoration]));
         got = self.page(r"""
 function codeMark(code) { var m = new El("meta"); m.setAttribute("content", code); return m; }
 function doc(code) {
-  return {querySelector: function (sel) { return sel === 'meta[name="elnino-code"]' && code ? codeMark(code) : null; }};
+  return {querySelector: function (sel) { return sel === 'meta[name="elnino-code"]' && code ? codeMark(code) : null; },
+          querySelectorAll: function () { return []; }};
 }
 var page = load(RUN0, {take: function () { return Promise.resolve(); }});
 CODEMARK = codeMark("abc123");
@@ -879,6 +934,32 @@ CODEMARK = null;
 console.log(JSON.stringify([marked, page.sameCode(doc(null))]));
 """)
         self.assertEqual(got, [[True, False, False], False])
+
+    def test_a_page_naming_other_assets_is_not_its_code_s_to_take(self):
+        # Its markup was written for the code and data those assets hold
+        # (elnino/assets.py), so the page loads again for it instead.
+        got = self.page(r"""
+function codeMark(code) { var m = new El("meta"); m.setAttribute("content", code); return m; }
+function named(files) {
+  return files.map(function (file) { var s = new El("script"); s.setAttribute("src", "assets/" + file); return s; });
+}
+function doc(code, files) {
+  return {querySelector: function (sel) { return sel === 'meta[name="elnino-code"]' ? codeMark(code) : null; },
+          querySelectorAll: function (sel) {
+            if (sel === 'script[src^="assets/"]') return named(files);
+            throw new Error("no fake for " + sel);
+          }};
+}
+var page = load(RUN0, {take: function () { return Promise.resolve(); }});
+CODEMARK = codeMark("abc123");
+ASSETS = named(["places.0123456789.js", "desk.abcdef0123.js"]);
+console.log(JSON.stringify([
+  page.sameCode(doc("abc123", ["places.0123456789.js", "desk.abcdef0123.js"])),
+  page.sameCode(doc("abc123", ["places.0123456789.js", "desk.fedcba9876.js"])),
+  page.sameCode(doc("abc123", ["places.0123456789.js"])),
+  page.sameCode(doc("abc123", []))]));
+""")
+        self.assertEqual(got, [True, False, False, False])
 
     def test_a_run_that_never_comes_is_gone_for_again_after_growing_pauses(self):
         got = self.page(r"""
@@ -1268,7 +1349,9 @@ console.log(JSON.stringify(asked));
 class TestTheRunEndsWithTheBeacon(unittest.TestCase):
     """track.py writes run.json after every other file of the run."""
 
-    def run_tracker(self, *argv):
+    def run_tracker(self, *argv, page="<html></html>", before=()):
+        """The run's files as they stand when the beacon is written, every
+        page written as page, into a folder holding before's files."""
         import track
 
         state = SimpleNamespace(run_at=RUN, alert_set=SimpleNamespace(alerts=[]), degraded=False,
@@ -1276,7 +1359,8 @@ class TestTheRunEndsWithTheBeacon(unittest.TestCase):
         real, seen = live.write_run, []
 
         def beacon(run_at, path):
-            seen.extend(sorted(p.name for p in Path(path).parent.iterdir()))
+            folder = Path(path).parent
+            seen.extend(sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file()))
             return real(run_at, path)
 
         def data(_state, path):
@@ -1285,10 +1369,13 @@ class TestTheRunEndsWithTheBeacon(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         out = Path(tmp.name)
+        for name, body in before:
+            (out / name).parent.mkdir(parents=True, exist_ok=True)
+            (out / name).write_bytes(body)
         with (mock.patch.object(track.pipeline, "run", return_value=state),
-              mock.patch.object(track.dashboard, "render", return_value="<html></html>"),
-              mock.patch.object(track.atlasview, "page", return_value="<html></html>"),
-              mock.patch.object(track.stormdesk, "page", return_value="<html></html>"),
+              mock.patch.object(track.dashboard, "render", return_value=page),
+              mock.patch.object(track.atlasview, "page", return_value=page),
+              mock.patch.object(track.stormdesk, "page", return_value=page),
               mock.patch.object(track.dashboard, "write_json", side_effect=data),
               mock.patch.object(track.stormdesk, "write_json", side_effect=data),
               mock.patch.object(track.live, "write_run", side_effect=beacon),
@@ -1300,8 +1387,22 @@ class TestTheRunEndsWithTheBeacon(unittest.TestCase):
         code, out, seen = self.run_tracker()
         self.assertEqual(code, 0)
         self.assertEqual(seen, ["atlas.html", "dashboard.html", "latest.json", "map.html",
-                                "storms.html", "storms.json"])
+                                "storms.html", "storms.json", "sw.js"])
+        self.assertEqual((out / "sw.js").read_bytes(), assets.WORKER_JS.encode("utf-8"))
         self.assertEqual(json.loads((out / "run.json").read_text(encoding="utf-8")), {"run_at": RUN})
+
+    def test_the_assets_the_pages_name_are_in_place_and_the_stale_gone_before_it(self):
+        # A page that finds the run in the beacon finds every asset it names;
+        # one no page names any more is let go, and other files are left.
+        follower = assets.follower()
+        code, out, seen = self.run_tracker(page=f"<html><head>{follower.tag()}</head></html>",
+                                           before=(("assets/desk.0123456789.js", b"old"),
+                                                   ("assets/notes.txt", b"mine")))
+        self.assertEqual(code, 0)
+        self.assertEqual(seen, sorted([f"assets/{follower.file}", "assets/notes.txt", "atlas.html",
+                                       "dashboard.html", "latest.json", "map.html", "storms.html",
+                                       "storms.json", "sw.js"]))
+        self.assertEqual((out / "assets" / follower.file).read_bytes(), follower.text.encode("utf-8"))
 
     def test_a_run_writing_no_files_writes_no_beacon(self):
         code, out, seen = self.run_tracker("--no-files")
@@ -1317,9 +1418,7 @@ class TestTheDeskFollows(_DeskFixtures, unittest.TestCase):
             with self.subTest(focus=focus):
                 html = stormdesk.page(self.state(self.polo()), focus=focus)
                 self.assertEqual(_named_run(html), "2026-09-25T16:04:00+00:00")
-                follower = html.find(f"<script>{live.SCRIPT}</script>")
-                own = html.find(f"<script>{stormdesk.script()}</script>")
-                self.assertTrue(0 <= follower < own, (follower, own))
+                self.assertEqual(assets.page_assets(html)[-2:], [assets.follower().file, assets.desk().file])
         script = stormdesk.script()
         self.assertEqual(script.count('  elninoLive.follow({take: refresh, keep: keepPlace, restore: restorePlace,\n'
                                       '                     boxes: ["panel", "legend"]});\n'), 1)
@@ -1368,8 +1467,10 @@ class TestTheDeskRefresh(unittest.TestCase):
     HARNESS = r"""
 var CALLS = [], FETCHED = [];
 function note(name) { CALLS.push(name); }
-var D = {built: "2026-10-01T11:12:00Z"};
-var NEXT = {built: "2026-10-01T12:12:00Z"};
+var D = {built: "2026-10-01T11:12:00Z", enso: {now: "SON"}};
+var NEXT = {built: "2026-10-01T12:12:00Z", enso: {now: "DJF"}};
+// The data the same on every run, as the page's assets set them.
+var ELNINO = {places: [["Kingston", "Jamaica"]], coast: {lines: ["0,0"]}, grids: {PRECIP: {}, AIR: {}}};
 var location = {href: "https://villaketh.github.io/elnino-tracker/storms.html#view=-80.0,25.0,4"};
 function fetch(url, init) {
   FETCHED.push([url, init && init.cache]);
@@ -1409,7 +1510,7 @@ var elninoLive = {shows: function () { note("shows"); }, sameCode: function () {
                   hold: function () { note("hold"); return function () { note("put back"); }; }};
 """
 
-    NAMES = ("refresh", "siteCopy", "newer", "takeRun")
+    NAMES = ("refresh", "siteCopy", "newer", "takeRun", "withAssets")
 
     def refresh(self, body: str):
         js = stormdesk.script()
@@ -1433,6 +1534,18 @@ promised.then(function () {
         self.assertEqual(got["first"]["calls"][-1], "shows")
         self.assertEqual(got["calls"], got["first"]["calls"])
         self.assertEqual(got["fetched"], [["https://villaketh.github.io/elnino-tracker/storms.html", "no-store"]] * 2)
+
+    def test_a_run_taken_reads_the_shared_data_from_the_page_s_assets(self):
+        # The new run's page carries none of the data the same on every run
+        # (elnino/assets.py): the page's own, which its assets set, go on.
+        got = self.refresh(r"""
+refresh().then(function () {
+  console.log(JSON.stringify({built: D.built, now: D.enso.now, places: D.places === ELNINO.places,
+                              coast: D.coast === ELNINO.coast, grids: D.enso.grids === ELNINO.grids}));
+});
+""")
+        self.assertEqual(got, {"built": "2026-10-01T12:12:00Z", "now": "DJF", "places": True, "coast": True,
+                               "grids": True})
 
     def test_a_refresh_that_fails_is_left_for_the_follower(self):
         got = self.refresh(r"""
@@ -1809,7 +1922,8 @@ var D = {enso: {grids: {PRECIP: {}, AIR: {}}, season_label: {SON: "Sep-Nov", DJF
                 links: [{region: "Coastal Peru and Ecuador"}]}};
 var S = {x: 0.5, y: 0.5, z: 3, layer: "streets", second: "infrared", compare: false, split: 0.5, scrub: 0,
          day: null, dayStepped: false, show: {cones: true, rings: true}, refs: {tropics: false},
-         here: null, google: null, then: null, selected: null, loop: false, loopWanted: false, frame: 0,
+         here: null, google: null, then: null, street: null, thenLast: null, selected: null, loop: false,
+         loopWanted: false, frame: 0,
          enso: {variable: "PRECIP", season: "SON", mask: true, opacity: 0.6, tileOpacity: 0.8,
                 tiles: {}, regions: false, boxes: true, shown: null}};
 // A storm's section, on the tab `on` of the page's three.
@@ -1853,6 +1967,16 @@ var location = {href: "https://villaketh.github.io/elnino-tracker/map.html", has
 var history = {replaceState: function (s, t, url) {
   location.href = url; location.hash = url.indexOf("#") < 0 ? "" : url.slice(url.indexOf("#"));
 }};
+// The street entered and left, as the page's own leaves the address.
+function streetEnter(lon, lat, label, opts) {
+  note("street " + JSON.stringify([lon, lat, label, opts]));
+  S.street = {lon: lon, lat: lat, back: {loop: false, playing: false}};
+  return true;
+}
+function streetLeave() {
+  note("street leave"); S.street = null;
+  if (/^#street=/.test(location.hash)) history.replaceState(null, "", location.href.split("#")[0]);
+}
 function thenSrc(id) { return id === "modis" || id === "archive" ? {id: id} : null; }
 function sideDay(T, k) { return T.want[k]; }
 function realDay(text) { return /^\d{4}-\d\d-\d\d$/.test(text || ""); }
@@ -1870,7 +1994,7 @@ function dirty() {}
 function tick() {}
 """
     NAMES = ("clamp", "wrap", "rad", "deg", "mx", "my", "lonOf", "latOf", "own", "finite", "drawable", "ticked",
-             "ensoKept", "shownTabs", "keepPlace", "restorePlace", "setLoop", "loopWhenKnown")
+             "ensoKept", "shownTabs", "keepPlace", "restorePlace", "setLoop", "loopWhenKnown", "streetView")
     TOGGLES = 'toggles [{"cones":true,"rings":true},{"tropics":false}]'
 
     def run_js(self, body: str):
@@ -1907,6 +2031,7 @@ console.log(JSON.stringify([plain, unstepped, kept()]));
                  "enso": {"variable": "PRECIP", "season": "SON", "mask": True, "opacity": 0.6, "tileOpacity": 0.8,
                           "tiles": {}, "regions": False, "boxes": True, "shown": None},
                  "here": {"lon": -77.04, "lat": -12.05, "label": "Lima, Peru"}, "google": "street", "then": None,
+                 "street": None, "thenLast": None,
                  "storm": "ep152026", "tabs": {"storm-ep152026": "forecast", "storm-al092026": "now"},
                  "loop": True}
         self.assertEqual(got[0], plain)
@@ -1997,6 +2122,46 @@ restorePlace({here: null, then: null});
 console.log(JSON.stringify(CALLS));
 """)
         self.assertEqual(got, ["leave", self.TOGGLES, "clear here"])
+
+    def test_the_street_and_the_dates_last_compared_are_kept_and_put_back(self):
+        got = self.run_js(r"""
+S.street = {lon: -77.0428, lat: -12.0464, label: "Lima", mini: 17, box: {w: 220, h: 165}, link: "Link copied",
+            back: {loop: false, playing: false}};
+S.thenLast = {source: "modis", preset: "", a: "2014-11-15", b: "2015-11-15", names: false};
+var k = JSON.parse(JSON.stringify(keepPlace()));
+S.street = null; S.thenLast = null;
+restorePlace(k);
+console.log(JSON.stringify([k.street, k.thenLast, CALLS.filter(function (c) { return /^street/.test(c); }), S.thenLast]));
+""")
+        last = {"source": "modis", "preset": "", "a": "2014-11-15", "b": "2015-11-15", "names": False}
+        self.assertEqual(got, [{"lon": -77.0428, "lat": -12.0464, "label": "Lima", "mini": 17}, last,
+                               ['street [-77.0428,-12.0464,"Lima",{"mini":17}]'], last])
+
+    def test_a_street_or_dates_not_the_page_s_own_are_left(self):
+        got = self.run_js(r"""
+var out = [];
+[{street: {lon: "x", lat: 0}}, {street: {lon: -77.04, lat: 95}}, {street: "Lima"},
+ {thenLast: {source: "hubble", a: "2014-11-15"}}, {thenLast: "modis"}].forEach(function (k) {
+  CALLS = []; restorePlace(k); out.push(CALLS.filter(function (c) { return /^street/.test(c); }).length);
+});
+// A name that is not words is the page's own for the point.
+CALLS = []; restorePlace({street: {lon: -77.04, lat: -12.05, label: {}, mini: "deep"}});
+console.log(JSON.stringify([out, S.thenLast, CALLS.filter(function (c) { return /^street/.test(c); })]));
+""")
+        self.assertEqual(got, [[0, 0, 0, 0, 0], None, ['street [-77.04,-12.05,null,{"mini":"deep"}]']])
+
+    def test_the_address_the_street_was_opened_from_is_kept(self):
+        got = self.run_js(r"""
+var linked = "https://villaketh.github.io/elnino-tracker/map.html#street=-12.04640,-77.04280";
+history.replaceState(null, "", linked);
+S.street = {lon: -77.0428, lat: -12.0464};
+restorePlace({street: {lon: -77.0428, lat: -12.0464, label: "Lima", mini: 15}});
+var opened = [location.href === linked, !!S.street, CALLS[0]];
+S.street = {lon: -77.0428, lat: -12.0464};
+restorePlace({street: null});
+console.log(JSON.stringify([opened, location.href, S.street]));
+""")
+        self.assertEqual(got, [[True, True, "street leave"], "https://villaketh.github.io/elnino-tracker/map.html", None])
 
     def test_the_address_a_place_was_entered_from_is_kept(self):
         # Leaving the place the address opened on strips the address of it;
@@ -2180,9 +2345,7 @@ class TestTheAtlasFollows(unittest.TestCase):
         self.assertTrue(0 <= theme < style, (theme, style))
 
     def test_it_loads_again_for_a_new_run_keeping_its_own_state(self):
-        follower = self.html.find(f"<script>{live.SCRIPT}</script>")
-        own = self.html.find("var D = ATLAS;")
-        self.assertTrue(0 <= follower < own, (follower, own))
+        self.assertEqual(assets.page_assets(self.html)[-2:], [assets.follower().file, assets.atlas().file])
         self.assertTrue(atlasview._JS.rstrip().endswith(
             "  fromHash();\n  elninoLive.follow({ keep: keep, restore: restore });\n})();"))
 

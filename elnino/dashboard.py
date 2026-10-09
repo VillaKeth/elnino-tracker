@@ -1,4 +1,5 @@
-"""Self-contained HTML dashboard: inline SVG, no CDN, no build step.
+"""The HTML dashboard: inline SVG, its script beside it (elnino/assets.py), no CDN,
+no build step.
 
 Colour roles follow a validated palette (see README "Design notes"):
 categorical slots for identity, a blue/red diverging pair for SST anomaly
@@ -16,7 +17,7 @@ from .classify import Assessment, intensity_tier
 from .parsers import MonthValue, SeasonValue, WeekObservation
 from .sources import Fetched
 
-from . import (alerts, atlas, atlasview, cyclones, fields, geo, globe, impacts, live,
+from . import (alerts, assets, atlas, atlasview, cyclones, fields, geo, globe, impacts, live,
                panels, sitenav, space3d, stormdesk, stormfury, storms, worldmap)
 from .svg import (  # noqa: F401 - re-exported for the panel modules
     BAND_STATUS,
@@ -1253,6 +1254,7 @@ def render(state) -> str:
 {sitenav.ICON}
 <title>El Nino Tracker &mdash; {esc(a.index_latest.label)}</title>
 <style>{_css()}{fields.ramp_css()}{globe.css()}{storms.css()}{storms.fury_css()}</style>
+{assets.tags((assets.follower(), assets.dashboard()))}
 </head>
 <body class="dashpage">
 {sitenav.bar("dashboard.html")}
@@ -1277,8 +1279,6 @@ def render(state) -> str:
   </footer>
 </main>
 <div id="tip" role="status" aria-live="polite"></div>
-<script>{live.SCRIPT}</script>
-<script>{_js()}</script>
 </body>
 </html>"""
 

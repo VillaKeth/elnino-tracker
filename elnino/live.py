@@ -81,12 +81,13 @@ def head(run_at: str | None) -> str:
 # elninoLive.follow() once it is drawn: with {take: f} to take a new run in
 # place, f reading the page again and promising when that is done (and then
 # naming the run through elninoLive.shows(doc)), or false for a run it cannot
-# take (elninoLive.sameCode(doc) says whether its own code wrote it), which it
-# then loads again for, as every other page does; a take that fails part way
-# throws, and the page loads again for its run, offering no Later. A page
-# keeps state of its own across a load with {keep: f, restore: g}, and the
-# reader's place in its boxes with {boxes: [their ids]}: their scroll, and
-# what stands at the top of each, which elninoLive.hold() holds through a take.
+# take (elninoLive.sameCode(doc) says whether its own code wrote it, naming the
+# same assets), which it then loads again for, as every other page does; a
+# take that fails part way throws, and the page loads again for its run,
+# offering no Later. A page keeps state of its own across a load with
+# {keep: f, restore: g}, and the reader's place in its boxes with
+# {boxes: [their ids]}: their scroll, and what stands at the top of each,
+# which elninoLive.hold() holds through a take.
 SCRIPT = r"""var elninoLive = (function () {
   "use strict";
   // The site is asked which run it serves every minute. A page that loads
@@ -501,8 +502,25 @@ SCRIPT = r"""var elninoLive = (function () {
       });
   }
 
+  // The assets a page names are named for their contents, and GitHub Pages
+  // sends every file again after each publish: the site's service worker
+  // (sw.js) keeps them, told this page's at once so they are kept from a
+  // first visit on. It needs a secure origin; refused one, the page goes on
+  // with the browser's own cache.
+  function keepAssets() {
+    var workers = window.isSecureContext && navigator.serviceWorker;
+    if (!workers) return;
+    var mine = assetsOf(document).split(" ").filter(Boolean).map(function (src) {
+      return new URL(src, location.href).href;
+    });
+    workers.register("sw.js").then(function () { return workers.ready; }).then(function (reg) {
+      if (reg && reg.active) reg.active.postMessage({keep: mine});
+    }).catch(function () { /* no worker: the browser's own cache, as before */ });
+  }
+
   function follow(options) {
     if (!/^https?:$/.test(location.protocol) || !shown()) return;
+    keepAssets();
     opts = options || {};
     inPlace = !!opts.take;
     note = document.createElement("div");
@@ -536,15 +554,22 @@ SCRIPT = r"""var elninoLive = (function () {
     var mine = mark(), theirs = doc.querySelector('meta[name="elnino-run"]');
     if (mine && theirs) mine.setAttribute("content", theirs.getAttribute("content"));
   }
-  // Whether a page read from the site was written by this page's own code:
-  // only then are its markup and data this page's to take in place.
+  // Whether a page read from the site was written by this page's own code and
+  // names the same assets, the code and data that are the same from run to
+  // run (elnino/assets.py): only then are its markup and data this page's to
+  // take in place.
   function code(doc) {
     var m = doc.querySelector('meta[name="elnino-code"]');
     return m ? m.getAttribute("content") : null;
   }
+  function assetsOf(doc) {
+    return [].map.call(doc.querySelectorAll('script[src^="assets/"]'), function (s) {
+      return s.getAttribute("src");
+    }).join(" ");
+  }
   function sameCode(doc) {
     var mine = code(document);
-    return mine !== null && mine === code(doc);
+    return mine !== null && mine === code(doc) && assetsOf(document) === assetsOf(doc);
   }
 
   return {follow: follow, shows: shows, sameCode: sameCode, hold: hold};

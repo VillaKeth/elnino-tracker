@@ -28,14 +28,17 @@ Dark mode gets its own steps rather than an inversion: the ramps keep their
 hues but swap which end is light, so extremes stay luminous against a dark
 surface and the neutral midpoint recedes into it. The steps are emitted as CSS
 custom properties, so a cell is filled with ``var(--d7)`` and the whole page
-re-themes without re-rendering a single rectangle.
+re-themes without re-rendering a single rectangle. A large field drawn as a
+picture instead carries one in each theme's colours, and the page shows the
+one for its theme (``draw_cells``).
 """
 
 from __future__ import annotations
 
+import base64
 import math
 
-from . import grids
+from . import grids, png
 from itertools import count
 
 from .coastline import segments
@@ -76,13 +79,19 @@ DEPTH_DARK = (
     "#182431", "#28384a", "#394e64", "#4a6580", "#5d7d9c", "#7096ba",
     "#84afd9", "#98c9f8", "#ade4ff",
 )
+# Each ramp's steps, light and dark, by the prefix of its custom properties.
+PALETTES = {"d": (DIVERGING_LIGHT, DIVERGING_DARK), "q": (SEQ_LIGHT, SEQ_DARK),
+            "p": (DEPTH_LIGHT, DEPTH_DARK)}
 
 
 _CLIP = count()
 
 
 def ramp_css() -> str:
-    """The ramp steps as custom properties, light values with a dark override."""
+    """The ramp steps as custom properties, light values with a dark override;
+    and of a field drawn as two pictures, the one in the page's theme, chosen
+    as the steps are, its pixels kept square, or smoothed where a cell is
+    finer than a unit of the plot (``_draw_picture``)."""
 
     def block(prefix: str, colours: tuple[str, ...]) -> str:
         return " ".join(f"--{prefix}{i}: {c};" for i, c in enumerate(colours))
@@ -98,6 +107,13 @@ def ramp_css() -> str:
         f'@media (prefers-color-scheme: dark) {{ :root:not([data-theme="light"]) '
         f"{{ {dark} }} }}\n"
         f':root[data-theme="dark"] {{ {dark} }}\n'
+        ".cellimg { image-rendering: crisp-edges; image-rendering: pixelated; }\n"
+        ".cellimg.smooth { image-rendering: auto; }\n"
+        ".cellimg.dark { display: none; }\n"
+        '@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cellimg.light '
+        '{ display: none; } :root:not([data-theme="light"]) .cellimg.dark { display: inline; } }\n'
+        ':root[data-theme="dark"] .cellimg.light { display: none; }\n'
+        ':root[data-theme="dark"] .cellimg.dark { display: inline; }\n'
     )
 
 
@@ -221,6 +237,13 @@ HIT_MIN_PX = 11.0
 SEAM = 0.2
 
 
+# A regular field of more cells than this is drawn as a picture, a pixel a
+# cell: the global SST map's 911,520 cells were 2.4 MB of paths.
+# A smaller field, or one whose cells differ in size (a section's depths),
+# stays shapes.
+PICTURE_CELLS = 2000
+
+
 def draw_cells(
     plot: Plot,
     grid: Field,
@@ -246,16 +269,74 @@ def draw_cells(
     That is what makes drawing the field at its own resolution affordable
     rather than decimating it to something the page can carry.
 
+    A regular field of more than ``PICTURE_CELLS`` cells is drawn instead as
+    two indexed PNGs, a pixel a cell, one in each theme's colours, of which the
+    page shows the one for its theme (``ramp_css``): some kilobytes where its
+    runs were hundreds.
+
     Hover is a second, much coarser pass - see ``HIT_MIN_PX``.
 
-    Returns the number of runs emitted, which the tests assert against the cell
-    count to prove the run-length encoding is actually doing work.
+    Returns the number of runs drawn as shapes, none for a picture, which the
+    tests assert against the cell count to prove the run-length encoding is
+    actually doing work.
     """
     x_edges = _edges(grid.x)
     y_edges = _edges(grid.y)
     # Edge cells are half a cell wider than the outermost centre, so the run
     # rectangles overhang the frame by design; the clip trims them to it.
     plot.add(f'<g class="cellfill" clip-path="url(#{clip_area(plot)})">')
+    if grid.rows * grid.cols > PICTURE_CELLS and _regular(grid.x) and _regular(grid.y):
+        _draw_picture(plot, grid, ramp, x_edges, y_edges)
+        drawn = 0
+    else:
+        drawn = _draw_runs(plot, grid, ramp, x_edges, y_edges)
+    if hover:
+        _draw_hits(plot, grid, x_edges, y_edges, fmt, row_label, col_label)
+    plot.add("</g>")
+    return drawn
+
+
+def _regular(centres) -> bool:
+    """Whether the centres are evenly spaced, so that on a linear plot every
+    cell is the same size and a picture's pixels can be the cells."""
+    if len(centres) < 2:
+        return False
+    step = centres[1] - centres[0]
+    return step != 0 and all(abs(b - a - step) <= 1e-6 * abs(step)
+                             for a, b in zip(centres, centres[1:]))
+
+
+def _draw_picture(plot: Plot, grid: Field, ramp: Ramp, x_edges, y_edges) -> None:
+    """The field as two pictures over the cells' whole extent, a pixel a cell,
+    one in each theme's colours, a missing cell seen through. The rows go in
+    the order the plot stacks them: north up on a map, whichever way the field
+    lists its rows, and the first week at the top of a Hovmoller.
+
+    Cells finer than a unit of the plot, across or down, are left to the
+    browser's smoothing (class ``smooth``): the global map's quarter-degree
+    cells are 1,440 across some 830 units, and nearest-neighbour, shown a
+    pixel a unit, drops whole columns of them. Coarser cells stay square."""
+    light, dark = PALETTES[ramp.prefix]
+    clear = len(light)
+    rows = sorted(range(grid.rows), key=lambda r: plot.sy(grid.y[r]))
+    cols = sorted(range(grid.cols), key=lambda c: plot.sx(grid.x[c]))
+    pixels = [[clear if grid.values[r][c] is None else ramp.index(grid.values[r][c]) for c in cols]
+              for r in rows]
+    xs = [plot.sx(x) for x in (*x_edges[0], *x_edges[-1])]
+    ys = [plot.sy(y) for y in (*y_edges[0], *y_edges[-1])]
+    width, height = max(xs) - min(xs), max(ys) - min(ys)
+    box = f'x="{min(xs):.1f}" y="{min(ys):.1f}" width="{width:.1f}" height="{height:.1f}"'
+    smooth = " smooth" if width < grid.cols or height < grid.rows else ""
+    for theme, colours in (("light", light), ("dark", dark)):
+        picture = png.indexed(grid.cols, grid.rows, pixels, (*colours, "#000000"), transparent=clear)
+        plot.add(f'<image class="cellimg {theme}{smooth}" {box} preserveAspectRatio="none" '
+                 f'href="data:image/png;base64,{base64.b64encode(picture).decode("ascii")}"/>')
+
+
+def _draw_runs(plot: Plot, grid: Field, ramp: Ramp, x_edges, y_edges) -> int:
+    """The field as shapes: each run of equal-coloured neighbours in a row a
+    rectangle, and the rectangles of a colour class one path. Returns the
+    number of runs."""
     paths: dict[int, list[str]] = {}
     drawn = 0
     for row in range(grid.rows):
@@ -290,9 +371,6 @@ def draw_cells(
     for klass in sorted(paths):
         plot.add(f'<path d="{"".join(paths[klass])}" '
                  f'fill="var(--{ramp.prefix}{klass})"/>')
-    if hover:
-        _draw_hits(plot, grid, x_edges, y_edges, fmt, row_label, col_label)
-    plot.add("</g>")
     return drawn
 
 

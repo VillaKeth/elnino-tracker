@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT))
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 from elnino import (  # noqa: E402
-    alerts, atlas, atlasdata, atlasview, atmosphere, coastline, composite,
+    alerts, assets, atlas, atlasdata, atlasview, atmosphere, coastline, composite,
     cyclones, dashboard, exposure, fields, forecast, geo, globe, grids, history, impacts,
     jtwc, kml, live,
     outlook, panels, parsers, pipeline, relief, report, sitenav, sources, space3d, storage, stormdesk,
@@ -2899,6 +2899,65 @@ class TestStormDeskPage(_DeskFixtures, unittest.TestCase):
         self.assertIsNotNone(match, key)
         return match.group(0)
 
+    # Where the desk and the map can go: the imagery and the maps under it,
+    # the street's four keyless sources and their credits, the warning
+    # centres, and what is only linked. This is the whole list.
+    KNOWN_HOSTS = {
+        "gibs.earthdata.nasa.gov",          # the satellite imagery
+        "server.arcgisonline.com",          # Esri's street map, the minimap
+        "tile.openstreetmap.org",           # the OpenStreetMap base
+        "www.openstreetmap.org",            # its copyright, the roads' credit
+        "wayback.maptiles.arcgis.com",      # Esri's dated imagery, then and now
+        "s3-us-west-2.amazonaws.com",       # the list of its dates
+        "www.arcgis.com",                   # each date's details
+        "geocode.arcgis.com",               # a place typed in the search
+        "routing.openstreetmap.de",         # the nearest street, by OSRM
+        "project-osrm.org",                 # its credit
+        "power.larc.nasa.gov",              # the street's record, NASA POWER
+        "api.open-meteo.com",               # the weather there now
+        "seasonal-api.open-meteo.com",      # ECMWF's months ahead
+        "open-meteo.com",                   # their credit
+        "www.ecmwf.int",                    # the forecast's maker, linked
+        "maps.google.com",                  # Street View, Google's keyless embed
+        "www.google.com",                   # Google Maps, linked
+        "earth.google.com",                 # the oblique view, linked
+        "www.nhc.noaa.gov",                 # NHC and CPHC, their products
+        "www.metoc.navy.mil",               # JTWC
+        "www.jma.go.jp",                    # RSMC Tokyo
+        "rsmcnewdelhi.imd.gov.in",          # RSMC New Delhi
+        "meteofrance.re",                   # RSMC La Reunion
+        "www.bom.gov.au",                   # the Australian warning centres
+        "www.met.gov.fj",                   # RSMC Nadi
+        "www.metservice.com",               # TCWC Wellington
+        "www.ready.gov",                    # what to do, linked
+        "www.w3.org",                       # the SVG namespace, not a fetch
+    }
+
+    def test_every_address_the_desk_and_the_map_can_reach_is_a_known_public_one(self):
+        # Each page with the assets it names, as a browser has it, and the
+        # warning centres of every basin, whichever storms are live.
+        state = self.state(self.polo(), self.surigae(), self.iona())
+        centres = " ".join([url for _name, url in stormdesk.RSMC.values()] + list(stormdesk.CENTRES.values()))
+        for focus in ("storms", "world"):
+            with self.subTest(focus):
+                html = _with_assets(stormdesk.page(state, focus=focus))
+                hosts = set(re.findall(r"https?://([A-Za-z0-9.\-]+)", html + " " + centres))
+                self.assertGreater(len(hosts), 20)
+                self.assertEqual(hosts - self.KNOWN_HOSTS, set())
+                # And every one of them https.
+                self.assertNotIn("http://", (html + " " + centres).replace("http://www.w3.org", ""))
+
+    def test_nothing_in_the_desk_or_the_map_is_a_credential(self):
+        # The street's sources and every map under it answer keyless; a key
+        # here would be in the repository and on a public site.
+        state = self.state(self.polo(), self.surigae(), self.iona())
+        for focus in ("storms", "world"):
+            html = _with_assets(stormdesk.page(state, focus=focus))
+            for secret in ("api_key", "apikey", "api-key", "access_token", "&key=", "?key=",
+                           "appid", "client_secret", "subscription-key", "Authorization", "token="):
+                with self.subTest(focus=focus, secret=secret):
+                    self.assertNotIn(secret, html)
+
     def test_a_storm_forecast_to_strengthen_says_its_peak(self):
         # In its row, in short; in its Now tab, in full, timed.
         html = self.page(self.surigae())
@@ -3098,10 +3157,12 @@ class TestStormDeskPage(_DeskFixtures, unittest.TestCase):
         self.assertIn("No live tropical cyclones", html)
         self.assertIn('id="outlook-list"', html)
 
-    def test_no_external_scripts_and_no_insecure_urls(self):
+    def test_no_scripts_from_elsewhere_and_no_insecure_urls(self):
+        # Every script the page loads is its own, an asset beside it.
         html = self.page(self.polo(), self.surigae())
-        self.assertNotIn("<script src", html)
-        self.assertNotIn("http://", html.replace("http://www.w3.org/2000/svg", ""))
+        self.assertEqual(re.findall(r'<script[^>]*\ssrc="([^"]*)"', html),
+                         [f"assets/{file}" for file in assets.page_assets(html)])
+        self.assertNotIn("http://", _with_assets(html).replace("http://www.w3.org/2000/svg", ""))
 
     def test_only_the_map_takes_over_touch(self):
         css = stormdesk.css()
@@ -3183,11 +3244,15 @@ class TestStormDeskFind(_DeskFixtures, unittest.TestCase):
                         html, re.S).group(1)
         return json.loads(raw)
 
-    def test_the_page_carries_the_gazetteer_as_the_atlas_does(self):
-        data = self.data(stormdesk.page(self.state(self.polo())))
-        self.assertEqual(data["places"], atlasview._places_payload())
-        kingston = [row for row in data["places"]
-                    if row[0] == "Kingston" and row[1] == "Jamaica"]
+    def test_the_page_names_the_gazetteer_the_atlas_reads(self):
+        # The same on every run, so an asset beside the page (elnino/assets.py)
+        # that the atlas names too, and not the run's data.
+        html = stormdesk.page(self.state(self.polo()))
+        self.assertIn(assets.places().file, assets.page_assets(html))
+        self.assertNotIn("places", self.data(html))
+        places = _asset_value(assets.places())
+        self.assertEqual(places, atlasview._places_payload())
+        kingston = [row for row in places if row[0] == "Kingston" and row[1] == "Jamaica"]
         self.assertEqual(len(kingston), 1)
 
     def test_the_data_file_leaves_the_gazetteer_out(self):
@@ -3903,9 +3968,12 @@ class TestCompositeOnTheMap(_DeskFixtures, unittest.TestCase):
         self.assertEqual([worldmap.next_season(s) for s in atlas.SEASONS],
                          ["MAM", "JJA", "SON", "DJF"])
 
-    def test_the_page_carries_the_atlas_grids_and_its_rules(self):
-        enso = self.data(stormdesk.page(self.state()))["enso"]
-        self.assertEqual(enso["grids"], json.loads(json.dumps(atlasview._grid_payload())))
+    def test_the_page_names_the_atlas_grids_and_carries_its_rules(self):
+        html = stormdesk.page(self.state())
+        enso = self.data(html)["enso"]
+        self.assertIn(assets.grids().file, assets.page_assets(html))
+        self.assertNotIn("grids", enso)
+        self.assertEqual(_asset_value(assets.grids()), json.loads(json.dumps(atlasview._grid_payload())))
         self.assertEqual((enso["now"], enso["next"]), ("SON", "DJF"))
         self.assertEqual(enso["limits"], {"PRECIP": 3.0, "AIR": 1.6})
         self.assertEqual((enso["opacity"], enso["mask"], enso["fade"]),
@@ -5226,6 +5294,52 @@ console.log(JSON.stringify(CALLS));
         # slider's end is its end.
         self.assertEqual(got, ["settle", "select ep172026", "scrub 48", "settle", "scrub 120"])
 
+    def test_an_address_written_out_by_a_mail_or_chat_app_is_read_as_typed(self):
+        # Passed through some apps a link comes back with its commas and
+        # ampersands as %2C and %26: it opens all the same, the street and
+        # then and now as well, and an escape that is none leaves it as it was.
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in self.NAMES + ("applyHash",))
+        got = _node_json(self, functions + r"""
+var TILE = 256, MINZ = 1, anim = 0, CALLS = [];
+var S = {x: 0.5, y: 0.5, z: 3, selected: null, scrub: 0, then: null};
+var BYID = {ep172026: {}}, scrub = {max: "120"};
+function cancelAnimationFrame() {}
+function maxZoom() { return 19; }
+function settle() { CALLS.push("settle"); }
+function select(id) { CALLS.push("select " + id); S.selected = id; }
+function setScrub(h) { CALLS.push("scrub " + h); S.scrub = h; }
+function hereAt(lon, lat) { CALLS.push("here " + lat + "," + lon); }
+function streetHashApply(text) { CALLS.push(text); return true; }
+function thenHashApply(text) { CALLS.push(text); return true; }
+var opened = [applyHash("#view=10%2C-150%2C3%26storm=ep172026%26hour=48"),
+              applyHash("#at=-12.05%2C-77.04"),
+              applyHash("#street=-12.0464%2C-77.0428"),
+              applyHash("#then=-3.1%2C-60.0%2C8.00%2Cmodis%2C2014-11-15%2C2015-11-15"),
+              applyHash("#at=-12.05%E0%A4%A,-77.04")];
+console.log(JSON.stringify([opened, CALLS]));
+""")
+        self.assertEqual(got, [[True, True, True, True, False],
+                               ["settle", "select ep172026", "scrub 48", "settle", "here -12.05,-77.04",
+                                "#street=-12.0464,-77.0428",
+                                "#then=-3.1,-60.0,8.00,modis,2014-11-15,2015-11-15"]])
+
+    def test_the_atlas_reads_a_point_written_out_by_a_mail_or_chat_app_as_typed(self):
+        got = _node_json(self, _js_function(atlasview._JS, "fromHash") + r"""
+var D = {tight: 0.05}, view = null, PICKED = [], location = {hash: ""};
+function fitted() { return 1; }
+function clampView() {}
+function pick(lon, lat) { PICKED.push([lat, lon]); }
+function syncBar() {}
+function schedule() {}
+var opened = ["#at=-12.05%2C-77.04", "#at=-12.05,-77.04", "#at=-12.05%E0%A4%A,-77.04"].map(function (h) {
+  location.hash = h;
+  return fromHash();
+});
+console.log(JSON.stringify([opened, PICKED]));
+""")
+        self.assertEqual(got, [[True, True, False], [[-12.05, -77.04], [-12.05, -77.04]]])
+
     def test_a_name_every_object_answers_to_is_no_storm(self):
         # "constructor" is in the address's grammar and on every object: an
         # address naming it picks nothing, nor does anything the page's own
@@ -5459,6 +5573,20 @@ def _node_json(case: unittest.TestCase, script: str, tz: str | None = None):
                               env=dict(os.environ, TZ=tz) if tz else None)
     case.assertEqual(done.returncode, 0, done.stderr[-2000:])
     return json.loads(done.stdout)
+
+
+def _with_assets(html: str) -> str:
+    """A page as a reader's browser has it: the file, then the text of each
+    asset it names (elnino/assets.py)."""
+    return html + "".join(assets.made(file).text for file in assets.page_assets(html))
+
+
+def _asset_value(asset):
+    """What a data asset sets on the page's ELNINO (elnino/assets.py)."""
+    head = f"(window.ELNINO = window.ELNINO || {{}}).{asset.name} = "
+    if not (asset.text.startswith(head) and asset.text.endswith(";\n")):
+        raise ValueError(f"{asset.file} sets no ELNINO.{asset.name}")
+    return json.loads(asset.text[len(head):-2])
 
 
 def _named_run(page: str) -> str | None:
@@ -7593,7 +7721,7 @@ class TestPublish(unittest.TestCase):
 
     RUN_AT = "2026-09-30T19:59:20+00:00"
     SITE = [".nojekyll", "atlas.html", "dashboard.html", "index.html",
-            "latest.json", "map.html", "run.json", "storms.html", "storms.json"]
+            "latest.json", "map.html", "run.json", "storms.html", "storms.json", "sw.js"]
 
     def setUp(self):
         import publish
@@ -7612,10 +7740,18 @@ class TestPublish(unittest.TestCase):
     def _page(self, name, text):
         (self.out / name).write_bytes(text.encode("utf-8"))
 
-    def _html(self, body, run_at=None):
+    def _html(self, body, run_at=None, head=""):
         """A page of the run at run_at (the fixture's own by default), naming
-        it in its head as the tracker's pages do."""
-        return f"<html><head>{live.head(run_at or self.RUN_AT)}</head><body>{body}</body></html>"
+        it in its head as the tracker's pages do, with whatever else head holds."""
+        return f"<html><head>{live.head(run_at or self.RUN_AT)}{head}</head><body>{body}</body></html>"
+
+    def _asset(self, text="var probe = 1;\n"):
+        """An asset the dashboard names, written where a run writes it."""
+        probe = assets.Asset("probe", text)
+        (self.out / "assets").mkdir(exist_ok=True)
+        (self.out / "assets" / probe.file).write_bytes(text.encode("utf-8"))
+        self._page("dashboard.html", self._html("<!-- dashboard.html -->", head=probe.tag()))
+        return probe
 
     def _run(self, run_at):
         """Every page of a run, each naming it where the tracker's own do."""
@@ -7625,6 +7761,7 @@ class TestPublish(unittest.TestCase):
         self._page("storms.json", json.dumps({"built": built}))
         self._page("run.json", json.dumps({"run_at": run_at}))
         self._page("latest.json", json.dumps({"run_at": run_at}))
+        assets.write_worker(self.out)
 
     def _git(self, *args):
         done = subprocess.run(["git", *args], check=True, capture_output=True, text=True)
@@ -7659,6 +7796,50 @@ class TestPublish(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in site.iterdir()), self.SITE)
         self.assertEqual((site / "index.html").read_bytes(), (self.out / "dashboard.html").read_bytes())
 
+    def test_the_assets_a_page_names_go_up_beside_it(self):
+        probe = self._asset()
+        (self.out / "assets" / "stale.0123456789.js").write_bytes(b"var stale;\n")
+        site = self.tmp / "site"
+        site.mkdir()
+        self.publish.lay_out(self.out, site, home=self.nobody)
+        self.assertEqual(sorted(path.name for path in (site / "assets").iterdir()), [probe.file])
+        self._publish()
+        self.assertEqual(sorted(self._published("ls-tree", "-r", "--name-only", "gh-pages").split("\n")),
+                         sorted([*self.SITE, f"assets/{probe.file}"]))
+        self.assertEqual(self._published_bytes(f"gh-pages:assets/{probe.file}"), b"var probe = 1;\n")
+
+    def test_the_commit_holds_the_site_and_nothing_else(self):
+        # What goes up is checked against what the site is (its pages, the
+        # worker, .nojekyll and the assets the pages name), not against
+        # whatever was laid out.
+        probe = self._asset()
+        real = self.publish.lay_out
+        for what, change in (("a stray file", lambda site: (site / "stray.txt").write_bytes(b"stray")),
+                             ("a page gone", lambda site: (site / "map.html").unlink()),
+                             ("an asset gone", lambda site: (site / "assets" / probe.file).unlink())):
+            def laid(out_dir, site, home=None, change=change):
+                when = real(out_dir, site, home)
+                change(site)
+                return when
+            with self.subTest(what), mock.patch.object(self.publish, "lay_out", laid):
+                self._refused(r"the commit holds .*, not the site")
+
+    def test_a_page_naming_a_missing_asset_is_not_published(self):
+        probe = self._asset()
+        (self.out / "assets" / probe.file).unlink()
+        self._refused(rf"assets/{re.escape(probe.file)}, named by dashboard\.html, is missing")
+
+    def test_an_asset_that_is_not_the_file_it_was_named_for_is_not_published(self):
+        # A run cut off while writing it, or a hand that changed it.
+        probe = self._asset()
+        (self.out / "assets" / probe.file).write_bytes(b"var probe = 2;\n")
+        self._refused(rf"assets/{re.escape(probe.file)} is not the file its name was taken from")
+
+    def test_an_asset_naming_this_machine_s_home_is_not_published(self):
+        home = self.tmp / "home" / "someone"
+        probe = self._asset(f"var cache = {json.dumps(str(home / 'data'))};\n")
+        self._refused(rf"assets/{re.escape(probe.file)} names this machine's home folder", home=home)
+
     def test_a_run_missing_a_page_is_not_published(self):
         (self.out / "map.html").unlink()
         self._refused("map.html")
@@ -7668,7 +7849,8 @@ class TestPublish(unittest.TestCase):
                                  ("atlas.html", "<html><body>half a pa", "atlas.html is cut off"),
                                  ("storms.json", '{"storms": [', "storms.json is cut off"),
                                  ("latest.json", '{"schema": 9}', "latest.json gives no run time"),
-                                 ("latest.json", '{"run_at": "yesterday"}', "latest.json gives no run time")):
+                                 ("latest.json", '{"run_at": "yesterday"}', "latest.json gives no run time"),
+                                 ("sw.js", "self.x = 1;\n", "sw.js is not the service worker this code writes")):
             with self.subTest(page=name, text=text):
                 kept = (self.out / name).read_bytes()
                 self._page(name, text)
@@ -9363,14 +9545,17 @@ class TestEndToEnd(unittest.TestCase):
         self.assertTrue(self.state.atmosphere.indicators)
 
     def test_every_page_names_the_run_and_follows_the_site(self):
-        for name, html in (("dashboard", dashboard.render(self.state)),
-                           ("atlas", atlasview.page(self.state)),
-                           ("storms", stormdesk.page(self.state)),
-                           ("map", stormdesk.page(self.state, focus="world"))):
+        for name, html, engine in (("dashboard", dashboard.render(self.state), assets.dashboard()),
+                                   ("atlas", atlasview.page(self.state), assets.atlas()),
+                                   ("storms", stormdesk.page(self.state), assets.desk()),
+                                   ("map", stormdesk.page(self.state, focus="world"), assets.desk())):
             with self.subTest(name):
                 self.assertEqual(_named_run(html), self.state.run_at)
-                self.assertEqual(html.count(f"<script>{live.SCRIPT}</script>"), 1)
-                self.assertEqual(html.count("elninoLive.follow("), 1)
+                # The follower is the first of the code the page names and its
+                # own the last, which follows the site once.
+                self.assertEqual(assets.page_assets(html)[-2:], [assets.follower().file, engine.file])
+                self.assertEqual(engine.text.count("elninoLive.follow("), 1)
+                self.assertNotIn("elninoLive.follow(", html)
                 # The theme a page loading again hands over is set before it is styled.
                 theme, style = html.find(live.head(self.state.run_at)), html.find("<style>")
                 self.assertTrue(0 <= theme < style, (theme, style))
@@ -9426,6 +9611,30 @@ class TestEndToEnd(unittest.TestCase):
             beacon = json.loads((site / "run.json").read_text(encoding="utf-8"))
         self.assertEqual(beacon, {"run_at": self.state.run_at})
 
+    def test_a_run_writes_the_assets_its_pages_name_and_lets_go_of_the_rest(self):
+        import track
+
+        with (tempfile.TemporaryDirectory() as tmp,
+              mock.patch.object(track.pipeline, "run", return_value=self.state),
+              mock.patch("sys.stdout"), mock.patch("sys.stderr")):
+            out = Path(tmp)
+            (out / "assets").mkdir()
+            (out / "assets" / "desk.0123456789.js").write_bytes(b"a desk no page names any more")
+            (out / "assets" / "notes.txt").write_bytes(b"not the run's")
+            self.assertIn(track.main(["--offline", "--quiet", "--out", str(out)]), (0, 1, 3))
+            named = {}
+            for page in ("dashboard.html", "atlas.html", "storms.html", "map.html"):
+                files = assets.page_assets((out / page).read_text(encoding="utf-8"))
+                self.assertTrue(files, page)
+                named.update(dict.fromkeys(files))
+            self.assertEqual(sorted(path.name for path in (out / "assets").iterdir()),
+                             sorted([*named, "notes.txt"]))
+            for file in named:
+                self.assertEqual((out / "assets" / file).read_bytes(), assets.made(file).text.encode("utf-8"))
+        # The follower is all four pages', the gazetteer and the grids the
+        # desk's, the map's and the atlas's.
+        self.assertEqual(len(named), 9)
+
     def test_the_dashboard_names_its_run_and_is_dated_by_it(self):
         html = dashboard.render(self.state)
         self.assertEqual(_named_run(html), self.state.run_at)
@@ -9443,7 +9652,7 @@ class TestEndToEnd(unittest.TestCase):
         # found again by id (elnino/live.py), so the page names its body as
         # the box to hold, and every part of it wears an id of its own.
         html = dashboard.render(self.state)
-        box = re.findall(r"elninoLive\.follow\(\{ boxes: \['([\w-]+)'\] \}\)", html)
+        box = re.findall(r"elninoLive\.follow\(\{ boxes: \['([\w-]+)'\] \}\)", _with_assets(html))
         self.assertEqual(len(box), 1, "the dashboard names no box for the follower")
         start = html.find(f'<main class="wrap" id="{box[0]}">')
         self.assertGreater(start, 0, "the box named is not the page's body")
@@ -9546,10 +9755,12 @@ class TestEndToEnd(unittest.TestCase):
         self.assertIsNotNone(written, "the section card stopped quoting the tilt")
         self.assertEqual(spoken.group(1), written.group(1))
 
-    def test_dashboard_is_self_contained(self):
+    def test_dashboard_needs_nothing_from_elsewhere(self):
+        # Its scripts are its own, assets beside it, and its style is inline.
         html = dashboard.render(self.state)
         self.assertIn("<!DOCTYPE html>", html)
-        self.assertNotIn("<script src", html)
+        self.assertEqual(re.findall(r'<script[^>]*\ssrc="([^"]*)"', html),
+                         [f"assets/{file}" for file in assets.page_assets(html)])
         self.assertNotIn("<link rel=\"stylesheet\"", html)
         body = html.split("<footer>")[0].replace("http://www.w3.org", "")
         self.assertNotIn("http://", body)
@@ -9624,7 +9835,7 @@ class TestEndToEnd(unittest.TestCase):
         html = dashboard.render(self.state)
         self.assertEqual(html.count('class="scene"'), 2)
         self.assertEqual(html.count("data-scene="), 2)
-        self.assertIn("function fitView", html)
+        self.assertIn("function fitView", _with_assets(html))
 
     def test_the_globe_ships_with_its_geography_and_its_script(self):
         """A live run has to produce a globe that is actually operable."""
@@ -9635,8 +9846,9 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(len(payload["links"]), len(impacts.CATALOGUE))
         self.assertEqual(len(payload["grid"]["data"]),
                          payload["grid"]["rows"] * payload["grid"]["cols"])
-        self.assertIn("var GLOBE_COAST=", html)
-        self.assertIn("function unproject", html)
+        script = _with_assets(html)
+        self.assertIn("var GLOBE_COAST=", script)
+        self.assertIn("function unproject", script)
 
     def test_the_globe_scores_the_catalogue_at_today_as_well_as_at_the_peak(self):
         """The report only ever quotes the peak; the globe has to do both."""
@@ -9801,8 +10013,12 @@ class TestEndToEnd(unittest.TestCase):
         # Each cell's top and height were rounded to a tenth separately, so a
         # row could end a tenth of a unit above the next one's top, and the
         # page showed through: dark streaks right across the SST map at
-        # 8N, 12N, 17N and 23N.
+        # 8N, 12N, 17N and 23N. A map of more cells than fields.PICTURE_CELLS
+        # is drawn as a picture instead, a pixel a cell, with no seams in it
+        # to leave: it need only cover its frame, so that no strip of the page
+        # shows inside it.
         html = dashboard.render(self.state)
+        drawn = set()
         for title in ("Tropical Pacific sea surface temperature anomaly map",
                       "Sea surface height anomaly map",
                       "Global sea surface temperature anomaly map"):
@@ -9813,6 +10029,25 @@ class TestEndToEnd(unittest.TestCase):
             runs = [tuple(map(float, run)) for run in re.findall(
                 r"M([-\d.]+) ([-\d.]+)h([-\d.]+)v([-\d.]+)h-[-\d.]+z",
                 found.group(0))]
+            pictures = re.findall(r'<image class="cellimg (light|dark)(?: smooth)?" x="([-\d.]+)" '
+                                  r'y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)"',
+                                  found.group(0))
+            if pictures:
+                drawn.add("picture")
+                frame = tuple(map(float, re.search(
+                    r'<clipPath id="clip\d+"><rect x="([-\d.]+)" y="([-\d.]+)" '
+                    r'width="([-\d.]+)" height="([-\d.]+)"/>', found.group(0)).groups()))
+                with self.subTest(map=title, axis="picture"):
+                    self.assertFalse(runs)
+                    self.assertEqual(sorted(theme for theme, *_ in pictures), ["dark", "light"])
+                    for _theme, *box in pictures:
+                        x, y, width, height = map(float, box)
+                        self.assertLessEqual(x, frame[0] + 0.05)
+                        self.assertLessEqual(y, frame[1] + 0.05)
+                        self.assertGreaterEqual(x + width, frame[0] + frame[2] - 0.05)
+                        self.assertGreaterEqual(y + height, frame[1] + frame[3] - 0.05)
+                continue
+            drawn.add("shapes")
             self.assertTrue(runs)
             rows = sorted({(top, top + height) for _, top, _, height in runs})
             with self.subTest(map=title, axis="rows"):
@@ -9830,6 +10065,9 @@ class TestEndToEnd(unittest.TestCase):
                         # grid, less the overlap - is three tenths or more.
                         if left - right < 0.15:
                             self.assertLessEqual(left, right + 1e-9)
+        # The offline run draws both ways: the sea surface height map as
+        # shapes, the SST maps as pictures.
+        self.assertEqual(drawn, {"picture", "shapes"})
 
     def test_no_card_is_only_a_caption_and_a_folded_table(self):
         # A table behind a disclosure is the twin of a chart. "Momentum and
@@ -9943,7 +10181,7 @@ class TestEndToEnd(unittest.TestCase):
         # reading "+1.0 degC" above a tile reading "+1.36 °C". Scripts count:
         # the atlas's writes its imagery scale into the credit line.
         for html in (dashboard.render(self.state), atlasview.page(self.state)):
-            self.assertNotIn("degC", html)
+            self.assertNotIn("degC", _with_assets(html))
 
     def test_the_page_writes_celsius_with_the_sign(self):
         # "The 20 C isotherm", "28 C edge 109W", "+1.39 degrees C" - beside
@@ -11198,9 +11436,10 @@ class TestAtlasPage(unittest.TestCase):
         """The offline guarantee, restated for a page that now offers imagery.
         It is not that nothing is ever fetched - it is that nothing is fetched
         to draw the page. Every mark on first paint comes out of the file: the
-        cartography, the composite, and the relief. The XML namespace on the
-        favicon is a URI and not a request."""
-        html = atlasview.page(self.state)
+        cartography, the composite, and the relief, from the page and the
+        assets beside it. The XML namespace on the favicon is a URI and not a
+        request."""
+        html = _with_assets(atlasview.page(self.state))
         # Nothing the browser loads on its own: no script, style, image or
         # font with an address. The tiles are Image objects made in JavaScript
         # when a reader picks an imagery base, which is a different thing.
@@ -11219,7 +11458,7 @@ class TestAtlasPage(unittest.TestCase):
         """The reason there is no Google basemap here. Every tile source on
         the page is public and keyless; the moment one is not, a key is in the
         repository and the page cannot be handed to anyone."""
-        html = atlasview.page(self.state)
+        html = _with_assets(atlasview.page(self.state))
         for secret in ("api_key", "apikey", "api-key", "access_token",
                        "&key=", "?key=", "appid", "client_secret",
                        "subscription-key", "Authorization"):
@@ -11229,7 +11468,7 @@ class TestAtlasPage(unittest.TestCase):
         """A page that opens links and loads tiles should not be able to
         surprise the reader with where it goes. This is the whole list."""
         import re
-        html = atlasview.page(self.state)
+        html = _with_assets(atlasview.page(self.state))
         allowed = {
             "gibs.earthdata.nasa.gov",          # the imagery itself
             "worldview.earthdata.nasa.gov",     # the same imagery, their tool
@@ -11248,7 +11487,7 @@ class TestAtlasPage(unittest.TestCase):
     def test_the_legend_turns_round_for_the_variable_that_inverts(self):
         """Rainfall maps the negated value so the dry end reads warm. A strip
         drawn in ramp order under a -3..+3 label would then be backwards."""
-        html = atlasview.page(self.state)
+        html = _with_assets(atlasview.page(self.state))
         self.assertIn('id="steps"', html)
         self.assertIn("flexDirection", html)
         self.assertIn("row-reverse", html)
@@ -11405,7 +11644,7 @@ class TestImageryGeometry(unittest.TestCase):
             cyclones=SimpleNamespace(storms=(), available=False),
             generated=date(2026, 9, 23),
         )
-        html = atlasview.page(state)
+        html = _with_assets(atlasview.page(state))
         self.assertIn("var TOP = 288", html)
         self.assertIn("clipPath", html)
         self.assertIn("Math.ceil(360 / span)", html)
@@ -11442,7 +11681,7 @@ class TestPhysicalReadout(unittest.TestCase):
             cyclones=SimpleNamespace(storms=(), available=False),
             generated=date(2026, 9, 23),
         )
-        cls.html = atlasview.page(cls.state)
+        cls.html = _with_assets(atlasview.page(cls.state))
 
     def test_the_payload_describes_the_relief_grid_the_page_decodes(self):
         payload = atlasview.payload(self.state)

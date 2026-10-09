@@ -9,9 +9,10 @@
                   points as a table so the dashboard still says something
                   without the reader going anywhere.
 
-Everything is drawn in the browser from data embedded in the file. No tiles, no
-CDN, no key, no request: the page works from a USB stick on a plane, which is
-the same standard the rest of this system is held to.
+Everything is drawn in the browser from data in the file and in the assets
+beside it (``elnino/assets.py``). No tiles, no CDN, no key, no request to
+anyone: the page and its assets folder work from a USB stick on a plane, which
+is the same standard the rest of this system is held to.
 
 On the absence of satellite imagery
 -----------------------------------
@@ -58,7 +59,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-from . import atlas, atlasdata, coastline, composite, fields, geo, live, relief, sitenav
+from . import assets, atlas, atlasdata, coastline, composite, fields, geo, live, relief, sitenav
 from .impacts import CATALOGUE
 from .svg import esc, table
 
@@ -221,16 +222,29 @@ def _storms_payload(state) -> list:
     return out
 
 
-def payload(state) -> dict:
+def _geo_payload() -> dict:
+    """The coast, borders, rivers and lakes the page draws."""
     return {
-        "grids": _grid_payload(),
-        "places": _places_payload(),
-        "links": _links_payload(),
-        "storms": _storms_payload(state),
         "coast": [list(pair) for pair in coastline.packed()],
         "borders": [list(pair) for pair in atlasdata.packed("borders")],
         "rivers": [list(pair) for pair in atlasdata.packed("rivers")],
         "lakes": [list(pair) for pair in atlasdata.packed("lakes")],
+    }
+
+
+def payload(state) -> dict:
+    """Everything the page draws: the page's own data (_run_payload) and what
+    is the same on every run, which is in the assets it names."""
+    return {"grids": _grid_payload(), "places": _places_payload(), **_geo_payload(),
+            **_run_payload(state)}
+
+
+def _run_payload(state) -> dict:
+    """What the page itself carries: the run's storms and the dates of today's
+    imagery, with the page's rules and catalogue."""
+    return {
+        "links": _links_payload(),
+        "storms": _storms_payload(state),
         "tolerances": list(atlasdata.TOLERANCES),
         "wide": WIDE,
         "tight": TIGHT,
@@ -597,7 +611,13 @@ FIELD_JS = r"""
 _JS = r"""
 (function () {
   "use strict";
+  // The run's own data, from the page, and what is the same on every run,
+  // from the assets the page names (elnino/assets.py).
   var D = ATLAS;
+  D.grids = ELNINO.grids; D.places = ELNINO.places;
+  D.coast = ELNINO.atlasgeo.coast; D.borders = ELNINO.atlasgeo.borders;
+  D.rivers = ELNINO.atlasgeo.rivers; D.lakes = ELNINO.atlasgeo.lakes;
+  var RELIEF = ELNINO.relief;
   var map = document.getElementById("map");
   var svg = document.getElementById("svg");
   var pan = document.getElementById("pan");
@@ -2108,9 +2128,13 @@ _JS = r"""
 
   var HINT = panel.innerHTML;
   // A link can open the atlas on a point, atlas.html#at=LAT,LON, as the storm
-  // desk's "here" does: the view closes in on it and its dossier opens.
+  // desk's "here" does: the view closes in on it and its dossier opens. As
+  // the desk does, it is read as typed where a mail or chat app wrote its
+  // comma out (%2C).
   function fromHash() {
-    var m = /^#at=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(location.hash);
+    var hash = location.hash;
+    try { hash = decodeURIComponent(hash); } catch (err) { /* no escape: as it is */ }
+    var m = /^#at=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(hash);
     if (!m) { return false; }
     var lat = +m[1], lon = +m[2];
     if (Math.abs(lat) > 90 || Math.abs(lon) > 360) { return false; }
@@ -2283,12 +2307,12 @@ disagreed with each other.</p>
 
 
 def page(state) -> str:
-    """The whole standalone atlas, one file."""
+    """The standalone atlas: the page, and the assets it names."""
     # Imported here rather than at the top: dashboard imports this module for
     # the card, and a top-level import back would close the circle.
     from .dashboard import _css as shell_css
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    data = json.dumps(payload(state), separators=(",", ":"))
+    data = json.dumps(_run_payload(state), separators=(",", ":"))
     # A closing tag inside a JSON string ends the script element wherever it
     # appears, including inside a quoted place name.
     data = data.replace("</", "<\\/")
@@ -2306,6 +2330,7 @@ def page(state) -> str:
   pointer-events: none; }}
 .slab {{ font-weight: 600; }}
 </style>
+{assets.tags(_assets())}
 </head>
 <body class="atlaspage">
 {sitenav.bar("atlas.html")}
@@ -2337,9 +2362,13 @@ def page(state) -> str:
   <aside class="atlaspanel dossier" id="panel">{_HINT}</aside>
 </main>
 {_legend()}
-<script>var RELIEF="{relief.png()}";</script>
 <script>var ATLAS={data};</script>
-<script>{live.SCRIPT}</script>
-<script>{_JS}</script>
 </body>
 </html>"""
+
+
+def _assets() -> tuple:
+    """The assets the page names, in the order they run: the data that are the
+    same on every run, the follower, then the page's own code."""
+    return (assets.places(), assets.grids(), assets.atlasgeo(), assets.relief(), assets.follower(),
+            assets.atlas())

@@ -37,7 +37,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from elnino import atlasview, dashboard, live, pipeline, report, storage, stormdesk
+from elnino import assets, atlasview, dashboard, live, pipeline, report, storage, stormdesk
 from elnino.alerts import CRITICAL, WARNING
 
 ROOT = Path(__file__).resolve().parent
@@ -109,9 +109,8 @@ def _run_once(args) -> int:
     html_path = out_dir / "dashboard.html"
     json_path = out_dir / "latest.json"
     # The atlas is its own file rather than another card. It wants the whole
-    # viewport and it ships its own copy of the composite grids and the
-    # gazetteer, which is several megabytes a reader who only wanted the ONI
-    # should not have to download.
+    # viewport and it names the composite grids and the gazetteer, several
+    # megabytes a reader who only wanted the ONI should not have to download.
     atlas_path = out_dir / "atlas.html"
     # The storm desk and the map are one page written twice, opened on the
     # storms or on El Nino's effects. Served, they take each new run in place
@@ -121,12 +120,20 @@ def _run_once(args) -> int:
     map_path = out_dir / "map.html"
     desk_json = out_dir / "storms.json"
     if not args.no_files:
-        html_path.write_text(dashboard.render(state), encoding="utf-8")
-        atlas_path.write_text(atlasview.page(state), encoding="utf-8")
-        desk_path.write_text(stormdesk.page(state), encoding="utf-8")
-        map_path.write_text(stormdesk.page(state, focus="world"), encoding="utf-8")
+        pages = {html_path: dashboard.render(state), atlas_path: atlasview.page(state),
+                 desk_path: stormdesk.page(state), map_path: stormdesk.page(state, focus="world")}
+        # The code and data the pages name (elnino/assets.py), in place before
+        # any page that names them.
+        named = [file for text in pages.values() for file in assets.page_assets(text)]
+        assets.write(out_dir, named)
+        # The service worker the pages register, which keeps the assets.
+        assets.write_worker(out_dir)
+        for path, text in pages.items():
+            path.write_text(text, encoding="utf-8")
         dashboard.write_json(state, json_path)
         stormdesk.write_json(state, desk_json)
+        # Let go of the assets no page names any more, now that none here does.
+        assets.prune(out_dir, named)
         # Last of all: a page that finds this run named in the beacon finds
         # every file of it already written.
         live.write_run(state.run_at, out_dir / live.BEACON)

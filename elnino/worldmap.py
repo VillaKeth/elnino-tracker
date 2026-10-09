@@ -757,6 +757,7 @@ _JS = r"""
   // asked again, the region put away and the map left where it is.
   function showRegion(name) {
     if (S.then) thenLeave();
+    if (S.street) streetLeave();
     var l = (D.enso.links || []).filter(function (x) { return x.region === name; })[0];
     if (!l) return false;
     if (S.enso.shown === name) { setEnso({shown: null}); return true; }
@@ -1085,6 +1086,7 @@ _JS = r"""
   }
   function setEnso(patch) {
     if (S.then) thenLeave();
+    if (S.street) streetLeave();
     for (var k in patch) S.enso[k] = patch[k];
     ensoControls();
     dirty();

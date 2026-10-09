@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from elnino import parsers, stormdesk, thennow, worldmap  # noqa: E402
+from elnino import parsers, stormdesk, street, thennow, worldmap  # noqa: E402
 from elnino.parsers import SeasonValue  # noqa: E402
 # The helpers only: importing a TestCase class here would run it twice.
 from test_tracker import _DeskFixtures, _js_function, _node_json  # noqa: E402
@@ -225,16 +225,18 @@ class TestThenMarkup(_DeskFixtures, unittest.TestCase):
         self.assertIn('aria-describedby="then-enter-how"', button)
         self.assertIn('<svg class="thenfigsvg"', button)
         self.assertIn('aria-hidden="true"', button)
-        self.assertTrue(button.endswith(" Enter</button>"))
+        self.assertTrue(button.endswith(" Street View</button>"))
         self.assertIn('id="then-enter-how">Drag the figure onto the map, or press it and tap a '
-                      "place, to see that place before and after El Niño.</span>", tools)
+                      "place, to drop into Street View there and see what El Niño does to that "
+                      "street.</span>", tools)
         self.assertIn('id="then-ghost" aria-hidden="true" hidden>', tools)
 
     def test_the_hint_chips_and_ring_are_on_the_map(self):
         html = self.page()
         mapped = html[html.index('<div class="deskmap" id="map"'):html.index('<div class="deskzoom ui">')]
         self.assertIn('<p class="thenhint ui" id="then-hint" role="status" hidden>Tap a place to '
-                      "enter it, or press Enter for the middle of the view. Esc cancels.</p>", mapped)
+                      "drop into Street View there, or press Enter for the middle of the view. "
+                      "Esc cancels.</p>", mapped)
         for key in ("a", "b"):
             self.assertIn(f'<div class="thenchip ui" id="then-chip-{key}" hidden></div>', mapped)
         self.assertIn('<span class="thenring" id="then-ring" aria-hidden="true" hidden></span>', mapped)
@@ -487,7 +489,7 @@ Object.defineProperty(Image.prototype, "src", {
 });
 function $(id) { return document.getElementById(id); }
 var map = $("map"), divider = $("divider"), statusPill = $("status");
-var TILE = 256, MINZ = 1, MAXZ = 13, UNIT = 1048576, HOUR = 3600000, NM = 1.852;
+var TILE = 256, MINZ = 1, MAXZ = 13, UNIT = 1048576, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
 var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 var NODATA = {}, MAPS = {}, GOT = {}, DOM = {}, AGAIN = {}, looks = {}, NO_ANSWER = "no answer", anim = 0;
 var S = {x: 0.5, y: 0.5, z: 3, w: 800, h: 600, layer: "streets", second: "infrared", compare: false,
@@ -525,6 +527,9 @@ function hereAt(lon, lat, label) { note("hereAt " + label); S.here = {lon: lon, 
 function googleFrame(kind) { note("googleFrame " + kind); }
 function tileFailed() { note("tileFailed " + this._name); }
 function cellAt(name, season, lon, lat) { return {value: LAND[Math.round(lon) + "," + Math.round(lat)] ? 1 : null}; }
+// A box written again as the page's retake writes it: whole.
+function retake(box, html) { box.innerHTML = html; }
+var COMPASS8 = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 """
 
 # The page's functions the script calls, as the page's script has them.
@@ -533,16 +538,18 @@ ENGINE = ("clamp", "wrap", "rad", "deg", "mx", "my", "lonOf", "latOf", "world", 
           "kms", "nearestPlace", "placeLabel", "pin", "signedText", "classify", "wrap180", "googleZoom",
           "googleLinks", "tileUrl", "xyzUrl", "present", "xyzCells", "source", "timed", "cells",
           "labelled", "labelledBase", "overSpecs", "gotKey", "tilesDown", "look", "covered", "imageOn",
-          "mapDown", "nasaDown", "baseDown")
+          "mapDown", "nasaDown", "baseDown", "googleEmbed", "maxZoom", "finite")
 
-# The page's payload for the 2014-16 event, built on 29 September 2026.
+# The page's payload for the 2014-16 event, built on 29 September 2026, and
+# the street's from the same run.
 THEN = thennow.payload(state_with(EVENT, run_at="2026-09-29T12:00:00+00:00"))
+STREET = street.payload(state_with(EVENT, run_at="2026-09-29T12:00:00+00:00"))
 
 
 def _d(then) -> dict:
-    """The page's data as the script reads it: the then-and-now payload and
-    GIBS's addresses, with test hosts."""
-    return {"then": then, "enso": {"now": "SON", "hide_above": 12}, "layers": [],
+    """The page's data as the script reads it: the then-and-now and street
+    payloads and GIBS's addresses, with test hosts."""
+    return {"then": then, "street": STREET, "enso": {"now": "SON", "hide_above": 12}, "layers": [],
             "gibs": {"domains": "https://gibs/{layer}/{tms}/{start}--{end}.xml",
                      "tiles": "https://gibs/{layer}/{time}/{tms}/{z}/{y}/{x}.{ext}",
                      "static": "https://gibs/{layer}/{tms}/{z}/{y}/{x}.{ext}",
@@ -551,11 +558,12 @@ def _d(then) -> dict:
 
 
 def _run(case, body: str, then=None, extra: str = ""):
-    """What an async body prints as JSON, run after the whole script."""
+    """What an async body prints as JSON, run after then-and-now's script and
+    the street's, taken in as the page takes them."""
     js = stormdesk.script()
     functions = "\n".join(_js_function(js, name) for name in ENGINE)
     script = ('(function () {\n"use strict";\n' + PRELUDE + "var D = " + json.dumps(_d(then or THEN)) + ";\n"
-              + functions + "\n" + extra + "\n" + thennow._JS
+              + functions + "\n" + extra + "\n" + thennow._JS + "\n" + street._JS
               + "\n(async function () {\n  try {\n" + body + "\n  } catch (err) {\n"
               "    console.log(JSON.stringify({error: String(err && err.stack || err)}));\n  }\n})();\n})();\n")
     return _node_json(case, script)
@@ -2022,7 +2030,8 @@ class TestThenEnterRuns(unittest.TestCase):
 
     def test_a_refresh_while_entered_draws_the_sides_again(self):
         js = stormdesk.script()
-        extra = "\n".join(_js_function(js, name) for name in ("refresh", "siteCopy", "newer", "takeRun")) + r"""
+        names = ("refresh", "siteCopy", "newer", "takeRun", "withAssets")
+        extra = "\n".join(_js_function(js, name) for name in names) + r"""
 function prepare() { note("prepare"); LAYERS = {streets: {id: "streets", kind: "map"}}; }
 function select() {}
 function showHere() {}
@@ -2032,6 +2041,7 @@ function ensoControls() {}
 function render() {}
 var geoDirty = false;
 var ensoSaid = "", coastDone = 1, coastD = "M0", coastG = {innerHTML: ""}, STORMS = [], BYID = {}, NEXT = null;
+var ELNINO = {places: [], coast: {lines: []}, grids: {}};
 function DOMParser() {}
 DOMParser.prototype.parseFromString = function () {
   return {getElementById: function (id) { return id === "desk-data" ? {textContent: JSON.stringify(NEXT)} : null; }};
@@ -2050,17 +2060,17 @@ var elninoLive = {shows: function () { note("shows"); }, sameCode: function () {
         """, extra=extra)
         self.assertEqual(got, [True, "then-a", "then-b", "2014-11-15", "2015-11-15"])
 
-    def test_here_offers_to_enter_the_point_it_shows(self):
+    def test_here_offers_then_and_now_of_the_point_it_shows(self):
         js = stormdesk.script()
-        self.assertIn('data-here="enter">Enter here</button>', _js_function(js, "showHere"))
-        self.assertIn('if (el.getAttribute("data-here") === "enter") { if (S.here) thenEnter(S.here.lon, S.here.lat, '
-                      'S.here.label); }', js)
+        self.assertIn('<button type="button" class="toolbtn" data-here="then">Then and now here</button>',
+                      _js_function(js, "showHere"))
+        self.assertIn('else if (h && what === "then") thenEnter(h.lon, h.lat, h.label);', js)
 
     def test_the_page_s_api_enters_leaves_and_tells_what_is_entered(self):
         js = stormdesk.script()
         self.assertIn("enter: function (lon, lat, opts) { return thenEnter(lon, lat, null, opts || {}); },", js)
         self.assertIn("leave: function () { return thenLeave(); },", js)
-        self.assertIn("dayState: S.dayState, then: thenView()};", js)
+        self.assertIn("dayState: S.dayState, then: thenView(), street: streetView()};", js)
         got = _run(self, MODIS_DAYS + r"""
           var none = thenView();
           thenEnter(-60.025, -3.1, null, {source: "modis", a: "2015-11-15", b: "2014-11-15"});
@@ -2089,8 +2099,8 @@ SCREEN = (r"""
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
 class TestThenFigureRuns(unittest.TestCase):
     """The figure, as Google's: pressed, the map waits for a tap, or Enter
-    for the middle of the view; carried onto the map, it enters where it is
-    let go. Esc stops waiting, or leaves."""
+    for the middle of the view; carried onto the map, it drops into Street
+    View where it is let go. Esc stops waiting, or leaves."""
 
     def test_pressing_the_figure_waits_for_a_tap_and_pressing_again_stops(self):
         got = _run(self, SCREEN + r"""
@@ -2112,9 +2122,9 @@ class TestThenFigureRuns(unittest.TestCase):
           var stopped = [S.arming, esc.defaultPrevented, S.then];
           $("then-enter").fire("click");
           var enter = press("Enter");
-          console.log(JSON.stringify([stopped, enter.defaultPrevented, S.arming, S.then.label, S.then.source]));
+          console.log(JSON.stringify([stopped, enter.defaultPrevented, S.arming, S.street.label, S.then]));
         """)
-        self.assertEqual(got, [[False, True, None], True, False, "Manaus, Amazonas, Brazil", "archive"])
+        self.assertEqual(got, [[False, True, None], True, False, "Manaus, Amazonas, Brazil", None])
 
     def test_esc_leaves_the_place_and_keys_typed_in_a_field_are_its_own(self):
         got = _run(self, r"""
@@ -2131,7 +2141,7 @@ class TestThenFigureRuns(unittest.TestCase):
         # Esc with nothing to stop or leave is the page's.
         self.assertEqual(got, [[True, False, False, False, False], True, None, False])
 
-    def test_a_tap_while_waiting_enters_there_and_one_while_entered_moves_the_place(self):
+    def test_a_tap_while_waiting_drops_into_the_street_and_one_while_entered_moves_the_place(self):
         extra = _js_function(stormdesk.script(), "tap") + r"""
 var tapTimer = 0, lastTap = null;
 function zoomBy() { note("zoomBy"); }
@@ -2141,18 +2151,20 @@ function flyToArea() { note("flyToArea"); }
         got = _run(self, SCREEN + r"""
           $("then-enter").fire("click");
           tap({x: spot.x, y: spot.y, target: map}, 1000);
-          var entered = [S.arming, S.then && S.then.label, S.then && S.then.source];
-          // Entered, a tap asks nothing of Here: it moves the place.
-          S.x = 0.5; S.y = 0.5; S.z = 3;
+          var dropped = [S.arming, S.street && S.street.label, S.then];
+          // In then and now, a tap asks nothing of Here: it moves the place.
+          streetLeave();
+          """ + MANAUS + r"""
+          S.x = 0.5; S.y = 0.5; S.z = 3; CALLS = [];
           tap({x: 400, y: 300, target: map}, 5000); advance(330);
           var moved = [S.then.label, CALLS.filter(function (c) { return c.indexOf("hereAt") === 0; }).length];
           thenLeave();
           tap({x: 400, y: 300, target: map}, 9000); advance(330);
-          console.log(JSON.stringify([entered, moved, CALLS.filter(function (c) { return c.indexOf("hereAt") === 0; })]));
+          console.log(JSON.stringify([dropped, moved, CALLS.filter(function (c) { return c.indexOf("hereAt") === 0; })]));
         """, extra=extra)
-        self.assertEqual(got, [[False, "Manaus, Amazonas, Brazil", "archive"], ["0.00N 0.00E", 0], ["hereAt undefined"]])
+        self.assertEqual(got, [[False, "Manaus, Amazonas, Brazil", None], ["0.00N 0.00E", 0], ["hereAt undefined"]])
 
-    def test_the_figure_carried_onto_the_map_enters_where_it_is_let_go(self):
+    def test_the_figure_carried_onto_the_map_drops_into_the_street_where_it_is_let_go(self):
         got = _run(self, SCREEN + r"""
           map.box = {left: 100, top: 50, width: 800, height: 600};
           var fig = $("then-enter");
@@ -2167,7 +2179,7 @@ function flyToArea() { note("flyToArea"); }
           // The click that follows letting go does not press the figure.
           fig.fire("click");
           console.log(JSON.stringify([still, carrying, [$("then-ghost").hidden, $("then-ring").hidden],
-                                      S.then && S.then.label, S.arming]));
+                                      S.street && S.street.label, S.arming]));
         """)
         self.assertEqual(got, [[True, True], [False, "translate(159px,368px)", False, "translate(59px,318px)"],
                                [True, True], "Manaus, Amazonas, Brazil", False])
@@ -2185,12 +2197,12 @@ function flyToArea() { note("flyToArea"); }
           var off = [$("then-ghost").hidden, $("then-ring").hidden];
           fig.fire("pointerup", {pointerId: 3, clientX: 60, clientY: 30});
           fig.fire("click");
-          off.push(S.then, S.arming, $("then-ghost").hidden);
+          off.push(S.street, S.arming, $("then-ghost").hidden);
           fig.fire("pointerdown", {pointerId: 4, pointerType: "touch", clientX: 20, clientY: 20});
           fig.fire("pointermove", {pointerId: 4, clientX: 400, clientY: 300});
           fig.fire("pointercancel", {pointerId: 4, clientX: 400, clientY: 300});
           fig.fire("click");
-          console.log(JSON.stringify([right, off, S.then, S.arming, $("then-ghost").hidden, $("then-ring").hidden]));
+          console.log(JSON.stringify([right, off, S.street, S.arming, $("then-ghost").hidden, $("then-ring").hidden]));
         """)
         self.assertEqual(got, [True, [False, True, None, False, True], None, False, True, True])
 
@@ -2206,15 +2218,15 @@ function flyToArea() { note("flyToArea"); }
           var ring = $("then-ring").hidden;
           fig.fire("pointerup", {pointerId: 5, clientX: 100 + spot.x, clientY: 50 + spot.y});
           fig.fire("click");
-          var over = [ring, S.then, S.arming];
+          var over = [ring, S.street, S.arming];
           // The same place with the map itself under the pointer.
           document.elementFromPoint = function () { return map; };
           fig.fire("pointerdown", {pointerId: 6, pointerType: "mouse", button: 0, clientX: 20, clientY: 20});
           fig.fire("pointermove", {pointerId: 6, clientX: 100 + spot.x, clientY: 50 + spot.y});
           fig.fire("pointerup", {pointerId: 6, clientX: 100 + spot.x, clientY: 50 + spot.y});
-          console.log(JSON.stringify([over, S.then && S.then.label]));
+          console.log(JSON.stringify([over, S.street && S.street.label]));
         """)
-        # Over a control there is no ring and no entry, as over the toolbar.
+        # Over a control there is no ring and no drop, as over the toolbar.
         self.assertEqual(got, [[True, None, False], "Manaus, Amazonas, Brazil"])
 
     def test_entering_by_here_a_link_or_the_api_stops_waiting_for_a_tap(self):
@@ -2229,9 +2241,13 @@ function flyToArea() { note("flyToArea"); }
           thenLeave(); fig.fire("click");
           thenHashApply("#then=-3.1000,-60.0250,8.00,modis,2014-11-15,2015-11-15");
           out.push(state());
+          thenLeave(); fig.fire("click");
+          streetEnter(-60.025, -3.1, "Manaus");
+          out.push(state());
           console.log(JSON.stringify([armed, out]));
         """)
         self.assertEqual(got, [[True, True, False, "true"], [[False, False, True, "false"],
+                                                             [False, False, True, "false"],
                                                              [False, False, True, "false"]]])
 
 
@@ -2384,18 +2400,19 @@ function forgetMaps() { note("forgetMaps"); }
         url = "file:///C:/elnino/output/map.html#then=-3.1000,-60.0250,8.00,archive,2019-06-26,2021-10-31"
         self.assertEqual(got, [["The link is copied once both sides are found.", 0], [url], "Link copied: " + url])
 
-    def test_street_view_opens_google_s_view_of_the_place_once(self):
-        got = _run(self, _entered("modis", "2014-11-15", "2015-11-15") + r"""
-          function asked() { return CALLS.filter(function (c) { return /^(hereAt|googleFrame|scroll)/.test(c); }); }
+    def test_street_view_takes_the_place_into_the_street(self):
+        got = _run(self, MODIS_DAYS + MANAUS + r"""
+          await flush();
           $("then-street").fire("click");
-          var first = asked();
-          S.google = {kind: "street"}; $("google-frame").hidden = false; CALLS = [];
-          $("then-street").fire("click");
-          console.log(JSON.stringify([first, S.here, asked()]));
+          advance(0);
+          await flush();
+          console.log(JSON.stringify([S.then, S.street && S.street.label, S.here, $("street-stage").hidden,
+                                      CALLS.filter(function (c) { return /^googleFrame/.test(c); }),
+                                      ASKED.filter(function (u) { return u.indexOf("routed-car") >= 0; }).length]));
         """)
-        # Already open on the street, it is not closed by a second press.
-        self.assertEqual(got, [["hereAt Manaus", "googleFrame street", "scroll google-frame"],
-                               {"lon": -60.025, "lat": -3.1, "label": "Manaus"}, ["hereAt Manaus", "scroll google-frame"]])
+        # The stage is Google's view of it now: Here's own frame is not opened.
+        # Its street was asked for as a pick's is; with no answer, it stayed.
+        self.assertEqual(got, [None, "Manaus", {"lon": -60.025, "lat": -3.1, "label": "Manaus"}, False, [], 1])
 
 
 class TestThenKey(_DeskFixtures, unittest.TestCase):

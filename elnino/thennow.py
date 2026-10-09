@@ -1,11 +1,11 @@
-"""Enter a place and see it before and after El Nino.
+"""See a place before and after El Nino.
 
-"Enter" drops into a point of the map as Google Maps' figure does, and shows
-the same ground at two dates either side of the divider, the earlier on the
-left, each date named with what ENSO was doing in the season around it: the
-tracker's own record of the official index, RONI. Five archives hold the
-dates, every one keyless and sent with CORS, as each answered on 29 September
-2026:
+Then and now shows a point of the map, entered from Here, from Street View
+(street.py) or by its link, as the same ground at two dates either side of
+the divider, the earlier on the left, each date named with what ENSO was
+doing in the season around it: the tracker's own record of the official
+index, RONI. Five archives hold the dates, every one keyless and sent with
+CORS, as each answered on 29 September 2026:
 
 * Esri's World Imagery Wayback: every release of World Imagery since
   February 2014, sub-metre where Esri has it, under the Esri Master License
@@ -19,8 +19,11 @@ dates, every one keyless and sent with CORS, as each answered on 29 September
   on).
 
 Google's Street View cannot be had for a date: neither its embed nor its Maps
-URLs take one. It stays one press away, and Google Maps' own "See more dates"
-holds its older panoramas.
+URLs take one. It stays one press away, the bar's Street View, and Google
+Maps' own "See more dates" holds its older panoramas.
+
+The toolbar's figure lives here too, as it began here: carried onto the map,
+or pressed and a place tapped, it drops into Street View.
 """
 
 from __future__ import annotations
@@ -274,7 +277,7 @@ def payload(state) -> dict:
 # ----------------------------------------------------------------------------
 # the page's parts
 # ----------------------------------------------------------------------------
-# The figure on the Enter button, and under the pointer while it is carried.
+# The figure on the Street View button, and under the pointer while it is carried.
 _FIGURE = ('<svg class="thenfigsvg" viewBox="0 0 24 24" width="20" height="20" '
            'aria-hidden="true" focusable="false"><circle cx="12" cy="4.6" r="3.1"/>'
            '<path d="M8.6 9.4h6.8l-1 7.2h-1.4l-.6 6.2h-2.8l-.6-6.2H9.6z"/></svg>')
@@ -282,19 +285,21 @@ _FIGURE = ('<svg class="thenfigsvg" viewBox="0 0 24 24" width="20" height="20" '
 
 def enter_button() -> str:
     """The toolbar's figure: pressed, it arms the map for a tap; carried, it
-    is let go over the place to enter."""
+    is let go over the place to drop into Street View there."""
     return ('<button type="button" class="toolbtn thenfig" id="then-enter" aria-pressed="false" '
-            f'aria-describedby="then-enter-how">{_FIGURE} Enter</button>'
+            f'aria-describedby="then-enter-how">{_FIGURE} Street View</button>'
             '<span class="thenhow" id="then-enter-how">Drag the figure onto the map, or press '
-            "it and tap a place, to see that place before and after El Niño.</span>"
+            "it and tap a place, to drop into Street View there and see what El Niño does to "
+            "that street.</span>"
             f'<span class="thenghost" id="then-ghost" aria-hidden="true" hidden>{_FIGURE}</span>')
 
 
 def map_parts() -> str:
-    """What Enter puts on the map: the hint while armed, a chip either side of
-    the divider naming its date, and the ring under a carried figure."""
-    return ('<p class="thenhint ui" id="then-hint" role="status" hidden>Tap a place to enter it, '
-            "or press Enter for the middle of the view. Esc cancels.</p>"
+    """What the figure and then and now put on the map: the hint while armed,
+    a chip either side of the divider naming its date, and the ring under a
+    carried figure."""
+    return ('<p class="thenhint ui" id="then-hint" role="status" hidden>Tap a place to drop into '
+            "Street View there, or press Enter for the middle of the view. Esc cancels.</p>"
             '<div class="thenchip ui" id="then-chip-a" hidden></div>'
             '<div class="thenchip ui" id="then-chip-b" hidden></div>'
             '<span class="thenring" id="then-ring" aria-hidden="true" hidden></span>')
@@ -480,14 +485,17 @@ def css() -> str:
 # Taken into the desk's script at its /*THENNOW*/ marker, after the map's.
 _JS = r"""
   // ---- then and now: a place before and after El Nino (thennow.py) ---------
-  // Enter drops into a point of the map, as Google Maps' figure does, and
-  // shows the same ground at two dates either side of the divider, the
+  // A point of the map, entered from Here, from Street View or by its link,
+  // shown as the same ground at two dates either side of the divider, the
   // earlier on the left, each named with the season of the index around it.
   // Each side is a layer of the page's own kinds, LAYERS["then-a"] and
   // LAYERS["then-b"], so the compare view draws them; the engine asks
   // S.then wherever it must not draw today's storms, tiles and composite
   // over another day.
   S.then = null;
+  // The source and dates of the place last left, which Street View's Then
+  // and now comes back to.
+  S.thenLast = null;
   function thenSrc(id) {
     var list = (D.then && D.then.sources) || [];
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
@@ -1372,6 +1380,8 @@ _JS = r"""
   function thenEnter(lon, lat, label, opts) {
     opts = opts || {};
     lon = lonIn(lon); lat = clamp(lat, -85, 85);
+    // Street View is the place's other view: entering this one leaves it.
+    if (S.street) streetLeave();
     var old = S.then, src = thenSrc(opts.source) || (old && thenSrc(old.source)) || thenSrc(thenPick(lon, lat));
     var back = old ? old.back : {layer: S.layer, second: S.second, compare: S.compare, split: S.split, loop: S.loop};
     if (S.loop) setLoop(false);
@@ -1401,6 +1411,7 @@ _JS = r"""
     var T = S.then;
     if (!T) return false;
     S.then = null;
+    S.thenLast = {source: T.source, preset: T.preset, a: T.want.a, b: T.want.b, names: T.names};
     delete LAYERS["then-a"]; delete LAYERS["then-b"];
     var b = T.back;
     S.second = b.second; S.compare = b.compare; thenSplit(b.split);
@@ -1441,7 +1452,8 @@ _JS = r"""
   $("then-exit").addEventListener("click", function () { thenLeave(); });
   // ---- the figure: pressed, then a tap; or carried onto the map ---------------------
   // Pressed, the map waits for a tap (or Enter, for the middle of the view);
-  // carried, a ring shows where it would land, and letting go there enters.
+  // carried, a ring shows where it would land, and letting go there drops
+  // into Street View (figureLand, street.py).
   S.arming = false;
   var fig = $("then-enter"), ghost = $("then-ghost"), landing = $("then-ring"), carry = null, carried = false;
   function arm(on) {
@@ -1472,7 +1484,7 @@ _JS = r"""
     if (!at) return;
     var w = toWorld(at.x, at.y);
     arm(false);
-    thenEnter(lonOf(w.x), latOf(w.y));
+    figureLand(lonOf(w.x), latOf(w.y));
   }
   fig.addEventListener("pointerdown", function (e) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -1483,6 +1495,8 @@ _JS = r"""
   fig.addEventListener("pointermove", function (e) {
     if (!carry || e.pointerId !== carry.id) return;
     if (!carry.moved && Math.hypot(e.clientX - carry.x0, e.clientY - carry.y0) < 8) return;
+    // Picked up in the street, the figure is carried over the map.
+    if (!carry.moved && S.street) streetLeave();
     carry.moved = true;
     setHidden(ghost, false);
     ghost.style.transform = "translate(" + Math.round(e.clientX) + "px," + Math.round(e.clientY) + "px)";
@@ -1494,10 +1508,12 @@ _JS = r"""
   fig.addEventListener("pointercancel", function (e) { carryEnd(e, false); });
   fig.addEventListener("click", function () {
     if (carried) { carried = false; return; }
+    // Pressed in the street, the map comes back to tap a place on.
+    if (S.street) streetLeave();
     arm(!S.arming);
   });
   // Esc stops waiting for a tap, or leaves the place; Enter while waiting
-  // enters the middle of the view. Keys typed into a field are its own.
+  // drops into the middle of the view. Keys typed into a field are its own.
   document.addEventListener("keydown", function (e) {
     var t = e.target, tag = t && t.tagName;
     if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || (t && t.closest && t.closest("#findform"))) return;
@@ -1507,7 +1523,7 @@ _JS = r"""
     } else if (e.key === "Enter" && S.arming) {
       e.preventDefault();
       arm(false);
-      thenEnter(lonOf(S.x), latOf(S.y));
+      figureLand(lonOf(S.x), latOf(S.y));
     }
   });
   // ---- the pill, the status, the address ------------------------------------------
@@ -1594,15 +1610,11 @@ _JS = r"""
     } catch (err) { /* no clipboard: the link stays shown */ }
     dirty();
   }
-  // Google's Street View of the place, in the Here panel's frame.
+  // The place in Street View: the stage's Then and now the other way round,
+  // its street found as a pick's is.
   function thenStreet() {
     var T = S.then;
-    if (!T) return;
-    hereAt(T.lon, T.lat, T.label);
-    var g = S.google, box = $("google-frame");
-    if (!(g && g.kind === "street" && box && !box.hidden)) googleFrame("street");
-    box = $("google-frame");
-    if (box && box.scrollIntoView) box.scrollIntoView({block: "nearest"});
+    return T ? streetPick(T.lon, T.lat, S.z, T.label) : false;
   }
   $("then-copy").addEventListener("click", function () { thenCopy(); });
   $("then-street").addEventListener("click", function () { thenStreet(); });

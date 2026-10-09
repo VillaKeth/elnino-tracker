@@ -22,8 +22,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import (alerts, coastline, cyclones, exposure, fields, live, outlook, sitenav, thennow,
-               worldmap)
+from . import (alerts, assets, coastline, cyclones, exposure, fields, live, outlook, sitenav,
+               street, thennow, worldmap)
 from .storms import NEUTRAL, STORM_HUES
 from .svg import esc, table
 
@@ -1415,6 +1415,7 @@ def _map() -> str:
         '<button type="button" data-fit="1" aria-label="Show every storm">All</button>'
         "</div>"
         f'<div class="deskcredit ui" id="credit">{esc(GIBS_ENDPOINTS["credit"])}</div>'
+        + street.map_parts() +
         "</div>"
     )
 
@@ -1738,15 +1739,16 @@ def page(state, focus: str = "storms") -> str:
                      "hues": hues, "products": dict(PRODUCT_COLOURS),
                      "outlook": dict(OUTLOOK_COLOURS), "surge": SURGE_COLOUR,
                      "cone": dict(CONE_COLOURS)}
-    # The gazetteer the search reads, in the atlas's own rows. It is the page's,
-    # not storms.json's: it is the same on every run.
-    from .atlasview import _places_payload
-    data["places"] = _places_payload()
-    # The street, satellite and terrain maps are the page's, as the gazetteer
-    # is: storms.json keeps the layers it has always had.
+    # The street, satellite and terrain maps are the page's: storms.json keeps
+    # the layers it has always had.
     data["layers"] += [_plain_layer(layer) for layer in worldmap.LAYERS]
     data["enso"] = worldmap.payload(state)
+    # What is the same on every run, the coast and the composite grids with the
+    # gazetteer the search reads, is in assets the page names (_assets); the
+    # script puts them back into the run's data (withAssets).
+    del data["coast"], data["enso"]["grids"]
     data["then"] = thennow.payload(state)
+    data["street"] = street.payload(state)
     data["focus"] = focus
     enso = thennow.enter_button() + worldmap.controls(focus, data["enso"]["now"],
                                                         data["enso"]["next"])
@@ -1763,7 +1765,8 @@ def page(state, focus: str = "storms") -> str:
 {live.head(getattr(state, "run_at", None))}
 {sitenav.ICON}
 <title>{esc(words["title"])}</title>
-<style>{shell_css()}{fields.ramp_css()}{css()}{worldmap.css()}{thennow.css()}</style>
+<style>{shell_css()}{fields.ramp_css()}{css()}{worldmap.css()}{thennow.css()}{street.css()}</style>
+{assets.tags(_assets())}
 </head>
 <body class="deskpage">
 {sitenav.bar(words["page"], carry=(words["other"],))}
@@ -1785,23 +1788,29 @@ def page(state, focus: str = "storms") -> str:
 <p class="heresaid" id="here-said" role="status"></p>
 </main>
 <script id="desk-data" type="application/json">{raw}</script>
-<script>{live.SCRIPT}</script>
-<script>{script()}</script>
 </body>
 </html>"""
+
+
+def _assets() -> tuple:
+    """The assets the page names, in the order they run: the data that are the
+    same on every run, the follower, then the page's own code."""
+    return (assets.places(), assets.grids(), assets.coast(), assets.follower(), assets.desk())
 
 
 def script() -> str:
     """The page's script: the desk's, with the map's and the then-and-now
     view's taken in at their markers."""
     return (_JS.replace("  /*WORLDMAP*/\n", worldmap._JS)
-            .replace("  /*THENNOW*/\n", thennow._JS))
+            .replace("  /*THENNOW*/\n", thennow._JS)
+            .replace("  /*STREET*/\n", street._JS))
 
 
 _JS = r"""
 (function () {
   "use strict";
-  var D = JSON.parse(document.getElementById("desk-data").textContent);
+  // The run's data, from the page, with what is the same on every run.
+  var D = withAssets(JSON.parse(document.getElementById("desk-data").textContent));
   function $(id) { return document.getElementById(id); }
   var map = $("map"), svgEl = $("overlay"), coastG = $("coast"), geoG = $("geo"), marksG = $("marks");
   var divider = $("divider"), framePill = $("frame"), statusPill = $("status");
@@ -3373,6 +3382,7 @@ _JS = r"""
   // a storm's own imagery, the reason a layer could not be had is done with.
   function setLayer(id) {
     if (S.then) thenLeave();
+    if (S.street) streetLeave();
     var l = LAYERS[id], note = $("layer-note");
     if (!l || (l.kind !== "imagery" && l.kind !== "map")) return false;
     if (l.served_only && !servedOnly(location.protocol)) return false;
@@ -3391,6 +3401,7 @@ _JS = r"""
   function pressCompare() { setCompare(!(S.then ? S.then.back.compare : S.compare)); }
   function setCompare(on) {
     if (S.then) thenLeave();
+    if (S.street) streetLeave();
     S.compare = !!on;
     if (S.compare && S.second === S.layer) S.second = S.layer === "infrared" ? "geocolor" : "infrared";
     $("compare").setAttribute("aria-pressed", S.compare ? "true" : "false");
@@ -3406,6 +3417,7 @@ _JS = r"""
   }
   function flyTo(id) {
     if (S.then) thenLeave();
+    if (S.street) streetLeave();
     if (String(id).indexOf("area:") === 0) return flyToArea(String(id).slice(5));
     var st = BYID[id];
     if (!st) return false;
@@ -3466,11 +3478,19 @@ _JS = r"""
       a.setAttribute("href", a.getAttribute("data-carry") + hash);
     });
   }
+  // The street's address and then and now's open their own views; any
+  // other place or view leaves them. A link passed through a mail or chat
+  // app can come back with its commas and ampersands written out (%2C,
+  // %26): it is read as typed.
   function applyHash(text) {
-    if (/^#then=/.test(text || "") && thenHashApply(text)) return true;
+    text = text || "";
+    try { text = decodeURIComponent(text); } catch (err) { /* no escape: as it is */ }
+    if (/^#street=/.test(text) && streetHashApply(text)) return true;
+    if (/^#then=/.test(text) && thenHashApply(text)) return true;
     var h = parseHash(text);
     if (!h) return false;
     if (S.then) thenLeave();
+    if (S.street) streetLeave();
     // An address followed, as the slider moved by hand, stops Play.
     if (S.playing) setPlay(false);
     cancelAnimationFrame(anim); anim = 0;
@@ -3593,6 +3613,7 @@ _JS = r"""
     // The geocoder's row sends the words, and lists what comes back.
     if (r.kind === "search") { geocode(r.q); return true; }
     if (S.then) thenLeave();
+    if (S.street) streetLeave();
     closeList();
     findBox.value = r.label;
     findBox.blur();
@@ -3871,8 +3892,10 @@ _JS = r"""
     else if (place && place.km <= 400) facts.push(kms(place.km) + " from " + esc(place.name));
     html.push('<p class="herewhere">' + facts.join(" \u00b7 ") + "</p>");
     html.push('<div class="herebtns"><button type="button" class="toolbtn" data-here="show">Show on map</button>' +
-              '<button type="button" class="toolbtn" data-here="enter">Enter here</button>' +
+              '<button type="button" class="toolbtn" data-here="street">Street View here</button>' +
+              '<button type="button" class="toolbtn" data-here="then">Then and now here</button>' +
               '<button type="button" class="toolbtn" data-here="clear">Clear</button></div>');
+    html.push('<div class="streetcard" id="street-card">' + streetCardHtml(streetState(S.here.lon, S.here.lat)) + "</div>");
     var near = h.storms.filter(nearHere);
     var far = h.storms.filter(function (r) { return near.indexOf(r) < 0; });
     html.push("<h4>Live storms</h4>");
@@ -3904,6 +3927,8 @@ _JS = r"""
     box.hidden = false;
     hereSay("Here: " + S.here.label);
     ensoTodayRead(S.here.lon, S.here.lat);
+    if (streetAsked(S.here.lon, S.here.lat)) streetCard(S.here.lon, S.here.lat, true);
+    if (S.street) streetChip();
     var go2 = $("herego");
     go2.textContent = S.here.label.split(", ")[0] + (D.focus === "world" ? ": El Ni\u00f1o here \u2193" : ": what the storms mean here \u2193");
     go2.hidden = false;
@@ -3941,7 +3966,7 @@ _JS = r"""
     var panel = $("panel");
     if (panel && window.matchMedia && window.matchMedia("(min-width: 900px)").matches) panel.scrollTop = 0;
   }
-  function clearHere() { S.here = null; if (!S.then) S.pin = null; showHere(); requestRender(); }
+  function clearHere() { if (S.street) streetLeave(); S.here = null; if (!S.then) S.pin = null; showHere(); requestRender(); }
 
   // ---- touch, mouse and keys ------------------------------------------------------
   var pointers = new Map(), gesture = null, lastTap = null, wheelTimer = 0, dragging = false, tapTimer = 0;
@@ -3990,7 +4015,7 @@ _JS = r"""
   });
   function tap(q, time) {
     clearTimeout(tapTimer);
-    if (S.arming) { var w = toWorld(q.x, q.y); arm(false); thenEnter(lonOf(w.x), latOf(w.y)); return; }
+    if (S.arming) { var w = toWorld(q.x, q.y); arm(false); figureLand(lonOf(w.x), latOf(w.y)); return; }
     if (lastTap && time - lastTap.t < 320 && Math.hypot(q.x - lastTap.x, q.y - lastTap.y) < 30) {
       lastTap = null;
       zoomBy(1, q.x, q.y);
@@ -4084,6 +4109,7 @@ _JS = r"""
   $("day-later").addEventListener("click", function () { findDay(1); });
   $("compare-layer").addEventListener("change", function (e) {
     if (S.then) thenLeave();
+    if (S.street) streetLeave();
     S.second = e.target.value;
     if (S.second === "detail") { S.dayStepped = false; dayAt = ""; }
     if (S.second === S.layer) setLayer(S.layer === "infrared" ? "geocolor" : "infrared");
@@ -4091,12 +4117,14 @@ _JS = r"""
   });
   $("swap").addEventListener("click", function () {
     if (S.then) thenLeave();
+    if (S.street) streetLeave();
     var top = S.layer, under = S.second;
     S.second = top;
     setLayer(under);
     $("compare-layer").value = S.second;
   });
-  $("loop").addEventListener("click", function () { setLoop(!S.loop); });
+  // The loop runs on the map: pressed in the street, it leaves for the map.
+  $("loop").addEventListener("click", function () { var on = !S.loop; if (S.street) streetLeave(); setLoop(on); });
   scrub.addEventListener("input", function () { if (S.playing) setPlay(false); setScrub(+scrub.value); });
   playBtn.addEventListener("click", function () { setPlay(!S.playing); });
   framePill.addEventListener("click", function () {
@@ -4119,11 +4147,15 @@ _JS = r"""
     if (el.hasAttribute("data-google")) { googleFrame(el.getAttribute("data-google")); return; }
     if (el.id === "herego") { var hb = $("here"); if (hb && !hb.hidden) hb.scrollIntoView({block: "start"}); return; }
     if (el.hasAttribute("data-here")) {
-      if (el.getAttribute("data-here") === "clear") clearHere();
-      else if (el.getAttribute("data-here") === "enter") { if (S.here) thenEnter(S.here.lon, S.here.lat, S.here.label); }
-      else if (S.here) {
+      var what = el.getAttribute("data-here"), h = S.here;
+      if (what === "clear") clearHere();
+      else if (h && what === "street") streetPick(h.lon, h.lat, S.z, h.label);
+      else if (h && what === "then") thenEnter(h.lon, h.lat, h.label);
+      else if (h) {
+        // Shown on the map: out of the street, which covers it.
+        if (S.street) streetLeave();
         map.scrollIntoView({block: "nearest"});
-        animate({x: mx(S.here.lon) + near(mx(S.here.lon)), y: my(S.here.lat), z: Math.max(S.z, 9)});
+        animate({x: mx(h.lon) + near(mx(h.lon)), y: my(h.lat), z: Math.max(S.z, 9)});
       }
       return;
     }
@@ -4197,11 +4229,12 @@ _JS = r"""
   // the view is left where it is. Served, the page asks the site each minute
   // which run it serves (elninoLive, in live.py) and comes here only for a run
   // it does not show; the promise says when the page has taken it, and the
-  // page then names the run in its head. A run another code wrote is not this
-  // script's to read: the promise says false, and the follower loads the page
-  // again for it, the reader's place handed across (keepPlace, below). A copy
-  // no newer than the page's own run (a CDN's edge can still serve an older
-  // one) is passed over, and the follower goes for the run again after a pause.
+  // page then names the run in its head. A run another code wrote, or whose
+  // page names other assets, is not this script's to read: the promise says
+  // false, and the follower loads the page again for it, the reader's place
+  // handed across (keepPlace, below). A copy no newer than the page's own run
+  // (a CDN's edge can still serve an older one) is passed over, and the
+  // follower goes for the run again after a pause.
   function refresh() {
     return siteCopy().then(function (copy) {
       if (copy === false) return false;
@@ -4223,6 +4256,14 @@ _JS = r"""
   }
   // Whether one run is later than another, however each is written.
   function newer(a, b) { return Date.parse(a) > Date.parse(b); }
+  // A run's data with what is the same on every run, which the page leaves to
+  // the assets it names (elnino/assets.py): the gazetteer, the coast and the
+  // composite grids. A run is taken only from a page naming the same assets,
+  // so this page's are the run's.
+  function withAssets(d) {
+    d.places = ELNINO.places; d.coast = ELNINO.coast; d.enso.grids = ELNINO.grids;
+    return d;
+  }
   // The new run taken where the reader is, the place in the panel and the key
   // held by the follower (elninoLive.hold). A take that fails part way leaves
   // the page between two runs: it throws once the place is put back, and the
@@ -4232,7 +4273,7 @@ _JS = r"""
     var stamp = doc.getElementById("built");
     var putPlaceBack = elninoLive.hold();
     try {
-      D = next;
+      D = withAssets(next);
       // The panel and the key as the reader left them. Here is the page's own:
       // showHere, below, writes it from the new run around Google's frame.
       if (panel) retake($("panel"), panel.innerHTML, $("here"));
@@ -4262,20 +4303,23 @@ _JS = r"""
   // ---- a run loaded where the reader was ------------------------------------------
   // A run the page cannot take in place is loaded, and the reader's place
   // handed across: the view; the layers, the comparison, the divider and the
-  // loop as the map's own (Exit's, while a place is entered); the hour scrubbed to,
+  // loop as the map's own (Exit's, while a place or the street is entered); the hour scrubbed to,
   // the day stepped to, the overlays and El Nino's map; Here, and Google's
-  // frame in it; the place entered, on its event or its dates; the storm
-  // chosen and each storm's tab. The follower keeps the panel's scroll, its
-  // tables open or shut and the theme.
+  // frame in it; the place entered, on its event or its dates, or the street
+  // dropped into, with the dates then and now last showed; the storm chosen
+  // and each storm's tab. The follower keeps the panel's scroll, its tables
+  // open or shut and the theme.
   function keepPlace() {
     var T = S.then, layers = T ? T.back : S;
     return {view: {lon: wrap(lonOf(S.x)), lat: latOf(S.y), z: S.z},
             layer: layers.layer, second: layers.second, compare: layers.compare, split: layers.split,
-            loop: layers.loop, scrub: S.scrub, day: S.dayStepped ? S.day : null,
+            loop: T ? T.back.loop : S.street ? S.street.back.loop : S.loop, scrub: S.scrub,
+            day: S.dayStepped ? S.day : null,
             show: S.show, refs: S.refs, enso: S.enso,
             here: S.here, google: S.google ? S.google.kind : null,
             then: T ? {lon: T.lon, lat: T.lat, label: T.label, source: T.source, preset: T.preset,
                        a: sideDay(T, "a"), b: sideDay(T, "b"), names: T.names, split: S.split} : null,
+            street: streetView(), thenLast: S.thenLast,
             storm: S.selected, tabs: shownTabs($("panel"))};
   }
   // The place handed across, put back over the page as it opened. It is
@@ -4286,8 +4330,9 @@ _JS = r"""
     function point(p) { return !!p && typeof p === "object" && finite(p.lon) && finite(p.lat) && Math.abs(p.lat) <= 90; }
     // Leaving the place the address opened on strips the address of it: the
     // place entered again, the address is put back as it was.
-    var address = /^#then=/.test(location.hash) ? location.href : null;
+    var address = /^#(then|street)=/.test(location.hash) ? location.href : null;
     if (S.then) thenLeave();
+    if (S.street) streetLeave();
     if (drawable(k.layer)) setLayer(k.layer);
     if (drawable(k.second) && k.second !== S.layer) { S.second = k.second; $("compare-layer").value = S.second; }
     if (typeof k.compare === "boolean") setCompare(k.compare);
@@ -4309,7 +4354,7 @@ _JS = r"""
     });
     // The view before Here, so Google's map opens at the reader's zoom, and
     // again last, over the flight into a place entered.
-    var h = k.here, t = k.then, v = k.view;
+    var h = k.here, t = k.then, s = k.street, v = k.view;
     var seen = !!v && typeof v === "object" && finite(v.lon) && finite(v.lat) && finite(v.z);
     function look() {
       cancelAnimationFrame(anim); anim = 0;
@@ -4325,14 +4370,20 @@ _JS = r"""
                 {source: t.source, preset: t.preset, a: t.a, b: t.b, names: t.names, instant: true});
       if (finite(t.split)) thenSplit(clamp(t.split, 0.05, 0.95));
     }
-    // A loop runs over frames GIBS has yet to give: on Exit, while a place is
-    // entered, and else once they are in view (loopWhenKnown).
+    var last = k.thenLast;
+    if (last && typeof last === "object" && thenSrc(last.source)) {
+      S.thenLast = {source: last.source, preset: last.preset, a: last.a, b: last.b, names: last.names};
+    }
+    if (point(s)) streetEnter(s.lon, s.lat, typeof s.label === "string" && s.label ? s.label : null, {mini: s.mini});
+    // A loop runs over frames GIBS has yet to give: on Exit, while a place or
+    // the street is entered, and else once they are in view (loopWhenKnown).
     if (k.loop === true) {
       if (S.then) S.then.back.loop = true;
+      else if (S.street) S.street.back.loop = true;
       else S.loopWanted = true;
     }
     if (seen) { look(); settle(); }
-    if (address && S.then) {
+    if (address && (S.then || S.street)) {
       try { history.replaceState(null, "", address); } catch (err) { /* the address stays without it */ }
     }
   }
@@ -4379,6 +4430,7 @@ _JS = r"""
 
   /*WORLDMAP*/
   /*THENNOW*/
+  /*STREET*/
   // ---- start ------------------------------------------------------------------
   prepare();
   unserved();
@@ -4422,6 +4474,8 @@ _JS = r"""
     here: function (lon, lat, open) { if (open) hereAt(lon, lat); return hereFor(lon, lat); },
     enter: function (lon, lat, opts) { return thenEnter(lon, lat, null, opts || {}); },
     leave: function () { return thenLeave(); },
+    street: function (lon, lat) { return streetEnter(lon, lat); },
+    leaveStreet: function () { return streetLeave(); },
     view: function () {
       var st = BYID[S.selected], b = st ? base(st) : null;
       return {lon: wrap(lonOf(S.x)), lat: latOf(S.y), zoom: S.z, layer: S.layer,
@@ -4430,7 +4484,7 @@ _JS = r"""
               imagery: S.imagery, imageTime: b && b.image ? isoZ(b.t) : null,
               sources: Object.keys(S.inView).filter(function (k) { return k !== "none"; }),
               tiles: document.querySelectorAll("#tiles img").length, pin: S.pin,
-              day: S.day, dayState: S.dayState, then: thenView()};
+              day: S.day, dayState: S.dayState, then: thenView(), street: streetView()};
     }
   };
 })();

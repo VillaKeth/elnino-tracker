@@ -257,11 +257,24 @@ The spatial tier is strictly additive. Nothing in it feeds the classification,
 the power index, the forecast or the alerts, so a spatial feed that fails costs a
 picture and nothing else — the run continues and says which view is missing.
 
+A map of more than 2,000 cells on a regular grid — the Pacific and global SST
+maps and both Hovmöllers — is drawn as two indexed PNGs, a pixel a cell, one in
+each theme's colours, of which the page shows the one for its theme, its pixels
+kept square, unless a cell is finer than a unit of the plot: the global map's
+1,440 columns in some 830 units are left to the browser's smoothing, since
+nearest-neighbour would drop whole columns of cells. The hover blocks over a
+picture stay shapes. As runs of SVG paths the
+global map's 911,520 cells were 2.4 MB; as pictures they are two PNGs of some
+75 KB each, and the dashboard went from 1.13 MB to 869 KB gzip. A smaller field,
+or one whose cells differ in size, stays shapes: the sea-level map (1,449 cells),
+the depth sections and the isotherm Hovmöller.
+
 The three interactive panels — the globe, the thermocline surface and the phase
 spiral — are rendered twice: once server-side as real SVG, so the page is
 complete with JavaScript disabled, in a print and in a screenshot, and again by a
-small inline script that re-projects the same geometry on drag. There is no
-library and no network call; the projection is fifteen lines of arithmetic.
+small script, the dashboard's own asset (*The live site*), that re-projects the
+same geometry on drag. There is no library and nothing from elsewhere; the
+projection is fifteen lines of arithmetic.
 
 ### The globe
 
@@ -1314,10 +1327,11 @@ gazetteer still works.
 
 ### Then and now: entering a place
 
-The **Enter** figure in the toolbar drops into a place as Google's Pegman does:
-drag it onto the map and let go, or press it and tap a place (Enter takes the
-middle of the view, Esc stops waiting; let go over a control on the map and it
-enters nowhere); *Here* offers **Enter here** for the point it shows. The map flies to the place at its source's own zoom and shows
+*Here* offers **Then and now here** for the point it shows; the street stage's
+**Then and now** enters the point it is on, coming back to the source and dates
+then and now last showed, and the bar's **Street View** goes the other way. The
+toolbar's figure drops into Street View (see *Street View* below). The map
+flies to the place at its source's own zoom and shows
 that source on both sides of the divider at two dates, the earlier on the left,
 with a chip either side giving each date and the RONI season centred on its
 month. Esc or **Exit** leaves, putting back the layers, the comparison, the
@@ -1401,10 +1415,125 @@ season words say what ENSO was at each date; they do not attribute the
 difference to it. That is the composite's job (section 11): what El Niño
 seasons did, on average, against neutral ones.
 
+### Street View
+
+The toolbar's figure is **Street View**, as Google Maps' figure is. Carried onto
+the map and let go, or pressed and a place tapped (Enter takes the middle of the
+view, Esc puts it back), it opens the **street stage** at that point: Google's
+own Street View, its keyless embed
+(`maps.google.com/maps?layer=c&cbll=LAT,LON&output=svembed`), loaded only then,
+in the map's place. A bar over it gives the place, **Then and now**, **Copy
+link**, **Google Maps ↗** (the panorama's documented Maps URL) and **Exit** (Esc
+too). A strip under it holds a **minimap** of the map's own street tiles about
+the point, with a pin, its own + and − (zoom 3 to 18, opening at 15), Esri's
+credit, and a tap on it moving Street View there; and beside it the first lines
+of the card, with **The whole card ↓** and Open-Meteo's credit for the forecast
+they quote. Nothing of the page sits on Google's
+frame, whose controls, logo and terms are its own. *Here* moves to the point,
+with the card at its top. **Exit** puts the map back on the point at zoom 16 or
+deeper, as deep as the layer goes. While the stage is open the map's scrubber
+and key are hidden, every control that changes the map (a layer, the
+comparison, the swap, a flight, a find, El Niño's map, a region, an address,
+*Here*'s **Show on map** and **Clear**) leaves the street first, and the figure
+picked up again leaves it, to show the map to drop on. The satellite loop and
+Play run over the map, so both stop while the stage is open and Exit runs again
+whichever ran; **Loop** pressed in the street leaves it for the map. A pick that
+opens the stage takes the keyboard's focus into it, and Exit gives it back to
+the map. Street View and then and
+now are two views of an entered place, and one gives way to the other: the
+stage's **Then and now** enters the same point, coming back to the source and
+dates last used, and the then-and-now bar's **Street View** goes the other way.
+*Here* offers **Street View here** and **Then and now here**.
+
+A point the reader picks (the figure let go, the minimap tapped, *Here*'s and
+then and now's Street View) goes first to the nearest street, as Google Maps'
+figure goes to its blue lines: Google's embed looks only some tens of metres
+about a point, and on 9 October 2026 a point in a block in Lima found no
+panorama and one in São Paulo a café's inside. FOSSGIS's OSRM
+(`routing.openstreetmap.de`, its `routed-car` profile's `nearest`) gives the
+nearest point on a road a car may take on OpenStreetMap, and it is taken when it
+lies within 24 pixels of the view, 250 m at the least and 5 km at the most.
+OSRM is asked once a second at most, the latest pick winning, and credited under
+the minimap as its operator asks; a pick it has not answered within 2.5 s opens
+where it was made. An address, `#street=` and the page's API open exactly where
+they say. Where Google has no panorama at all its frame says "No Street View
+available", and the stage's note says why; the minimap and the card are the
+point's either way.
+
+`map.html#street=LAT,LON` opens the stage (**Copy link** writes it); like
+every address the desk, the map and the atlas read, it opens all the same when
+a mail or chat app has written its commas out as `%2C`. Scripts
+have `stormDesk.street(lon, lat)`, `stormDesk.leaveStreet()` and
+`stormDesk.view().street`. A run taken in place keeps the stage, Google's frame
+and the card, and a page loaded again for a run hands them across with the rest
+of the reader's place, without asking the sources again.
+
+#### El Niño on this street
+
+The card is the point's own record, not the atlas's 2.5° cell, composited in the
+page by the atlas composite's own rules (`tools/vendor_composite.py`) against
+the tracker's own index. From the top: a sentence saying what El Niño is doing
+now, what past El Niños did here in the season ahead and how many of them
+agreed, and what ECMWF expects; **Right now**, the temperature, weather and wind
+and the next 24 hours' rain; **The next six months, ECMWF**, temperature and
+rain against the model's normal by month, and the sea-surface anomaly at a coast
+or at sea; **El Niño's year here**, the composite for each running season, rain
+and temperature, the seasons Welch's *t* does not separate from ordinary years
+drawn faint; **Past El Niños** in the season ahead, each event and this year so
+far against the same neutral mean; and the method and sources. Each chart's
+numbers are in a table beside it.
+
+| What | Source | Asked for |
+|---|---|---|
+| the record | NASA POWER, MERRA-2 on its 0.5° × 0.625° grid | monthly `PRECTOTCORR` (rain corrected against gauges, mm a day) and `T2M`, 1981 to date, in one request |
+| the latest months | NASA POWER, daily: GEOS-IT for its newest days | the same, for the months the monthly record has not reached (three days behind) |
+| right now | Open-Meteo's forecast | the weather now and the next 24 hours' rain |
+| the months ahead | Open-Meteo's seasonal forecast, ECMWF's | monthly temperature, rain and sea-surface anomalies, six months |
+| the index | the tracker's own RONI | shipped in the page, month by month as CPC prints it |
+
+The method is the atlas's. A month is El Niño when RONI centred on it is +1.0 or
+more and neutral when it is strictly within 0.5, and the months of the event
+still under way are left out, as the atlas leaves them out. Each running season,
+DJF to NDJ, takes from each event the mean of its El Niño months in the season
+and from each neutral year the mean of its neutral months, tagged by the year of
+the middle month; the composite is the events' mean less the neutral years',
+with Welch's *t* against the two-sided 95% point of Student's *t* at the smaller
+sample less one. A season with fewer than three events or six neutral years is
+said to be, and not drawn as a signal. Rain is a percentage of the neutral mean
+only where that mean is at or above the atlas's dry floor, 0.2 mm a day, and in
+millimetres a day alone below it, where a percentage of almost nothing says
+nothing; ECMWF's rain is held to the same floor against the model's normal, and
+is given in millimetres a day, as POWER's is. The season ahead is the running
+season of the three months from next month: NDJ in October.
+
+Nothing is sent to NASA or Open-Meteo until the reader drops in or presses
+**What El Niño does here**, and then only the position, to a hundredth of a
+degree. Each source comes, and fails, on its own, gives up after 20 s with
+**Retry**, and is kept by its point for a day (the weather now for 15
+minutes), in memory and in the tab's session, for the last twenty points
+asked, so a run taken in place or the page loaded again asks nothing again.
+What is kept is the answer in the shape the card reads, anything not a number
+where one goes being no value; one kept in another shape, by another version of
+the page, is read again as an answer and let go where it says nothing, and a
+card that cannot be written from what came says so, with **Ask again**. All
+four answer keyless, with `Access-Control-Allow-Origin: *`, as each
+did on 9 October 2026. ERA5 through Open-Meteo would be finer and is not used:
+the free API counts each fortnight of a point's record as a call, so the 47
+years the card reads would be about 1,200 calls a drop against a limit of 10,000
+a day; POWER answers the whole record in one request. GloFAS's river flow is
+left out for the same reason. The card's limits are the atlas's: MERRA-2's cell
+is half a degree by five-eighths, some 55 by 70 km at the equator, not the
+street, and the composite is what past El Niños did there on average, not a
+forecast of this one. POWER's newest days, the months its monthly record has
+yet to reach, are NASA's GEOS-IT analysis, not MERRA-2 (its daily answer lists
+both), so this year so far sets one analysis against the other's neutral
+years. ECMWF's six months are the forecast.
+
 ### Offline, and what the map is not
 
 Offline, the page still draws the coastline, every storm, the composites, the
-impact regions and the Niño boxes, all of which ship in the page, and says which
+impact regions and the Niño boxes, all of which come with the page, in it or in
+its assets beside it, and says which
 layers need the network instead of leaving grey rectangles. The map is **not a
 forecast** of this season; the composite is what past events did. It shows
 nothing as finer than its data: a composite cell is labelled with its size from
@@ -1507,7 +1636,10 @@ downloads none of them, and both pages still draw without them (sections 12 and
 | [Esri World Geocoder](https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates) | streets and addresses, only when the reader asks | keyless; not stored (no `forStorage`) |
 | [Esri World Imagery Wayback](https://livingatlas.arcgis.com/wayback/): `waybackconfig.json`, the release tilemaps and metadata services, each release's item | then and now: the archive's releases, the versions of a place and when each was taken, each release's credit | keyless; Esri Master License Agreement, as World Imagery; not for use offline |
 | [OpenStreetMap](https://tile.openstreetmap.org/) | the standard map, when the page is served | OSM's tile usage policy; © OpenStreetMap contributors |
-| Google's embed and [Maps URLs](https://developers.google.com/maps/documentation/urls/get-started) | Google's own map, satellite view and Street View of a point, on request | no key; Google's own frame |
+| Google's embed and [Maps URLs](https://developers.google.com/maps/documentation/urls/get-started) | Google's own map, satellite view and Street View of a point, on request; the street stage's panorama | no key; Google's own frame |
+| [FOSSGIS's OSRM](https://routing.openstreetmap.de/) (`routed-car`, `nearest`) | the nearest street to a point picked for Street View | keyless; once a second at most, credited, "fix the map" |
+| [NASA POWER](https://power.larc.nasa.gov/) monthly and daily point APIs | the street card's record: rain and temperature since 1981 | keyless; credited as NASA asks; only on a drop or when asked |
+| [Open-Meteo](https://open-meteo.com/) forecast and seasonal APIs | the street card's weather now and ECMWF's next six months | keyless, non-commercial; "Weather data by Open-Meteo.com"; only on a drop or when asked |
 
 ### Gridded and mooring feeds (8)
 
@@ -1622,11 +1754,17 @@ elnino/worldmap.py       the map: street maps, El Nino's composites and tiles, E
                          what a point is told, Google on request, the geocoder
 elnino/thennow.py        then and now: its sources, every month's RONI season, the events,
                          the bar, and the script that enters a place and compares two dates
-tests/                   1232 tests over parsers, numerics, grids, renderers, a full run
+elnino/street.py         Street View: the stage, the nearest street, and the card's record,
+                         composite, forecast and weather for the point dropped into
+elnino/assets.py         the code and data that do not change from run to run, as files
+                         named for their contents, beside the pages, and the service
+                         worker that keeps them
+elnino/png.py            indexed PNGs, with the standard library alone, for large fields
+tests/                   1379 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
-                         storms.json, run.json
+                         storms.json, run.json, sw.js, and assets/ beside them
 ```
 
 `output/latest.json` (schema 9) is the machine-readable snapshot: classification,
@@ -1724,12 +1862,13 @@ when it ran but publishing failed; `publish.bat /scheduled` does the same withou
 waiting for a key, for Task Scheduler (see *Scheduling a daily refresh*).
 
 Each publish replaces `gh-pages` with one commit holding exactly that run's pages,
-byte for byte, as `output/` keeps no history either. The commit is made under the
+and the assets they name, byte for byte, as `output/` keeps no history either. The commit is made under the
 site's own name and GitHub no-reply address, never this machine's git identity,
 in a repository sealed off from this machine's git setup, so no personal address,
 hook, signature or ignore rule reaches the public repository. Before anything is
 pushed, the publish refuses a run with a page missing, empty, cut off or
-unreadable; a page naming this machine's home folder in any spelling (either
+unreadable; an asset a page names missing, or not the file its name was taken
+from; a page or an asset naming this machine's home folder in any spelling (either
 slash, any case, %-escaped, with or without the drive); a page of another run
 than latest.json's, or naming none (each page names its run in its head,
 `storms.json` and `run.json` under keys of their own, all compared as moments),
@@ -1772,6 +1911,32 @@ much more than an hour, plus GitHub's queue, behind the feeds
   left out: nothing reads it back. GitHub drops a cache unused for seven days, so
   after a longer gap the next run starts afresh: every open alert reads as new,
   and no feed has a copy to fall back on for that run.
+- **What stays.** The pages' code, and the data that do not change from run to
+  run (the gazetteer, the composite grids, the coastlines, borders, rivers and
+  lakes, the relief), are not in the pages but beside them, in
+  `assets/<name>.<the first ten hex digits of its SHA-256>.js`, named in each
+  page's head and loaded as deferred scripts, so they work from a page opened
+  as a file as well as served. A file's name changes only when its contents
+  do, so a copy kept is that file for good, across runs and across the pages
+  that share it. GitHub Pages sends every file again after each publish, with a
+  new date and tag on each (`curl -I` across one, 9 October 2026), so a browser
+  would fetch each asset again ten minutes after it last did; the site's service
+  worker, `sw.js` beside the pages, keeps them instead. It answers only for the
+  assets, from its cache or else from the network, keeps a file only when its
+  bytes are the ones its name was taken from, and keeps the two latest of each
+  name, as a page cached from before a publish still names the last ones; a
+  page tells it the assets it names as it opens, so they are kept from a first
+  visit on. A page opened as a file, or from an address that is not secure, has
+  no worker, and the browser's own cache.
+  Measured on a phone's line (1.6 Mbps, 150 ms, its processor slowed four
+  times), the median of repeated visits each made after an hourly publish: the
+  map loads in 1.4 s where the page of one file took 4.9 s, the storm desk in
+  0.7 s where it took 4.2, the atlas in 0.8 s where it took 14.9, and the
+  dashboard in 5.8 s where it took 8.4, fetching the page alone, 81 KB (the map
+  and the desk each), 17 KB and 883 KB. Without the worker each took as long as
+  a first visit, 4.8, 4.1, 14.4 and 7.4 s, every asset fetched again. A run
+  writes the assets its pages name before the pages, and lets go of those no
+  page names any more before it writes `run.json`.
 - **Pages that follow it.** Every page names its run, and the code that wrote
   it, in its head and asks the site for `run.json` each minute, and at once when
   it is shown again or the browser is back online. The storm desk and the map
@@ -1789,8 +1954,8 @@ much more than an hour, plus GitHub's queue, behind the feeds
   the page alone for two minutes, saying meanwhile that a newer run is in, with
   **Update now**, and **Later**, which keeps the page as it is until the run
   after. So do the storm desk and the map for a run another code wrote (pushed
-  since the page was opened: its markup and data are not the open page's script
-  to read), and for each run after it, and for a run whose take failed part way,
+  since the page was opened, or naming other assets: its markup and data are
+  not the open page's script to read), and for each run after it, and for a run whose take failed part way,
   which leaves the page between two runs and so is offered without **Later**.
   They come back where the reader was: the scroll, the theme and the open
   sections, and the part being read, put back where it stood and held there
@@ -1829,7 +1994,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1232 tests, no network required. They cover:
+1379 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2001,7 +2166,10 @@ python -m unittest discover -s tests -v
   paper; its mark El Niño's warm tongue, and every page's icon; the desk and
   the map handing the view, the storm picked and the hour across through it;
   and a page the site does not have refused;
-- **the storm desk**: its data survive a JSON round trip; each storm's
+- **the storm desk**: nothing in it or the map is a credential, and every
+  address either can reach, the page and the assets it names, is on a list of
+  twenty-eight known public ones, the warning centres of every basin among
+  them, all of them https; its data survive a JSON round trip; each storm's
   longitudes stay within 180° of its centre across the date line; every imagery
   layer is named as GIBS's capabilities list it, and every reference overlay
   waits to be asked for; the search box is labelled and lists what it finds; the
@@ -2035,7 +2203,9 @@ python -m unittest discover -s tests -v
   points, verdict and percentage included;
   NASA's SST and flood tiles read back through NASA's own colour maps; the Niño
   boxes cross the date line the short way; `#at=` and `#view=` accept a place
-  or a view and nothing else; nothing goes to Google or the geocoder until asked
+  or a view and nothing else, and every address, the atlas's too, is read as
+  typed where a mail or chat app wrote its commas and ampersands out; nothing
+  goes to Google or the geocoder until asked
   for, and Google's links carry the zoom the view settles on; a street tile that
   failed is asked for again after a wait that doubles; Retry is offered whenever
   anything drawn needs NASA, and asks GIBS again whatever the base; a NASA frame
@@ -2076,12 +2246,14 @@ python -m unittest discover -s tests -v
   marks every page no-cache, answers `/` with the desk, names the map's address
   beside it, and listens beyond this machine only when `--lan` says so;
 - **publishing**, against a local bare repository (skipped without git): the site
-  opens on the dashboard, carries `.nojekyll` and goes up byte for byte; the
+  opens on the dashboard, carries `.nojekyll` and the service worker and goes up
+  byte for byte, the commit holding the site and nothing else; the
   commit is made under the site's name whatever git identity this machine sets,
   and none of this machine's hooks, signing, commit encoding, ignore rules or git
   environment reaches it; each publish leaves one commit and names its run; `main`
   and `master` are never published over, and an address turned away from HTTPS is
-  refused; a page missing, empty, cut off or unreadable, a `latest.json` with no
+  refused; a page missing, empty, cut off or unreadable, a worker that is not
+  this code's, a `latest.json` with no
   run time, or a page naming the home folder in any of its spellings stops the
   publish with nothing pushed, while a folder only named like it does not; a run
   older than the site's needs `--allow-older`; `--dry-run` says which run it
@@ -2147,6 +2319,34 @@ python -m unittest discover -s tests -v
   time limit and actions pinned to commits, no pull request starting it, and the
   suite's Python and node, read as text, and its second chance at 42 past, whose
   check runs under bash against a gh that answers or fails;
+- **the street**: the card's composite matching the atlas tool's own on a full
+  record, the event under way and the months still under way left out, a season
+  short of three events or six neutral years said and not drawn, rain in
+  millimetres a day under the dry floor and never a share of almost nothing,
+  each source failing on its own with its Retry and kept a day for the last
+  twenty points, an answer of another shape read as no value and a card that
+  cannot be written asking again, the stage over the map with its minimap, its
+  chip and its Exit, the loop and Play stopped behind it, a pick going to
+  the nearest street within reach and to where it was made when OSRM does not
+  answer, `#street=` and the API, and the stage and the card kept through a run
+  taken in place and a page loaded again;
+- **the assets**: every page naming the assets it uses, each named for its
+  contents, a run writing them before the pages and letting go of those no page
+  names, a publish refusing one missing or not the file its name was taken
+  from, and a desk taking a run in place only from a page naming its own; the
+  service worker fetching an asset once and serving it after, leaving pages,
+  data and every other address to the browser, never keeping a file that is not
+  its name's or an answer that failed, answering all the same when its cache
+  refuses to keep, keeping a page's assets as it names them and the two latest
+  of each name, and taking over at once; a served page
+  registering it and telling it its assets, and one from a file, an insecure
+  address or refused a worker going on without;
+- **the pictures**: an indexed PNG reading back as the indices it was given, at
+  the fewest bits, only its clear index seen through; a large regular field
+  drawn as two pictures a pixel a cell, the right way up and edge to edge, each
+  theme showing its own, its cells square unless finer than a unit of the plot;
+  a small or irregular field still shapes; and the
+  global map's cells costing a fraction as pictures, with nothing else changed;
 - **a full offline run** end to end, then every report section, the 78-column and
   ASCII-only guarantees, dashboard self-containment, a table view for every
   chart, all eight spatial panels and both cyclone cards reaching the page, the

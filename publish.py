@@ -7,8 +7,8 @@
 
 The site is the gh-pages branch of this project's repository on GitHub, served
 at SITE. Each publish replaces that branch with one commit holding the last
-run's pages byte for byte: generated output keeps no history there, as output/
-keeps none here.
+run's pages, and the assets they name, byte for byte: generated output keeps
+no history there, as output/ keeps none here.
 
 Nothing of this machine's git setup goes up with them. The commit is made in a
 throwaway repository that reads none of this machine's git configuration (no
@@ -16,9 +16,10 @@ hooks, no signing, no line-ending conversion, no ignore rules), under the
 site's own name and GitHub no-reply address; and git may reach the repository
 over HTTPS only, so no rewrite of its address can send the push over SSH under
 another account. Refused before anything is pushed: a missing, empty or cut-off
-page, a page that names this machine's home folder in any spelling, a page of
-another run than latest.json's or naming none, and a run older than the one the
-site shows.
+page, an asset a page names that is missing or is not the file its name was
+taken from, a page or an asset that names this machine's home folder in any
+spelling, a page of another run than latest.json's or naming none, and a run
+older than the one the site shows.
 
 Exit codes: 0 published (or checked, with --dry-run), 2 could not publish.
 
@@ -41,6 +42,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
 
+from elnino import assets
+
 ROOT = Path(__file__).resolve().parent
 OUT_DIR = ROOT / "output"
 REMOTE = "https://github.com/VillaKeth/elnino-tracker.git"
@@ -61,6 +64,8 @@ PAGES = {
     "storms.json": "storms.json",
     # The beacon an open page asks which run the site serves (elnino/live.py).
     "run.json": "run.json",
+    # The service worker that keeps the assets (elnino/assets.py).
+    assets.WORKER: assets.WORKER,
 }
 # Branches that hold code, which a publish must never replace.
 CODE_BRANCHES = ("main", "master")
@@ -128,7 +133,10 @@ def _run_at(latest: bytes | str) -> str:
 
 def _complete(name: str, data: bytes) -> bool:
     """Whether a page was written to its end: JSON that parses, HTML that
-    closes. A run that dies while writing leaves neither."""
+    closes, the service worker this code writes. A run that dies while
+    writing leaves none of them."""
+    if name == assets.WORKER:
+        return data == assets.WORKER_JS.encode("utf-8")
     if name.endswith(".json"):
         try:
             json.loads(data)
@@ -152,11 +160,38 @@ def _read(out_dir: Path) -> dict[str, bytes]:
         if not data.strip():
             faults.append(f"{name} is empty")
         elif not _complete(name, data):
-            faults.append(f"{name} is cut off")
+            faults.append(f"{name} is not the service worker this code writes" if name == assets.WORKER
+                          else f"{name} is cut off")
         pages[name] = data
     if faults:
         raise PublishError(f"{'; '.join(faults)} in {out_dir}: run track.py first")
     return pages
+
+
+def _read_assets(out_dir: Path, pages: dict[str, bytes]) -> dict[str, bytes]:
+    """The assets the pages name (elnino/assets.py), read once from out_dir's
+    assets folder, each the very file its name was taken from."""
+    naming: dict[str, list[str]] = {}
+    for name, data in pages.items():
+        if name.endswith(".html"):
+            for file in assets.page_assets(data.decode("utf-8", "replace")):
+                naming.setdefault(file, []).append(name)
+    found, faults = {}, []
+    for file, names in sorted(naming.items()):
+        where = f"{assets.FOLDER}/{file}"
+        try:
+            data = (out_dir / assets.FOLDER / file).read_bytes()
+        except FileNotFoundError:
+            faults.append(f"{where}, named by {', '.join(names)}, is missing")
+            continue
+        except OSError as exc:
+            raise PublishError(f"{where} could not be read: {exc.strerror or exc}") from None
+        if not assets.whole(file, data):
+            faults.append(f"{where} is not the file its name was taken from")
+        found[file] = data
+    if faults:
+        raise PublishError(f"{'; '.join(faults)} in {out_dir}: run track.py first")
+    return found
 
 
 def _plain(text: str) -> str:
@@ -212,7 +247,8 @@ def _check_one_run(pages: dict[str, bytes], when: str) -> None:
     never names would load again for ever, looking for it."""
     faults = []
     for name, data in pages.items():
-        if name == "latest.json":
+        # latest.json is what they are checked against; the worker is every run's.
+        if name in ("latest.json", assets.WORKER):
             continue
         run = _named_run(name, data)
         if run is None:
@@ -225,20 +261,38 @@ def _check_one_run(pages: dict[str, bytes], when: str) -> None:
 
 
 def lay_out(out_dir: Path, site: Path, home: Path | None = None) -> str:
-    """Write the last run's pages into site as the site serves them, and
-    return the run's time as latest.json gives it. Raises PublishError, having
-    written nothing, when a page is missing, empty or cut off, latest.json gives
-    no run time, a page names this machine's home folder, or a page is of
-    another run or names none."""
+    """Write the last run's pages, and the assets they name, into site as the
+    site serves them, and return the run's time as latest.json gives it.
+    Raises PublishError, having written nothing, when a page is missing, empty
+    or cut off, an asset a page names is missing or is not the file its name
+    was taken from, latest.json gives no run time, a page or an asset names
+    this machine's home folder, or a page is of another run or names none."""
     pages = _read(out_dir)
     when = _run_at(pages["latest.json"])
-    _check_home(pages, Path.home() if home is None else home)
+    shared = _read_assets(out_dir, pages)
+    _check_home({**pages, **{f"{assets.FOLDER}/{file}": data for file, data in shared.items()}},
+                Path.home() if home is None else home)
     _check_one_run(pages, when)
     for name, source in PAGES.items():
         (site / name).write_bytes(pages[source])
+    if shared:
+        (site / assets.FOLDER).mkdir()
+        for file, data in shared.items():
+            (site / assets.FOLDER / file).write_bytes(data)
     # Served as written: without this file GitHub puts the pages through Jekyll.
     (site / ".nojekyll").write_bytes(b"")
     return when
+
+
+def _site_files(site: Path) -> list[str]:
+    """What the site is, file by file: its pages, the worker and .nojekyll,
+    and the assets its pages name, read from the pages laid out in site. The
+    commit is checked against this, not against whatever was laid out."""
+    named = set()
+    for name in PAGES:
+        if name.endswith(".html") and (site / name).is_file():
+            named.update(assets.page_assets((site / name).read_bytes().decode("utf-8", "replace")))
+    return sorted([*PAGES, ".nojekyll", *(f"{assets.FOLDER}/{file}" for file in named)])
 
 
 def _git(args: list[str], cwd: Path, env: dict[str, str]) -> str:
@@ -296,6 +350,7 @@ def publish(out_dir: Path = OUT_DIR, remote: str = REMOTE, branch: str = BRANCH,
             site = work / "site"
             site.mkdir()
             when = lay_out(out_dir, site, home)
+            expected = _site_files(site)
             empty = work / "empty.gitconfig"
             empty.write_bytes(b"")
             sealed = dict(env, GIT_CONFIG_GLOBAL=str(empty), GIT_CONFIG_NOSYSTEM="1")
@@ -306,7 +361,7 @@ def publish(out_dir: Path = OUT_DIR, remote: str = REMOTE, branch: str = BRANCH,
             _git(["add", "--all", "--force"], site, sealed)
             _git(["commit", "-q", "-m", f"Publish the run of {when}"], site, sealed)
             listed = sorted(_git(["ls-tree", "-r", "--name-only", "HEAD"], site, sealed).split("\n"))
-            if listed != sorted([*PAGES, ".nojekyll"]):
+            if listed != expected:
                 raise PublishError(f"the commit holds {', '.join(listed)}, not the site")
             shown = _shown_run(site, env, sealed, remote, branch)
             if shown is not None and _moment(when) < _moment(shown) and not allow_older:
