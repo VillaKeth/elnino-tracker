@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="elnino-run" content="2026-10-10T19:26:06+00:00">
+<meta name="elnino-code" content="33dd1dffb854">
+<script>(function () {
+  try {
+    var handed = JSON.parse(window.sessionStorage.getItem("elnino-live:" + location.pathname));
+    var theme = handed && handed.place && handed.place.theme;
+    if (theme === "light" || theme === "dark") document.documentElement.setAttribute("data-theme", theme);
+  } catch (e) { /* nothing handed over: the page opens in its own theme */ }
+})();</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2032%2032%22%3E%3Ccircle%20cx=%2216%22%20cy=%2216%22%20r=%2215%22%20fill=%22%232366a8%22/%3E%3Cpath%20d=%22M29.42%209.3C22%209.5%2014%2012%209.5%2014.2C7.8%2015%207.8%2017%209.5%2017.8C14%2020%2022%2022.5%2029.42%2022.7A15%2015%200%200%200%2029.42%209.3Z%22%20fill=%22%23f59a4f%22/%3E%3Cpath%20d=%22M30.51%2012.2C25%2012.6%2020%2014%2017.6%2015.2C16.6%2015.7%2016.6%2016.3%2017.6%2016.8C20%2018%2025%2019.4%2030.51%2019.8A15%2015%200%200%200%2030.51%2012.2Z%22%20fill=%22%23d8402a%22/%3E%3C/svg%3E">
+<title>El Nino Atlas &mdash; where it lands</title>
+<style>
+:root {
+  color-scheme: light;
+    --surface: #fcfcfb;
+    --plane: #f9f9f7;
+    --ink: #0b0b0b;
+    --ink2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --s1: #2a78d6;
+    --s2: #eb6834;
+    --s3: #1baf7a;
+    --s4: #eda100;
+    --s5: #e87ba4;
+    --warm: #e34948;
+    --cool: #2a78d6;
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+    --track: #e6e5e0;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface: #1a1a19;
+    --plane: #0d0d0d;
+    --ink: #ffffff;
+    --ink2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255,255,255,0.10);
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --s4: #c98500;
+    --s5: #d55181;
+    --warm: #e66767;
+    --cool: #3987e5;
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+    --track: #2c2c2a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+    --surface: #1a1a19;
+    --plane: #0d0d0d;
+    --ink: #ffffff;
+    --ink2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255,255,255,0.10);
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --s4: #c98500;
+    --s5: #d55181;
+    --warm: #e66767;
+    --cool: #3987e5;
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+    --track: #2c2c2a;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--plane); color: var(--ink);
+  font-family: var(--font); line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
+header.top { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline;
+  justify-content: space-between; margin-bottom: 8px; }
+h1 { font-size: 1.35rem; margin: 0; letter-spacing: -0.01em; }
+.sub { color: var(--ink2); font-size: 0.85rem; margin: 0; }
+.hero {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 24px; margin: 18px 0 20px;
+  display: grid; grid-template-columns: minmax(230px, 1fr) 1.25fr; gap: 28px;
+}
+.hero-fig { font-size: 3.4rem; font-weight: 650; line-height: 1; letter-spacing: -0.02em; }
+.hero-unit { font-size: 1.15rem; color: var(--ink2); font-weight: 500; }
+.hero-label { color: var(--ink2); font-size: 0.82rem; text-transform: uppercase;
+  letter-spacing: 0.07em; margin-bottom: 8px; }
+.hero-tier { margin-top: 10px; font-size: 1.05rem; font-weight: 600; }
+.hero-note { color: var(--ink2); font-size: 0.85rem; margin-top: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px; margin-bottom: 22px; }
+.tile { background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px; }
+.tile .t-label { color: var(--ink2); font-size: 0.76rem; }
+.tile .t-value { font-size: 1.5rem; font-weight: 620; letter-spacing: -0.01em; margin-top: 2px; }
+.tile .t-note { color: var(--muted); font-size: 0.75rem; margin-top: 2px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 20px 22px 16px; margin-bottom: 20px; }
+.card h2 { font-size: 1rem; margin: 0 0 2px; }
+.card .caption { color: var(--ink2); font-size: 0.83rem; margin: 0 0 14px; }
+svg { width: 100%; height: auto; display: block; overflow: visible; }
+.tick { fill: var(--muted); font-size: 11px; font-family: var(--font);
+  font-variant-numeric: tabular-nums; }
+.rowlabel { fill: var(--ink2); font-size: 12px; font-family: var(--font); }
+.barvalue, .endlabel { fill: var(--ink); font-size: 12px; font-weight: 600;
+  font-family: var(--font); }
+/* A map label over tracks: text ink, and a halo of the map's own ground so
+   a line or a marker under it does not cut through the letters. */
+.placename { fill: var(--ink); font-weight: 600; }
+.halo { paint-order: stroke; stroke: var(--plane); stroke-width: 3px;
+  stroke-linejoin: round; }
+.band-note, .axistitle { fill: var(--muted); font-size: 11px; font-family: var(--font); }
+/* The field is one path per colour class rather than a rectangle per cell,
+   so the crisp-edge hint lives on the group instead of on every element. */
+.cellfill path { shape-rendering: crispEdges; }
+.hit { cursor: crosshair; outline: none; }
+.hit:focus-visible { stroke: var(--ink); stroke-width: 2; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0 2px;
+  font-size: 0.82rem; color: var(--ink2); }
+.key { display: inline-flex; align-items: center; gap: 7px; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.meter { margin-top: 4px; }
+.meter-head { display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 8px; }
+.meter-label { color: var(--ink2); font-size: 0.8rem; text-transform: uppercase;
+  letter-spacing: 0.06em; }
+.meter-band { display: inline-flex; align-items: center; gap: 6px; font-weight: 650;
+  font-size: 0.92rem; }
+.statusicon { width: 15px; height: 15px; }
+[data-status="critical"] .meter-band, [data-status="critical"] .statusicon { color: var(--critical); }
+[data-status="serious"] .meter-band, [data-status="serious"] .statusicon { color: var(--serious); }
+[data-status="warning"] .meter-band, [data-status="warning"] .statusicon { color: var(--warning); }
+[data-status="good"] .meter-band, [data-status="good"] .statusicon { color: var(--good); }
+.meter-track { height: 14px; border-radius: 7px; background: var(--track); overflow: hidden; }
+.meter-fill { height: 100%; border-radius: 7px; background: var(--warning); }
+[data-status="critical"] .meter-fill { background: var(--critical); }
+[data-status="serious"] .meter-fill { background: var(--serious); }
+[data-status="good"] .meter-fill { background: var(--good); }
+.meter-scale { display: flex; justify-content: space-between; color: var(--muted);
+  font-size: 0.72rem; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.comps { margin-top: 16px; display: grid; gap: 9px; }
+.comp { display: grid; grid-template-columns: 150px 1fr 34px; align-items: center; gap: 12px;
+  font-size: 0.82rem; }
+.comp-name { color: var(--ink2); }
+.comp-name em { color: var(--muted); font-style: normal; margin-left: 5px; font-size: 0.72rem; }
+.comp-track { height: 7px; border-radius: 4px; background: var(--track); overflow: hidden; }
+.comp-fill { display: block; height: 100%; background: var(--s1); border-radius: 4px; }
+.comp-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink2); }
+.note { color: var(--muted); font-size: 0.78rem; margin: 14px 0 0; }
+.tableview { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+.tableview summary { cursor: pointer; color: var(--ink2); font-size: 0.8rem; }
+.tablewrap { overflow-x: auto; margin-top: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.82rem;
+  font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border);
+  white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th.lbl, td.lbl { text-align: left; }
+th.txt, td.txt { white-space: normal; text-align: left; min-width: 16em; }
+th { color: var(--ink2); font-weight: 600; }
+.prose p { font-size: 0.88rem; color: var(--ink2); margin: 0 0 10px; }
+.sources { list-style: none; padding: 0; margin: 0; font-size: 0.8rem; }
+.sources li { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border);
+  color: var(--ink2); flex-wrap: wrap; }
+.sources a { color: var(--s1); text-decoration: none; word-break: break-all; }
+.sources a:hover { text-decoration: underline; }
+.pill { font-size: 0.68rem; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border);
+  color: var(--ink2); white-space: nowrap; }
+.pill.live { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+.pill.cache { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
+.pill.fail { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 45%, transparent); }
+#tip { position: fixed; pointer-events: none; opacity: 0; transition: opacity .1s;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 7px 11px; font-size: 0.78rem; box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  z-index: 40; max-width: 260px; }
+#tip b { display: block; font-size: 0.8rem; margin-bottom: 1px; }
+#tip span { color: var(--ink2); }
+.themebtn { background: var(--surface); color: var(--ink2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 5px 11px; font-size: 0.78rem; cursor: pointer;
+  font-family: var(--font); }
+/* --- a page following the site: the notice of a newer run (live.py) ------- */
+.livenote { position: fixed; z-index: 1000; left: 16px; right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: flex; justify-content: center; pointer-events: none; }
+.livenote p { pointer-events: auto; display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px 12px; margin: 0; padding: 9px 14px; border-radius: 10px;
+  background: var(--ink); color: var(--surface); font-family: var(--font);
+  font-size: 0.82rem; line-height: 1.4; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+.livenote button { font: inherit; font-weight: 600; color: inherit; background: none;
+  border: 1px solid currentColor; border-radius: 7px; padding: 3px 10px; cursor: pointer; }
+.livenote button + button { border-color: transparent; font-weight: 400; }
+.livenote button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+@media print { .livenote { display: none; } }
+/* --- the site's menu, the first thing on every page (sitenav.py) ---------- */
+.sitebar { flex: none; display: flex; align-items: center; column-gap: 18px;
+  padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+  font-family: var(--font); overflow-x: auto; scrollbar-width: none; }
+.sitebar .brand { flex: none; display: flex; align-items: center; gap: 8px;
+  min-height: 44px; color: var(--ink); font-size: 0.92rem; font-weight: 650;
+  letter-spacing: -0.01em; text-decoration: none; white-space: nowrap; }
+/* Sized for itself: the shell sizes every svg to its box. A logo keeps its
+   colours where colours are forced. */
+.sitebar .sitemark { flex: none; width: 22px; height: 22px; forced-color-adjust: none; }
+.sitebar ul { display: flex; margin: 0; padding: 0; list-style: none; }
+.sitebar .tab { display: flex; align-items: center; min-height: 44px; padding: 0 12px;
+  color: var(--ink2); font-size: 0.86rem; font-weight: 500; white-space: nowrap;
+  text-decoration: none; box-shadow: inset 0 -2px 0 transparent;
+  transition: color .15s, box-shadow .15s; }
+.sitebar .tab:hover { color: var(--ink); box-shadow: inset 0 -2px 0 var(--border); }
+.sitebar .tab[aria-current="page"] { color: var(--ink); font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--s2); }
+.sitebar a:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px;
+  border-radius: 6px; }
+/* The dashboard is read a long way down: there the menu stays in reach,
+   pinned over the page's column, its name where the column's words start.
+   What a reader tabs to or opens is scrolled clear of it, 60 px down (its
+   45 and room), and the follower reads the view from there (live.py). */
+.dashpage .sitebar { position: sticky; top: 0; z-index: 30;
+  padding-inline: max(16px, (100% - 1080px) / 2 + 16px); }
+:root:has(> body.dashpage) { scroll-padding-top: 60px; }
+/* A phone shows the mark for the site's name, and the pages close up; the
+   smallest leave the way to the front page to the Dashboard. */
+@media (max-width: 640px) {
+  .sitebar { column-gap: 6px; }
+  .sitebar .tab { padding: 0 6px; }
+  .sitebar .brand span { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap; }
+}
+@media (max-width: 359px) {
+  .sitebar .brand { display: none; }
+  .sitebar .tab { padding: 0 4px; }
+}
+/* Forced colours drop the shadow that marks the reader's page: there it is
+   underlined. */
+@media (forced-colors: active) {
+  .sitebar .tab[aria-current="page"] { text-decoration: underline 2px;
+    text-underline-offset: 6px; }
+}
+@media print { .sitebar { display: none; } }
+footer { color: var(--muted); font-size: 0.76rem; margin-top: 26px; }
+/* --- panels added by the advanced system ---------------------------------- */
+.tiny { fill: var(--muted); font-size: 10px; font-family: var(--font); }
+.pointlabel { fill: var(--ink); font-size: 11.5px; font-weight: 600;
+  font-family: var(--font); }
+.axislabel { fill: var(--ink2); font-size: 11.5px; font-family: var(--font); }
+.quad { fill: var(--muted); font-size: 11px; font-family: var(--font);
+  letter-spacing: 0.02em; }
+.panellabel { fill: var(--ink2); font-size: 11.5px; font-weight: 600;
+  font-family: var(--font); }
+
+.twoup { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+/* Chips carry a word, never a bare colour. */
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem;
+  font-weight: 600; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--ink2); white-space: nowrap; }
+.chip-now { color: var(--s2);
+  border-color: color-mix(in srgb, var(--s2) 45%, transparent); }
+.chip-new { color: var(--critical); margin-left: 8px;
+  border-color: color-mix(in srgb, var(--critical) 50%, transparent); }
+.chip-quiet { color: var(--muted); }
+.chip-critical { color: var(--critical);
+  border-color: color-mix(in srgb, var(--critical) 45%, transparent); }
+.chip-serious { color: var(--serious);
+  border-color: color-mix(in srgb, var(--serious) 45%, transparent); }
+.chip-warning { color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 50%, transparent); }
+.chip-good { color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+
+.phasestate, .walkerfoot { display: flex; flex-wrap: wrap; align-items: center;
+  gap: 10px; margin-top: 12px; }
+.phasenote { color: var(--ink2); font-size: 0.8rem; flex: 1 1 260px; }
+
+/* Banner: the one thing visible without scrolling. */
+.banner { display: flex; align-items: center; gap: 12px; padding: 11px 16px;
+  border-radius: 12px; margin-bottom: 16px; font-size: 0.88rem;
+  border: 1px solid var(--border); background: var(--surface); }
+.banner-level { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em;
+  padding: 3px 9px; border-radius: 999px; color: var(--surface); }
+.banner[data-status="critical"] {
+  border-color: color-mix(in srgb, var(--critical) 50%, transparent); }
+.banner[data-status="critical"] .banner-level { background: var(--critical); }
+.banner[data-status="serious"] {
+  border-color: color-mix(in srgb, var(--serious) 50%, transparent); }
+.banner[data-status="serious"] .banner-level { background: var(--serious); }
+.banner[data-status="warning"] {
+  border-color: color-mix(in srgb, var(--warning) 55%, transparent); }
+.banner[data-status="warning"] .banner-level { background: var(--warning);
+  color: #1a1a19; }
+
+.alerts { list-style: none; padding: 0; margin: 0; }
+.alert { display: grid; grid-template-columns: 104px 1fr; gap: 14px;
+  padding: 13px 0; border-top: 1px solid var(--border); align-items: start; }
+.alert:first-child { border-top: none; }
+.alert-level { display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; }
+.alert[data-status="critical"] .alert-level { color: var(--critical); }
+.alert[data-status="serious"] .alert-level { color: var(--serious); }
+.alert[data-status="warning"] .alert-level { color: var(--warning); }
+.alert[data-status="good"] .alert-level { color: var(--muted); }
+.alert-title { font-weight: 600; font-size: 0.9rem; }
+.alert-body p { margin: 4px 0 0; color: var(--ink2); font-size: 0.82rem; }
+.alert-since { display: block; margin-top: 5px; color: var(--muted);
+  font-size: 0.72rem; }
+
+.probs { margin: 16px 0 4px; display: grid; gap: 7px; }
+.prob { display: grid; grid-template-columns: 160px 1fr 48px; gap: 10px;
+  align-items: center; font-size: 0.8rem; color: var(--ink2); }
+.prob-track { height: 9px; border-radius: 999px; background: var(--track);
+  overflow: hidden; }
+.prob-fill { display: block; height: 100%; border-radius: 999px;
+  background: var(--s2); }
+.prob-val { text-align: right; font-weight: 600; color: var(--ink);
+  font-variant-numeric: tabular-nums; }
+
+.warnlist { margin: 12px 0 0; padding-left: 20px; color: var(--ink2);
+  font-size: 0.82rem; }
+.warnlist li { margin-bottom: 5px; }
+
+.disclaimer { border-left: 3px solid var(--warning); padding: 2px 0 2px 13px;
+  margin-bottom: 14px; }
+.disclaimer p { margin: 0 0 6px; color: var(--ink2); font-size: 0.82rem; }
+.impact-group { margin-top: 20px; }
+.impact-group h3, .impact-watch h3 { font-size: 0.76rem; font-weight: 700;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+  margin: 0 0 10px; }
+.impacts { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.impact { border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; }
+.impact-head { display: flex; flex-wrap: wrap; align-items: center; gap: 9px;
+  margin-bottom: 5px; }
+.impact-window { color: var(--muted); font-size: 0.74rem; }
+.impact-effect { font-size: 0.86rem; color: var(--ink); margin-bottom: 5px; }
+.impact p { margin: 0 0 5px; color: var(--ink2); font-size: 0.81rem; }
+.impact-exposure span { color: var(--muted); font-weight: 600;
+  text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.06em;
+  margin-right: 5px; }
+.impact-flavour { font-style: italic; }
+.impact-watch { margin-top: 20px; }
+.impact-watch ul { margin: 0; padding-left: 20px; color: var(--ink2);
+  font-size: 0.81rem; }
+
+/* --- spatial panels -------------------------------------------------------- */
+.chart.wide { max-width: none; }
+.boxlabel { fill: var(--ink); font-size: 10.5px; font-weight: 700;
+  font-family: var(--font); paint-order: stroke; stroke: var(--surface);
+  stroke-width: 3px; stroke-linejoin: round; }
+.subcaption { margin: 6px 0 0; color: var(--muted); font-size: 0.74rem; }
+.hint { color: var(--muted); font-style: italic; }
+.threeup { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.swatch-line { height: 3px; border-radius: 2px; background: var(--ink); }
+
+/* Colour bars. Every field that uses a ramp carries one of these, which is the
+   relief the validator requires for a neutral midpoint that recedes. */
+.ramp { margin: 2px 0 10px; }
+.ramplabel { font-size: 0.72rem; font-weight: 600; color: var(--ink2);
+  letter-spacing: 0.02em; margin-bottom: 4px; }
+.rampunits { color: var(--muted); font-weight: 400; }
+.rampstrip { display: flex; height: 10px; border-radius: 3px; overflow: hidden;
+  border: 1px solid var(--border); }
+.rampcell { flex: 1 1 0; }
+.rampticks { display: flex; justify-content: space-between; margin-top: 3px; }
+.ramptick { font-size: 0.66rem; color: var(--muted);
+  font-variant-numeric: tabular-nums; }
+/* A bar whose labels are placed at their values rather than spread out. */
+.rampscale { display: block; position: relative; height: 1.2em; }
+.rampscale .ramptick { position: absolute; top: 0; white-space: nowrap; }
+
+/* Rotatable scenes. */
+/* Scene labels are drawn after the geometry, and haloed, so an axis tick that
+   lands on top of an opaque quad is still readable. */
+.scenetick { paint-order: stroke; stroke: var(--surface); stroke-width: 3.5px;
+  stroke-linejoin: round; }
+.scene { cursor: grab; touch-action: pan-y; }
+.scene.grabbing { cursor: grabbing; }
+.scene-svg { width: 100%; height: auto; display: block; user-select: none; }
+.viewbtns { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.viewbtns button { font: inherit; font-size: 0.72rem; font-weight: 600;
+  padding: 4px 11px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--plane); color: var(--ink2); }
+.viewbtns button:hover { color: var(--ink); border-color: var(--axis); }
+.viewbtns button[aria-pressed="true"] { color: var(--s1);
+  border-color: color-mix(in srgb, var(--s1) 50%, transparent); }
+
+@media (max-width: 1000px) {
+  .threeup { grid-template-columns: 1fr; }
+}
+/* A scene scales as one piece, so on a narrow screen its 11px ticks land at
+   about five real pixels. Text in the viewBox has to grow by the same factor
+   the box shrinks by. */
+@media (max-width: 720px) {
+  .scene-svg .scenetick, .scene-svg .pointlabel { font-size: 20px;
+    stroke-width: 5px; }
+}
+
+@media (max-width: 860px) {
+  .twoup { grid-template-columns: 1fr; }
+  .alert { grid-template-columns: 1fr; gap: 5px; }
+  .prob { grid-template-columns: 120px 1fr 42px; }
+}
+
+@media (max-width: 720px) {
+  .hero { grid-template-columns: 1fr; gap: 18px; }
+  .comp { grid-template-columns: 110px 1fr 30px; }
+}
+:root { --d0: #0045af; --d1: #2269bd; --d2: #5889ca; --d3: #87a9d5; --d4: #b7c8df; --d5: #e8e8e8; --d6: #e7bcb8; --d7: #e19089; --d8: #d6615c; --d9: #c8222c; --d10: #a30000; --q0: #f9f2ea; --q1: #e6d6ce; --q2: #d2bbb2; --q3: #bfa096; --q4: #ab867c; --q5: #986c62; --q6: #845449; --q7: #713b31; --q8: #5d231a; --p0: #f2f3fa; --p1: #d1dbec; --p2: #b0c4de; --p3: #90adcf; --p4: #7096c1; --p5: #5080b2; --p6: #2e69a3; --p7: #005393; --p8: #003c84; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --d0: #61a6ff; --d1: #568cd1; --d2: #4c72a4; --d3: #415979; --d4: #364150; --d5: #2a2a2a; --d6: #553937; --d7: #814743; --d8: #af5550; --d9: #df615c; --d10: #ff6d68; --q0: #30211e; --q1: #47342e; --q2: #604740; --q3: #7a5c51; --q4: #967264; --q5: #b28877; --q6: #cf9f8b; --q7: #ecb69f; --q8: #ffcfb4; --p0: #182431; --p1: #28384a; --p2: #394e64; --p3: #4a6580; --p4: #5d7d9c; --p5: #7096ba; --p6: #84afd9; --p7: #98c9f8; --p8: #ade4ff; } }
+:root[data-theme="dark"] { --d0: #61a6ff; --d1: #568cd1; --d2: #4c72a4; --d3: #415979; --d4: #364150; --d5: #2a2a2a; --d6: #553937; --d7: #814743; --d8: #af5550; --d9: #df615c; --d10: #ff6d68; --q0: #30211e; --q1: #47342e; --q2: #604740; --q3: #7a5c51; --q4: #967264; --q5: #b28877; --q6: #cf9f8b; --q7: #ecb69f; --q8: #ffcfb4; --p0: #182431; --p1: #28384a; --p2: #394e64; --p3: #4a6580; --p4: #5d7d9c; --p5: #7096ba; --p6: #84afd9; --p7: #98c9f8; --p8: #ade4ff; }
+.cellimg { image-rendering: crisp-edges; image-rendering: pixelated; }
+.cellimg.smooth { image-rendering: auto; }
+.cellimg.ramp-d { filter: url(#ramp-d-light); } .cellimg.ramp-q { filter: url(#ramp-q-light); } .cellimg.ramp-p { filter: url(#ramp-p-light); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cellimg.ramp-d { filter: url(#ramp-d-dark); } :root:not([data-theme="light"]) .cellimg.ramp-q { filter: url(#ramp-q-dark); } :root:not([data-theme="light"]) .cellimg.ramp-p { filter: url(#ramp-p-dark); } }
+:root[data-theme="dark"] .cellimg.ramp-d { filter: url(#ramp-d-dark); } :root[data-theme="dark"] .cellimg.ramp-q { filter: url(#ramp-q-dark); } :root[data-theme="dark"] .cellimg.ramp-p { filter: url(#ramp-p-dark); }
+
+/* One sea colour, because the map has a background that is not the page. */
+:root { --sea: #e8eef4; --land: #f6f5f1; --riv: #9ec2dd; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --sea: #10171d; --land: #1d1d1c; --riv: #35566b; } }
+:root[data-theme="dark"] { --sea: #10171d; --land: #1d1d1c; --riv: #35566b; }
+
+/* The map is the page here, so it gets the viewport and the panel docks
+   beside it; under 900px the panel goes below, because a dossier in a 200px
+   column is unreadable and a map in one is pointless. */
+body.atlaspage { height: 100vh; display: flex; flex-direction: column;
+  overflow: hidden; }
+.atlaswrap { flex: 1 1 auto; min-height: 0; display: grid;
+  grid-template-columns: 1fr 390px; }
+.atlasmap { position: relative; overflow: hidden; background: var(--sea);
+  touch-action: none; }
+/* Four stacked layers in one box: a canvas carrying the shaded relief, a div
+   of imagery tiles, a canvas carrying the composite, and the vector map over
+   all three. The first three are painted rasters, which let every click
+   through to the vector map on top; it answers with the cell underneath. */
+.atlasmap #relief, .atlasmap #tiles, .atlasmap #field { position: absolute; left: 0; top: 0;
+  width: 100%; height: 100%; pointer-events: none; }
+.atlasmap #tiles { overflow: hidden; }
+.atlasmap #tiles img { position: absolute; display: block; }
+.atlasmap svg { position: relative; display: block; cursor: grab; }
+.atlasmap #credit { position: absolute; right: 14px; bottom: 14px; left: auto;
+  max-width: 46%; text-align: right; line-height: 1.35; white-space: normal; }
+/* Ways out of the page, for the questions a composite cannot answer: what the
+   street looks like, what the cloud did this morning. */
+.dossier ul.links { list-style: none; padding: 0; margin: 7px 0 0;
+  display: flex; flex-wrap: wrap; gap: 6px; }
+.dossier ul.links a, .dossier button#truth { display: inline-block;
+  font: inherit; font-size: 11.5px; padding: 4px 9px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; color: var(--ink2);
+  text-decoration: none; cursor: pointer; }
+.dossier ul.links a:hover, .dossier button#truth:hover { color: var(--ink);
+  border-color: var(--ink2); }
+.dossier button#truth[disabled] { opacity: .55; cursor: default; }
+.dossier #truthout { font-size: 11.5px; color: var(--ink2); }
+.atlasmap.dragging svg { cursor: grabbing; }
+.atlaspanel { overflow-y: auto; border-left: 1px solid var(--border);
+  background: var(--surface); padding: 18px 20px 48px; }
+.atlasbar { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 10px;
+  align-items: center; padding: 9px 16px;
+  border-bottom: 1px solid var(--border); background: var(--surface); }
+.atlasbar h1 { font-size: 15px; margin: 0 6px 0 0; letter-spacing: -0.01em; }
+.atlasbar .grp { display: flex; border: 1px solid var(--border);
+  border-radius: 7px; overflow: hidden; }
+.atlasbar button { font: inherit; font-size: 12px; padding: 5px 11px;
+  background: var(--surface); color: var(--ink); border: 0; cursor: pointer;
+  border-right: 1px solid var(--border); }
+.atlasbar .grp button:last-child { border-right: 0; }
+.atlasbar button[aria-pressed="true"] { background: var(--ink);
+  color: var(--surface); }
+.atlasbar .lbl { font-size: 10.5px; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--muted); }
+.atlasbar .spacer { flex: 1 1 auto; }
+.atlaszoom { position: absolute; right: 14px; top: 14px; display: grid;
+  gap: 6px; }
+.atlaszoom button { width: 34px; height: 34px; font-size: 16px; line-height: 1;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--ink); cursor: pointer; }
+.atlaspill { position: absolute; font-size: 11px; color: var(--ink2);
+  background: var(--surface); padding: 4px 8px; border: 1px solid var(--border);
+  border-radius: 6px; opacity: .93; font-variant-numeric: tabular-nums;
+  pointer-events: none; }
+#read { left: 14px; top: 14px; }
+#scale { left: 14px; bottom: 14px; color: var(--ink); }
+#scale .bar { display: block; height: 3px; background: var(--ink);
+  margin-bottom: 3px; }
+.atlaslegend { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 6px 18px;
+  align-items: center; padding: 7px 16px; border-top: 1px solid var(--border);
+  font-size: 11.5px; color: var(--ink2); background: var(--surface); }
+.atlaslegend .steps { display: flex; border-radius: 2px; overflow: hidden;
+  border: 1px solid var(--border); }
+.atlaslegend .steps i { width: 17px; height: 11px; display: block; }
+.atlaslegend .key[hidden] { display: none; }
+.atlaslegend .key { display: inline-flex; align-items: center; gap: 5px;
+  white-space: nowrap; }
+.atlaslegend svg { display: block; }
+
+.dossier h2 { margin: 0 0 2px; font-size: 17px; letter-spacing: -0.01em; }
+.dossier .where { color: var(--ink2); font-size: 12px; margin: 0 0 16px; }
+.dossier .big { font-size: 31px; font-weight: 600; line-height: 1.08;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.dossier .bigsub { font-size: 12.5px; color: var(--ink2); margin: 3px 0 2px; }
+.dossier table { width: 100%; border-collapse: collapse; font-size: 12.5px;
+  margin: 4px 0 2px; }
+.dossier th { text-align: left; font-weight: 500; color: var(--muted);
+  font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+  padding: 0 0 4px; }
+.dossier th.num, .dossier td.num { text-align: right;
+  font-variant-numeric: tabular-nums; }
+.dossier td { padding: 5px 0; border-top: 1px solid var(--border);
+  vertical-align: middle; }
+.dossier td.bar { width: 96px; padding-left: 8px; padding-right: 8px; }
+.dossier .track { display: block; position: relative; height: 12px;
+  background: var(--track); border-radius: 3px; }
+.dossier .track i { position: absolute; top: 0; bottom: 0; display: block;
+  border-radius: 2px; }
+.dossier .track u { position: absolute; top: -2px; bottom: -2px; left: 50%;
+  width: 1px; background: var(--axis); }
+.dossier tr.weak td { opacity: .5; }
+.dossier h3 { margin: 22px 0 7px; font-size: 10.5px; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--muted); }
+.dossier .lk { border-left: 2px solid var(--border); padding: 1px 0 1px 10px;
+  margin-bottom: 11px; font-size: 12.5px; line-height: 1.5; }
+.dossier .lk b { font-weight: 600; }
+.dossier .lk em { font-style: normal; color: var(--ink2); }
+.dossier ul.near { margin: 0; padding-left: 16px; font-size: 12.5px;
+  color: var(--ink2); }
+.dossier p.note { font-size: 12px; color: var(--ink2); line-height: 1.55; }
+.dossier .hint { color: var(--ink2); font-size: 13px; line-height: 1.6; }
+.dossier .chip { display: inline-block; font-size: 10.5px; padding: 1px 7px;
+  border-radius: 999px; border: 1px solid var(--border); color: var(--ink2);
+  margin-right: 5px; }
+.bigalink { font-weight: 600; }
+
+.atlaslegend .ramp {
+  display: inline-block;
+  width: 190px;
+  height: 11px;
+  border-radius: 2px;
+  vertical-align: -1px;
+  border: 1px solid var(--border);
+}
+
+@media (max-width: 900px) {
+  body.atlaspage { height: auto; overflow: auto; }
+  .atlaswrap { grid-template-columns: 1fr; }
+  .atlasmap { height: 64vh; }
+  .atlaspanel { border-left: 0; border-top: 1px solid var(--border); }
+  /* A legend key holds a swatch and its sentence on one line, which is right
+     until the sentence is wider than the phone. Then it wraps: a key that runs
+     to two lines is legible, and a page that scrolls sideways is not. */
+  .atlaslegend .key { white-space: normal; }
+}
+
+.plab { font: 500 11px var(--font); fill: var(--ink); paint-order: stroke;
+  stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round;
+  pointer-events: none; }
+.slab { font-weight: 600; }
+</style>
+<script defer src="assets/places.a03abd9488.js"></script>
+<script defer src="assets/grids.44b9d095c5.js"></script>
+<script defer src="assets/atlasgeo.e9ea58ac54.js"></script>
+<script defer src="assets/relief.64e72d8778.js"></script>
+<script defer src="assets/follower.d9ac4960c7.js"></script>
+<script defer src="assets/atlas.e8c9670be2.js"></script>
+</head>
+<body class="atlaspage">
+<nav class="sitebar" aria-label="Site"><a class="brand" href="dashboard.html"><svg class="sitemark" viewBox="0 0 32 32" width="22" height="22" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="15" fill="#2366a8"/><path d="M29.42 9.3C22 9.5 14 12 9.5 14.2C7.8 15 7.8 17 9.5 17.8C14 20 22 22.5 29.42 22.7A15 15 0 0 0 29.42 9.3Z" fill="#f59a4f"/><path d="M30.51 12.2C25 12.6 20 14 17.6 15.2C16.6 15.7 16.6 16.3 17.6 16.8C20 18 25 19.4 30.51 19.8A15 15 0 0 0 30.51 12.2Z" fill="#d8402a"/></svg><span>El Niño Tracker</span></a><ul><li><a class="tab" href="dashboard.html">Dashboard</a></li><li><a class="tab" href="map.html">El Niño Map</a></li><li><a class="tab" href="storms.html">Storm Desk</a></li><li><a class="tab" href="atlas.html" aria-current="page">Atlas</a></li></ul></nav>
+
+<header class="atlasbar">
+  <h1>El Nino, where it lands</h1>
+  <span class="lbl">Field</span><span class="grp"><button type="button" data-var="PRECIP">Rainfall</button><button type="button" data-var="AIR">Temperature</button></span>
+  <span class="lbl">Season</span><span class="grp"><button type="button" data-season="DJF" title="December to February">DJF</button><button type="button" data-season="MAM" title="March to May">MAM</button><button type="button" data-season="JJA" title="June to August">JJA</button><button type="button" data-season="SON" title="September to November">SON</button></span>
+  <span class="lbl">Base</span><span class="grp"><button type="button" data-base="none">None</button><button type="button" data-base="relief" title="Land height and sea-floor depth, shaded from the north-west.">Relief</button><button type="button" data-base="marble" title="A cloud-free composite, so it is the land itself, not a day.">Blue Marble</button><button type="button" data-base="photo" title="An actual photograph of the Earth, cloud and all, at 250 m. Black at the winter pole is night, not missing data.">Satellite</button><button type="button" data-base="sst" title="Today&#x27;s ocean against its own climatology - the event itself, at 1 km, not the forty-year composite.">SST anomaly</button></span>
+  <span class="grp">
+    <button type="button" data-comp="1">Composite</button>
+    <button type="button" data-fade="1">Fade below 95%</button>
+    <button type="button" data-layer="borders">Borders</button>
+    <button type="button" data-layer="rivers">Water</button>
+    <button type="button" data-layer="places">Places</button>
+  </span>
+  <span class="spacer"></span>
+  <span class="grp"><button type="button" id="theme">Theme</button></span>
+</header>
+<main class="atlaswrap">
+  <div class="atlasmap" id="map">
+    <canvas id="relief" aria-hidden="true"></canvas>
+    <div id="tiles" aria-hidden="true"></div>
+    <canvas id="field" aria-hidden="true"></canvas>
+    <svg id="svg" width="100" height="100" viewBox="0 0 100 100"
+         role="img" aria-label="Interactive world map of El Nino composite
+         rainfall and temperature anomalies">
+      <g id="pan">
+        <g id="vec"></g>
+        <g id="pts"></g>
+        <g id="pick"></g>
+      </g>
+    </svg>
+    <div class="atlaspill" id="read">&mdash;</div>
+    <div class="atlaspill" id="credit" hidden></div>
+    <div class="atlaspill" id="scale"></div>
+    <div class="atlaszoom">
+      <button type="button" data-zoom="1.6" aria-label="Zoom in">+</button>
+      <button type="button" data-zoom="0.625" aria-label="Zoom out">&minus;</button>
+      <button type="button" data-home="1" aria-label="Reset the view"
+              title="Reset the view" style="font-size:11px">Fit</button>
+    </div>
+  </div>
+  <aside class="atlaspanel dossier" id="panel">
+<p class="hint"><b>Click anywhere</b> for what forty years of El Nino events
+have actually done at that cell &mdash; rainfall and surface temperature
+against a neutral year, every season, with the statistic that says whether the
+difference is real.</p>
+<p class="hint">Drag to pan. Scroll, pinch, or use + and &minus; to zoom; the
+coastline, borders, rivers and place names sharpen as you go in. Arrow keys pan,
++ and &minus; zoom.</p>
+<p class="hint">The composite is <b>what happened</b>, not what will. It is the
+mean of the El Nino months in the record minus the mean of the neutral ones, so
+a cell with a strong value and a weak <i>t</i> is telling you the events
+disagreed with each other.</p>
+</aside>
+</main>
+
+<div class="atlaslegend">
+  <span class="key" id="rampkey"><span id="what">drier &larr; rainfall &rarr;
+    wetter</span>
+    <span class="steps" id="steps"><i style="background:var(--d0)"></i><i style="background:var(--d1)"></i><i style="background:var(--d2)"></i><i style="background:var(--d3)"></i><i style="background:var(--d4)"></i><i style="background:var(--d5)"></i><i style="background:var(--d6)"></i><i style="background:var(--d7)"></i><i style="background:var(--d8)"></i><i style="background:var(--d9)"></i><i style="background:var(--d10)"></i></span>
+    <span id="limits">&minus;3 to +3</span> <span id="unit">mm/day</span>
+    against a neutral year</span>
+  <span class="key" id="fadekey"><span class="steps"><i
+    style="background:var(--d9); opacity:.16"></i></span> faded: |t| under
+    <span id="crit">2.31</span>, the 95% point
+    for this season's own sample - not distinguishable from an ordinary
+    year</span>
+  <span class="key" id="sstkey" hidden><span class="ramp"
+    style="background:linear-gradient(to right,rgb(116,0,214) 0%,rgb(127,26,209) 8.33%,rgb(0,148,255) 16.67%,rgb(24,252,229) 25%,rgb(136,255,132) 33.33%,rgb(191,244,163) 41.67%,rgb(202,202,183) 50%,rgb(255,246,121) 58.33%,rgb(255,182,1) 66.67%,rgb(255,113,0) 75%,rgb(249,1,19) 83.33%,rgb(211,0,133) 91.67%,rgb(128,0,0) 100%)"></span>
+    &minus;3 &larr; today's sea surface against its climatology &rarr; +3
+    &deg;C</span>
+  <span class="key"><svg width="34" height="13" aria-hidden="true">
+    <circle cx="5" cy="7" r="2.2" fill="var(--ink)" fill-opacity=".62"/>
+    <circle cx="16" cy="7" r="4" fill="var(--ink)" fill-opacity=".62"/>
+    <circle cx="29" cy="7" r="6" fill="var(--ink)" fill-opacity=".62"/>
+    </svg> population; a ring marks a capital</span>
+  <span class="key"><svg width="18" height="13" aria-hidden="true">
+    <circle cx="9" cy="7" r="5" fill="var(--s2)"/></svg> active cyclone</span>
+  <span class="key" id="source"></span>
+</div>
+<script>var ATLAS={"links":[{"region":"Indonesia and Malaysia","effect":"Suppressed rainfall; elevated peatland and forest fire risk","window":"Jun-Feb","confidence":"high","polarity":"dry","scope":"regional","detail":"Convection shifts east off the warm pool, leaving the archipelago under subsidence. The 1997-98 and 2015-16 events both produced severe haze episodes.","exposure":"Rice and palm systems, and transboundary haze affecting respiratory health across Singapore, Malaysia and southern Thailand.","boxes":[[95.0,141.0,-11.0,7.5]]},{"region":"Papua New Guinea highlands","effect":"Drought and, at altitude, damaging frost","window":"Aug-Feb","confidence":"high","polarity":"dry","scope":"regional","detail":"Clear skies over high valleys allow radiative frost that destroys sweet potato, the staple crop, with no fallback.","exposure":"Subsistence farming communities with limited road access; 1997-98 required a large relief operation.","boxes":[[140.0,151.0,-10.0,-2.5]]},{"region":"Eastern Australia","effect":"Below-average rainfall, higher fire danger","window":"Jun-Feb","confidence":"high","polarity":"dry","scope":"regional","detail":"One of the oldest documented ENSO relationships. Strongly modulated by the Indian Ocean Dipole - a positive IOD compounds it, a negative one can cancel it.","exposure":"Wheat belt yields, water storage, and the summer bushfire season.","boxes":[[138.0,154.0,-39.0,-15.0]]},{"region":"Philippines","effect":"Rainfall deficit and delayed monsoon onset","window":"Sep-Apr","confidence":"high","polarity":"dry","scope":"regional","detail":"Reduced tropical cyclone landfalls but a genuine water deficit; typhoon tracks tend to shift east and recurve.","exposure":"Rice and maize irrigation, and hydropower supply on Luzon and Mindanao.","boxes":[[116.5,127.0,4.5,19.5]]},{"region":"Mekong basin and Thailand","effect":"Reduced river flow and dry-season water stress","window":"Nov-May","confidence":"moderate","polarity":"dry","scope":"regional","detail":"Low wet-season accumulation carries into the dry season; compounded by upstream storage operations, which makes attribution to ENSO alone unsafe.","exposure":"Irrigated rice in the delta, salinity intrusion, and inland fisheries.","boxes":[[97.0,110.0,8.0,23.0]]},{"region":"India and Pakistan","effect":"Weaker summer monsoon","window":"Jun-Sep","confidence":"weaker / contested","polarity":"dry","scope":"regional","detail":"The classic relationship has weakened markedly since the 1980s and several strong El Nino years have produced near-normal monsoons. East-Pacific events retain more of the link than central-Pacific ones.","exposure":"Kharif sowing, reservoir recharge, and rural employment demand.","boxes":[[66.0,90.0,7.0,34.0]]},{"region":"Southern Africa","effect":"Rainfall failure during the main growing season","window":"Dec-Mar","confidence":"high","polarity":"dry","scope":"regional","detail":"The strongest and most consistent humanitarian teleconnection in the catalogue. It arrives precisely in the maize planting and grain-filling window across Zimbabwe, Zambia, Malawi, Mozambique, Botswana and South Africa.","exposure":"Rain-fed maize for tens of millions of people, with regional price contagion when South African production falls.","boxes":[[12.0,41.0,-35.0,-15.0]]},{"region":"Equatorial East Africa","effect":"Enhanced short rains, flooding and landslides","window":"Oct-Dec","confidence":"high","polarity":"wet","scope":"regional","detail":"Kenya, southern Somalia, southeastern Ethiopia, Uganda and Tanzania. The sign is opposite to southern Africa and often surprises people expecting El Nino to mean drought everywhere.","exposure":"Displacement and damage to shelter and roads; flooding on top of existing drought recovery is a compounding failure, not an offsetting one.","boxes":[[32.0,49.0,-6.0,6.0]]},{"region":"Ethiopian highlands and Sudan","effect":"Weak Kiremt rains","window":"Jun-Sep","confidence":"high","polarity":"dry","scope":"regional","detail":"The main Ethiopian growing rains fail before the enhanced short rains arrive, so a single event can deliver drought then flood within six months.","exposure":"Belg and Meher harvests, livestock condition, and Blue Nile inflow.","boxes":[[23.0,43.0,6.0,20.0]]},{"region":"Rift Valley fever risk, East Africa","effect":"Outbreak conditions following heavy rain","window":"Nov-Mar","confidence":"moderate","polarity":"health","scope":"regional","detail":"Flooding of dambo depressions hatches infected mosquito eggs. Major outbreaks followed the 1997-98 event in Kenya and Somalia.","exposure":"Livestock mortality and human infection, with export bans on livestock removing a primary income source.","boxes":[[33.0,52.0,-5.0,12.0]]},{"region":"Highland malaria, East Africa and Andes","effect":"Transmission at unusual altitude","window":"Dec-May","confidence":"moderate","polarity":"health","scope":"regional","detail":"Warmer temperatures and standing water extend the vector range upslope into populations with little acquired immunity.","exposure":"Epidemic rather than endemic transmission, which health systems in those districts are not configured for.","boxes":[[28.0,40.0,-5.0,5.0],[-79.0,-65.0,-18.0,8.0]]},{"region":"Coastal Peru and Ecuador","effect":"Extreme coastal rainfall, flooding and debris flows","window":"Dec-Apr","confidence":"high","polarity":"wet","scope":"regional","detail":"The original El Nino. Requires warmth in Nino-1+2 specifically, which is why it is gated to east-Pacific events; a central-Pacific event of the same Nino-3.4 strength may produce very little of it.","exposure":"Huaicos destroying road and bridge links, urban flooding in Piura and Trujillo, and a sharp rise in waterborne disease.","boxes":[[-82.0,-74.5,-18.0,2.0]]},{"region":"Peruvian anchoveta fishery","effect":"Thermocline deepens and the fishery collapses","window":"Nov-May","confidence":"high","polarity":"marine","scope":"basin","detail":"Upwelling continues but draws warm nutrient-poor water; biomass falls and seasons are cancelled.","exposure":"The world's largest single-species fishery and the fishmeal supply underpinning global aquaculture and livestock feed prices.","boxes":[[-84.0,-70.0,-20.0,-4.0]]},{"region":"Northern South America","effect":"Rainfall deficit","window":"Dec-Mar","confidence":"high","polarity":"dry","scope":"regional","detail":"Colombia, Venezuela, Guyana and northern Brazil sit under the descending branch through the wet season.","exposure":"Hydropower-dependent grids - Colombia, Venezuela and Ecuador all draw most of their electricity from reservoirs - and Amazon river transport.","boxes":[[-76.0,-58.0,-2.0,12.5]]},{"region":"Northeast Brazil","effect":"Failure of the main rainy season","window":"Feb-May","confidence":"high","polarity":"dry","scope":"regional","detail":"The semi-arid sertao has among the clearest El Nino drought signals anywhere in the Americas.","exposure":"Subsistence agriculture and municipal water supply in a region with thin storage margins.","boxes":[[-45.0,-34.0,-16.0,-2.0]]},{"region":"Southern Brazil, Uruguay, northeast Argentina","effect":"Above-average rainfall and flooding","window":"Nov-Feb","confidence":"high","polarity":"wet","scope":"regional","detail":"A strengthened subtropical jet steers storms across the Plata basin.","exposure":"Soy and maize - beneficial in moderation, then damaging - and displacement along the Parana and Uruguay rivers.","boxes":[[-60.0,-47.0,-35.0,-22.0]]},{"region":"Central American Dry Corridor","effect":"Delayed onset and mid-summer drought","window":"May-Aug","confidence":"high","polarity":"dry","scope":"regional","detail":"Guatemala, Honduras, El Salvador and Nicaragua. The canicula lengthens and the primera harvest fails.","exposure":"Smallholder maize and beans; repeated failures here are a documented driver of displacement and northward migration.","boxes":[[-92.0,-83.0,11.5,17.5]]},{"region":"Caribbean","effect":"Drier than normal dry season","window":"Dec-Apr","confidence":"moderate","polarity":"dry","scope":"regional","detail":"Follows a suppressed Atlantic hurricane season, so two dry inputs arrive back to back.","exposure":"Island water supply with limited storage, and tourism-season demand.","boxes":[[-85.0,-60.0,9.5,23.5]]},{"region":"US Gulf Coast and Southeast","effect":"Wetter and stormier than normal","window":"Dec-Mar","confidence":"high","polarity":"wet","scope":"regional","detail":"A southward-displaced, strengthened subtropical jet. Also raises the cool-season tornado and severe-storm count across the Gulf states.","exposure":"Flood risk in Louisiana, Mississippi, Alabama, Georgia and Florida.","boxes":[[-100.0,-76.0,25.0,36.5]]},{"region":"California and the US Southwest","effect":"Tilt toward a wetter winter, strongest in the south","window":"Dec-Mar","confidence":"moderate","polarity":"wet","scope":"regional","detail":"Less reliable than its reputation: several strong events delivered near-normal California precipitation. Southern California and Arizona have the clearer signal; northern California does not.","exposure":"Atmospheric-river flooding, debris flows on recent burn scars, and reservoir and snowpack recovery.","boxes":[[-124.5,-104.0,31.0,42.0]]},{"region":"US Pacific Northwest and Ohio Valley","effect":"Drier and milder than normal","window":"Dec-Mar","confidence":"moderate","polarity":"dry","scope":"regional","detail":"The northern storm track lifts away, leaving a thin snowpack.","exposure":"Snowpack-dependent summer water supply and the following fire season.","boxes":[[-125.0,-116.0,42.0,49.0],[-90.0,-78.0,36.0,42.5]]},{"region":"Canada and the northern United States","effect":"Milder winter","window":"Dec-Feb","confidence":"high","polarity":"hot","scope":"regional","detail":"A well-reproduced Pacific-North American pattern response.","exposure":"Lower heating demand, and a shorter ice season on the Great Lakes.","boxes":[[-130.0,-60.0,44.0,62.0]]},{"region":"Atlantic hurricane season","effect":"Suppressed activity","window":"Aug-Oct","confidence":"high","polarity":"storm","scope":"basin","detail":"Increased vertical wind shear over the main development region. One of the most reliable seasonal-forecast signals in existence, and the clearest case where an El Nino reduces rather than increases a hazard.","exposure":"Fewer US and Caribbean landfalls - though a single storm in a quiet season still does what a single storm does.","boxes":[[-90.0,-20.0,8.0,32.0]]},{"region":"Eastern and central Pacific hurricanes","effect":"Enhanced activity, tracking further west","window":"Jul-Oct","confidence":"high","polarity":"storm","scope":"basin","detail":"Warm water and reduced shear extend the basin westward, raising the risk to Hawaii and to central Pacific island states.","exposure":"Small island states with minimal margin for a direct strike.","boxes":[[-140.0,-90.0,8.0,22.0]]},{"region":"Western North Pacific typhoons","effect":"Formation shifts southeast; longer, more intense tracks","window":"Aug-Dec","confidence":"moderate","polarity":"storm","scope":"basin","detail":"Genesis moves toward the southeast quadrant, giving storms a longer run over warm water and more time to intensify before recurving.","exposure":"Higher-intensity landfalls in Japan and Korea; more recurvature away from the Philippines even as that country dries.","boxes":[[120.0,170.0,5.0,25.0]]},{"region":"Pacific and Indian Ocean coral reefs","effect":"Mass bleaching from accumulated heat stress","window":"Dec-Jun","confidence":"high","polarity":"marine","scope":"basin","detail":"The 1997-98, 2014-17 and 2023-25 events drove global bleaching episodes; the last put more than four fifths of the world's reef area under bleaching-level heat stress, the most extensive on record. Central and eastern Pacific reefs go first, then the wider basin.","exposure":"Reef fisheries, coastal protection from wave energy, and ecosystems that need a decade or more to recover if they recover at all.","boxes":[[140.0,180.0,-20.0,6.0],[-180.0,-150.0,-20.0,6.0],[40.0,80.0,-15.0,6.0],[145.0,155.0,-24.0,-10.0]]},{"region":"Global mean surface temperature","effect":"Elevated for roughly a year, peaking after the event","window":"Dec-Nov","confidence":"high","polarity":"hot","scope":"global","detail":"Heat released from the Pacific raises global temperature with a lag of three to six months, so the warmest calendar year is usually the one AFTER the peak.","exposure":"Compounding with the background trend: the hottest years on record have been El Nino years riding on top of it.","boxes":[[-180.0,180.0,-90.0,90.0]]},{"region":"Pacific island states","effect":"Rainfall redistribution and a shifted cyclone belt","window":"Nov-Apr","confidence":"high","polarity":"storm","scope":"basin","detail":"Kiribati and Tuvalu turn wet while Fiji, Vanuatu, Samoa and Papua New Guinea dry; the cyclone belt shifts east toward French Polynesia.","exposure":"Freshwater lenses on atolls, which fail before anything else does.","boxes":[[155.0,180.0,-25.0,2.0],[-180.0,-155.0,-25.0,2.0]]}],"storms":[{"name":"Isaias","basin":"AL","lon":-87.1,"lat":33.0,"wind":25,"track":[[-96.5,22.0],[-96.5,22.0],[-96.5,22.0],[-96.5,22.0],[-96.3,22.2],[-96.1,22.3],[-96.0,22.2],[-96.0,22.0],[-95.7,21.9],[-95.3,21.7],[-94.6,21.9],[-93.9,22.2],[-93.3,22.5],[-92.3,22.7],[-91.5,23.1],[-90.6,23.4],[-89.8,23.9],[-89.0,24.8],[-88.4,25.8],[-87.6,27.0],[-87.1,28.5],[-86.6,30.2],[-86.5,31.4],[-86.7,32.3],[-87.1,33.0]],"forecast":[[-87.4,34.0],[-85.5,36.7],[-81.0,38.3]]},{"name":"Rachel","basin":"EP","lon":-118.9,"lat":25.8,"wind":55,"track":[[-92.6,9.2],[-93.6,10.2],[-94.6,11.2],[-95.6,11.2],[-96.1,11.3],[-96.7,11.4],[-97.3,11.7],[-97.6,11.9],[-97.9,12.2],[-98.1,12.4],[-98.4,12.6],[-98.9,12.7],[-99.5,12.8],[-100.2,13.1],[-100.8,13.6],[-101.6,13.9],[-102.7,14.2],[-103.8,14.5],[-104.4,15.1],[-105.4,15.8],[-106.3,16.6],[-106.9,17.3],[-107.5,17.8],[-107.8,18.4],[-108.3,19.0],[-108.8,19.2],[-109.2,19.4],[-109.4,19.4],[-109.6,19.4],[-110.1,19.4],[-110.6,19.3],[-110.9,19.3],[-111.3,19.3],[-111.6,19.3],[-111.9,19.5],[-112.3,19.7],[-112.6,19.9],[-113.0,20.1],[-113.5,20.2],[-114.0,20.1],[-114.5,20.2],[-115.2,20.4],[-115.8,20.4],[-116.7,20.3],[-117.5,20.4],[-118.2,20.3],[-119.1,20.4],[-119.7,20.4],[-120.3,20.4],[-120.9,20.5],[-121.5,20.7],[-122.0,21.0],[-122.6,21.3],[-123.3,21.6],[-124.0,22.0],[-124.5,22.3],[-125.2,22.5],[-125.1,22.5],[-124.9,22.6],[-124.5,23.0],[-123.6,23.3],[-122.2,23.8],[-120.5,24.7],[-118.9,25.8]],"forecast":[[-117.5,28.2],[-115.3,33.0],[-112.5,38.5]]},{"name":"Simon","basin":"EP","lon":-104.8,"lat":17.4,"wind":130,"track":[[-91.5,11.8],[-92.6,11.9],[-93.8,12.0],[-94.9,12.0],[-95.8,12.2],[-96.4,12.4],[-97.0,12.4],[-97.7,12.6],[-98.2,12.8],[-98.7,13.0],[-99.4,13.9],[-100.0,14.5],[-100.6,14.9],[-101.3,15.2],[-102.1,15.3],[-102.7,15.4],[-103.3,15.4],[-103.8,15.4],[-104.2,15.5],[-104.4,15.7],[-104.5,15.8],[-104.6,16.0],[-104.6,16.6],[-104.7,17.0],[-104.8,17.3],[-104.8,17.4]],"forecast":[[-105.0,18.1],[-105.2,19.1],[-105.4,20.4],[-105.4,21.7],[-105.5,23.0]]},{"name":"Koguma","basin":"WP","lon":149.6,"lat":22.9,"wind":120,"track":[[167.9,8.1],[167.4,8.3],[167.5,8.7],[167.4,9.1],[167.3,9.3],[167.3,9.5],[167.6,9.9],[168.0,10.5],[168.2,10.9],[168.0,11.5],[167.6,12.2],[167.0,12.8],[166.6,13.4],[165.7,14.1],[164.8,14.8],[164.0,15.2],[163.2,15.5],[162.5,15.9],[161.8,16.5],[161.1,16.8],[160.1,17.2],[158.9,17.7],[157.5,18.1],[156.5,18.5],[155.5,19.3],[154.1,20.1],[152.7,20.8],[151.5,21.4],[150.4,22.2],[149.6,22.9]],"forecast":[[148.3,24.6],[147.6,26.3],[147.5,28.4],[148.6,31.0],[151.2,33.7],[154.8,36.5],[162.4,41.2],[172.7,43.8]]}],"tolerances":[0.3,0.08,0.035,0.015],"wide":0.36,"tight":0.002,"floors":[2000000,400000,80000,0],"significant":{"PRECIP":{"DJF":2.306,"MAM":2.571,"JJA":3.182,"SON":2.262},"AIR":{"DJF":2.306,"MAM":2.571,"JJA":3.182,"SON":2.262}},"seasons":["DJF","MAM","JJA","SON"],"season_label":{"DJF":"December to February","MAM":"March to May","JJA":"June to August","SON":"September to November"},"dry_floor":0.2,"bases":[{"id":"relief","label":"Relief","kind":"relief","credit":"ETOPO1 global relief, NOAA NCEI - vendored, works offline","note":"Land height and sea-floor depth, shaded from the north-west."},{"id":"marble","label":"Blue Marble","kind":"gibs","max":7,"layer":"BlueMarble_ShadedRelief_Bathymetry","tms":"500m","ext":"jpeg","credit":"NASA Blue Marble, shaded relief and bathymetry (GIBS)","note":"A cloud-free composite, so it is the land itself, not a day."},{"id":"photo","label":"Satellite","kind":"gibs","max":8,"layer":"VIIRS_SNPP_CorrectedReflectance_TrueColor","tms":"250m","ext":"jpg","credit":"VIIRS on Suomi NPP, corrected-reflectance true colour (GIBS)","note":"An actual photograph of the Earth, cloud and all, at 250 m. Black at the winter pole is night, not missing data.","date":"2026-10-08"},{"id":"sst","label":"SST anomaly","kind":"gibs","max":6,"layer":"GHRSST_L4_MUR_Sea_Surface_Temperature_Anomalies","tms":"1km","ext":"png","scale":"NASA's own scale, \u22123 to +3 \u00b0C","credit":"GHRSST Level 4 MUR sea-surface temperature anomaly (GIBS)","note":"Today's ocean against its own climatology - the event itself, at 1 km, not the forty-year composite.","date":"2026-10-07"}],"gibs":"https://gibs.earthdata.nasa.gov/wmts/epsg4326/best","relief":{"ny":721,"nx":1441,"lat0":-90.0,"lon0":-180.0,"step":0.25,"offset":11000,"source":"ETOPO1 ice-surface relief, NOAA NCEI, via ERDDAP at NOAA CoastWatch","vendored":"2026-09-23"}};</script>
+</body>
+</html>

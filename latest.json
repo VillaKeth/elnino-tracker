@@ -1,0 +1,7109 @@
+{
+  "generated_utc": "2026-10-10T19:26:09+00:00",
+  "run_at": "2026-10-10T19:26:06+00:00",
+  "schema": 9,
+  "headline": "Strong El Nino -- RONI +1.69 degC (JAS 2026; legacy ONI +2.16), power index 83/100 (Very High), intensifying rapidly.",
+  "cpc_status": "El Nino Advisory",
+  "degraded": true,
+  "warnings": [
+    "Isaias: Public advisory could not be fetched or read."
+  ],
+  "index": {
+    "name": "RONI",
+    "season": "JAS 2026",
+    "value": 1.69,
+    "tier": "Strong El Nino"
+  },
+  "oni": {
+    "season": "JAS 2026",
+    "value": 2.16,
+    "tier": "Very Strong El Nino"
+  },
+  "roni": {
+    "season": "JAS 2026",
+    "value": 1.69,
+    "tier": "Strong El Nino"
+  },
+  "episode_status": "El Nino conditions present for 4 consecutive seasons of RONI at or above +0.5 degC; 1 more needed before NOAA logs this as a formal episode.",
+  "seasons_at_threshold": 4,
+  "ranking": {
+    "index": "RONI",
+    "rank_all": 34,
+    "total_all": 920,
+    "rank_in_season": 2,
+    "total_in_season": 77,
+    "season": "JAS"
+  },
+  "weekly": {
+    "week_ending": "2026-09-30",
+    "nino12": 5.3,
+    "nino3": 4.0,
+    "nino34": 3.2,
+    "nino4": 1.2
+  },
+  "scale": {
+    "flavour": "East Pacific (canonical) El Nino",
+    "flavour_index": 4.4,
+    "active_regions": 3,
+    "basin_score": 100.0,
+    "basis": "relative",
+    "regions": [
+      {
+        "key": "nino12",
+        "label": "Nino-1+2 (coastal Peru/Ecuador)",
+        "anomaly": 4.5,
+        "traditional": 5.3,
+        "sst": 26.1
+      },
+      {
+        "key": "nino3",
+        "label": "Nino-3 (eastern Pacific)",
+        "anomaly": 3.3,
+        "traditional": 4.0,
+        "sst": 29.0
+      },
+      {
+        "key": "nino34",
+        "label": "Nino-3.4 (east-central, index region)",
+        "anomaly": 2.3,
+        "traditional": 3.2,
+        "sst": 29.9
+      },
+      {
+        "key": "nino4",
+        "label": "Nino-4 (central/western Pacific)",
+        "anomaly": 0.1,
+        "traditional": 1.2,
+        "sst": 29.9
+      }
+    ]
+  },
+  "power_index": {
+    "value": 83.4,
+    "band": "Very High",
+    "components": {
+      "amplitude": 67.6,
+      "coupling": 95.8,
+      "basin_scale": 100.0,
+      "momentum": 83.0
+    },
+    "weights": {
+      "amplitude": 0.4,
+      "coupling": 0.25,
+      "basin_scale": 0.2,
+      "momentum": 0.15
+    }
+  },
+  "momentum": {
+    "season_delta": 0.32999999999999985,
+    "weekly_delta": 0.3999999999999999,
+    "direction": "intensifying rapidly",
+    "score": 82.99999999999999
+  },
+  "subsurface": {
+    "month": "Aug 2026",
+    "wwv_anomaly": 3.459717,
+    "wwv_west_anomaly": -0.5587994,
+    "wwv_east_anomaly": 4.0185164,
+    "rank_alltime": 1,
+    "total_alltime": 560,
+    "rank_in_month": 1,
+    "total_in_month": 47,
+    "percentile": 100.0,
+    "tendency_per_month": 0.25302733333333327,
+    "tendency": "still recharging",
+    "phase": "El Nino developing",
+    "phase_angle_deg": 51.470699335871515,
+    "phase_confident": true,
+    "lead_months": 5,
+    "lead_correlation": 0.5056028426277691,
+    "implied_nino34": 1.0603883812541974
+  },
+  "atmosphere": {
+    "walker_index": 1.9326086956521737,
+    "as_of": "Sep 2026",
+    "coupled": true,
+    "agreement": 1.0,
+    "dissenters": [],
+    "westerly_burst_months_12mo": 5,
+    "indicators": [
+      {
+        "key": "darwin",
+        "name": "Darwin sea level pressure",
+        "as_of": "Sep 2026",
+        "raw": 3.5,
+        "standard_score": 3.1,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "trade_central",
+        "name": "850 hPa trades, central Pacific",
+        "as_of": "Sep 2026",
+        "raw": -7.6,
+        "standard_score": 3.0,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "olr_central",
+        "name": "OLR, central Pacific",
+        "as_of": "Jan 2026",
+        "raw": -36.19,
+        "standard_score": 2.475255402399387,
+        "supports_el_nino": true,
+        "stale": true
+      },
+      {
+        "key": "eqsoi",
+        "name": "Equatorial SOI",
+        "as_of": "Sep 2026",
+        "raw": -2.3,
+        "standard_score": 2.3,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "trade_west",
+        "name": "850 hPa trades, western Pacific",
+        "as_of": "Sep 2026",
+        "raw": -5.3,
+        "standard_score": 2.2,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "soi",
+        "name": "Southern Oscillation Index",
+        "as_of": "Sep 2026",
+        "raw": -3.3,
+        "standard_score": 2.0,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "trade_east",
+        "name": "850 hPa trades, eastern Pacific",
+        "as_of": "Sep 2026",
+        "raw": -3.5,
+        "standard_score": 1.9,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "zwnd200",
+        "name": "200 hPa zonal wind, east Pacific",
+        "as_of": "Sep 2026",
+        "raw": -6.3,
+        "standard_score": 1.3,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "olr",
+        "name": "OLR, date line (160E-160W)",
+        "as_of": "Sep 2026",
+        "raw": -16.4,
+        "standard_score": 1.0,
+        "supports_el_nino": true,
+        "stale": false
+      },
+      {
+        "key": "tahiti",
+        "name": "Tahiti sea level pressure",
+        "as_of": "Sep 2026",
+        "raw": -0.1,
+        "standard_score": 0.1,
+        "supports_el_nino": true,
+        "stale": false
+      }
+    ],
+    "mjo": {
+      "date": "2026-09-25",
+      "enhanced_longitude": "40W",
+      "amplitude": 2.19,
+      "constructive": true
+    }
+  },
+  "forecast": {
+    "skill_source": "cross-validated hindcast over 77 years",
+    "peak": {
+      "season": "NDJ 2026",
+      "lead": 4,
+      "mean": 2.287641764679974,
+      "low": 1.682,
+      "high": 2.8399318176412187
+    },
+    "peak_probability": {
+      "1.0": 0.9999999999999207,
+      "1.5": 0.999911886445134,
+      "2.0": 0.8192414658969801,
+      "2.5": 0.35317765731404005
+    },
+    "analog_weights": {
+      "1965-66": 4.39607805437114,
+      "1972-73": 3.2573033620957226,
+      "2015-16": 3.1277785872553445,
+      "1997-98": 3.0353078103558104,
+      "1987-88": 2.53983694335615,
+      "1982-83": 2.048336736855959,
+      "1957-58": 1.9571615113714482
+    },
+    "weights": {
+      "persistence": 0.28004325022231946,
+      "recharge": 0.37095460863269064,
+      "analog": 0.3490021411449899
+    },
+    "projections": [
+      {
+        "lead": 1,
+        "season": "ASO 2026",
+        "mean": 1.966781880519212,
+        "low": 1.7599999999999998,
+        "high": 2.1433566293605435,
+        "sigma": 0.13777680153037714,
+        "methods": {
+          "persistence": 1.9369676006077094,
+          "recharge": 2.028741074616922,
+          "analog": 1.924848725896594
+        },
+        "method_spread": 0.10389234872032804
+      },
+      {
+        "lead": 2,
+        "season": "SON 2026",
+        "mean": 2.1520412701603084,
+        "low": 1.7159999999999997,
+        "high": 2.480887654295869,
+        "sigma": 0.256590499481555,
+        "methods": {
+          "persistence": 2.1579790834893826,
+          "recharge": 2.237336558356679,
+          "analog": 2.056616283122338
+        },
+        "method_spread": 0.1807202752343411
+      },
+      {
+        "lead": 3,
+        "season": "OND 2026",
+        "mean": 2.272451005171202,
+        "low": 1.8019999999999998,
+        "high": 2.72534207945612,
+        "sigma": 0.35337942750071627,
+        "methods": {
+          "persistence": 2.330305197328905,
+          "recharge": 2.3366880941535104,
+          "analog": 2.1577505048171517
+        },
+        "method_spread": 0.17893758933635873
+      },
+      {
+        "lead": 4,
+        "season": "NDJ 2026",
+        "mean": 2.287641764679974,
+        "low": 1.682,
+        "high": 2.8399318176412187,
+        "sigma": 0.43093793146164555,
+        "methods": {
+          "persistence": 2.3636855457018693,
+          "recharge": 2.3708594670451233,
+          "analog": 2.138171226655194
+        },
+        "method_spread": 0.2326882403899293
+      },
+      {
+        "lead": 5,
+        "season": "DJF 2027",
+        "mean": 2.163056909961836,
+        "low": 1.3739999999999999,
+        "high": 2.814975555443319,
+        "sigma": 0.508675597285801,
+        "methods": {
+          "persistence": 2.1636758647493197,
+          "recharge": 2.33303450704488,
+          "analog": 1.9818909523397428
+        },
+        "method_spread": 0.35114355470513714
+      },
+      {
+        "lead": 6,
+        "season": "JFM 2027",
+        "mean": 1.8736025470672582,
+        "low": 1.094,
+        "high": 2.6180730592940535,
+        "sigma": 0.5808914733355145,
+        "methods": {
+          "persistence": 1.7692690527505917,
+          "recharge": 2.129230148183455,
+          "analog": 1.6856141706720982
+        },
+        "method_spread": 0.44361597751135684
+      },
+      {
+        "lead": 7,
+        "season": "FMA 2027",
+        "mean": 1.4278174816072275,
+        "low": 0.518,
+        "high": 2.2752073898166287,
+        "sigma": 0.6611968697014677,
+        "methods": {
+          "persistence": 1.2327441613963181,
+          "recharge": 1.7907007693565096,
+          "analog": 1.1986376229953346
+        },
+        "method_spread": 0.592063146361175
+      },
+      {
+        "lead": 8,
+        "season": "MAM 2027",
+        "mean": 0.9901275195371678,
+        "low": -0.136,
+        "high": 1.9501234397219656,
+        "sigma": 0.7490604870355787,
+        "methods": {
+          "persistence": 0.732888315726248,
+          "recharge": 1.4712993023523813,
+          "analog": 0.6851013460293263
+        },
+        "method_spread": 0.786197956323055
+      },
+      {
+        "lead": 9,
+        "season": "AMJ 2027",
+        "mean": 0.559657439911209,
+        "low": -0.704,
+        "high": 1.6094346376659767,
+        "sigma": 0.8191145425677026,
+        "methods": {
+          "persistence": 0.2668431615023142,
+          "recharge": 1.1249928808122904,
+          "analog": 0.19371949875839817
+        },
+        "method_spread": 0.9312733820538923
+      }
+    ],
+    "notes": [
+      "3 candidate analogs were dropped for being too dissimilar to the current trajectory."
+    ]
+  },
+  "skill": {
+    "sample_years": 77,
+    "useful_horizon_months": 9,
+    "useful_horizon_is_lower_bound": true,
+    "barrier_seasons": [
+      "MJJ",
+      "JJA"
+    ],
+    "barrier_drop": 0.4303830231367301,
+    "weights": {
+      "persistence": 0.28004325022231946,
+      "recharge": 0.37095460863269064,
+      "analog": 0.3490021411449899
+    },
+    "by_lead": [
+      {
+        "lead": 1,
+        "rmse": 0.12760894172934892,
+        "correlation": 0.9878827053771523,
+        "bias": 0.0018547574837192709,
+        "n": 847,
+        "by_method": {
+          "persistence": 0.17473060397047474,
+          "recharge": 0.08569207282621559,
+          "analog": 0.1477568938423631
+        }
+      },
+      {
+        "lead": 2,
+        "rmse": 0.24015355494766233,
+        "correlation": 0.9565402463134752,
+        "bias": 0.004364284927642698,
+        "n": 846,
+        "by_method": {
+          "persistence": 0.3146573310707536,
+          "recharge": 0.19302629035575206,
+          "analog": 0.2738804274810584
+        }
+      },
+      {
+        "lead": 3,
+        "rmse": 0.341865989184881,
+        "correlation": 0.9098301310429654,
+        "bias": 0.007407424642654161,
+        "n": 845,
+        "by_method": {
+          "persistence": 0.42426460695564916,
+          "recharge": 0.32191511978349285,
+          "analog": 0.37634999421947984
+        }
+      },
+      {
+        "lead": 4,
+        "rmse": 0.4149355931569399,
+        "correlation": 0.8644436570067157,
+        "bias": 0.011549787048601544,
+        "n": 844,
+        "by_method": {
+          "persistence": 0.5088412598638258,
+          "recharge": 0.4143897662584215,
+          "analog": 0.45123416555148993
+        }
+      },
+      {
+        "lead": 5,
+        "rmse": 0.47741534775426575,
+        "correlation": 0.8168164074989347,
+        "bias": 0.015262710982000615,
+        "n": 843,
+        "by_method": {
+          "persistence": 0.5820781372250995,
+          "recharge": 0.4909392027011407,
+          "analog": 0.5171565295116358
+        }
+      },
+      {
+        "lead": 6,
+        "rmse": 0.5368762612726191,
+        "correlation": 0.762459478633251,
+        "bias": 0.018654104854903996,
+        "n": 842,
+        "by_method": {
+          "persistence": 0.6490495468291348,
+          "recharge": 0.5623363825118509,
+          "analog": 0.5803145709469124
+        }
+      },
+      {
+        "lead": 7,
+        "rmse": 0.5912246681112403,
+        "correlation": 0.7031010120492629,
+        "bias": 0.020354977659237754,
+        "n": 841,
+        "by_method": {
+          "persistence": 0.7085813457223703,
+          "recharge": 0.6283163956101376,
+          "analog": 0.6368624287133569
+        }
+      },
+      {
+        "lead": 8,
+        "rmse": 0.6376243459956193,
+        "correlation": 0.6429389349804663,
+        "bias": 0.021546118842822617,
+        "n": 840,
+        "by_method": {
+          "persistence": 0.7564716723254722,
+          "recharge": 0.6871680595816388,
+          "analog": 0.6823194158870463
+        }
+      },
+      {
+        "lead": 9,
+        "rmse": 0.6738925031600908,
+        "correlation": 0.5874564187218995,
+        "bias": 0.022898864631670866,
+        "n": 839,
+        "by_method": {
+          "persistence": 0.7904145456269377,
+          "recharge": 0.7358414370691659,
+          "analog": 0.7155016639614268
+        }
+      }
+    ],
+    "correlation_by_target_season": {
+      "JJA": 0.45445762444228016,
+      "JAS": 0.5888044432789346,
+      "ASO": 0.7006557053685007,
+      "SON": 0.76912533557115,
+      "OND": 0.840185638229196,
+      "NDJ": 0.8848406475790103,
+      "DJF": 0.87449181343038,
+      "JFM": 0.8563715985747871,
+      "FMA": 0.7862757577782234,
+      "MAM": 0.6572713036981497,
+      "AMJ": 0.5131788396061893,
+      "MJJ": 0.466850787807282
+    }
+  },
+  "analogs": [
+    {
+      "event": "2009-10",
+      "rmse": 0.1169,
+      "peak": 1.5,
+      "peak_season": "NDJ 2009",
+      "seasons_to_peak": 0,
+      "tier": "Strong El Nino"
+    },
+    {
+      "event": "1965-66",
+      "rmse": 0.1275,
+      "peak": 1.99,
+      "peak_season": "OND 1965",
+      "seasons_to_peak": 3,
+      "tier": "Very Strong El Nino"
+    },
+    {
+      "event": "1997-98",
+      "rmse": 0.1429,
+      "peak": 2.28,
+      "peak_season": "NDJ 1997",
+      "seasons_to_peak": 5,
+      "tier": "Very Strong El Nino"
+    },
+    {
+      "event": "2023-24",
+      "rmse": 0.269,
+      "peak": 1.42,
+      "peak_season": "OND 2023",
+      "seasons_to_peak": 1,
+      "tier": "Moderate El Nino"
+    }
+  ],
+  "alerts": [
+    {
+      "code": "tc_major_ep202026",
+      "level": "critical",
+      "title": "Simon: major hurricane, Category 4 hurricane",
+      "detail": "130 kt sustained, 932 mb, at 17.4N 104.8W in the East Pacific. Nearest land is Manzanillo, Mexico, 196 km away.",
+      "kind": "state",
+      "value": 130.0,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-10T03:26:08+00:00"
+    },
+    {
+      "code": "tc_major_wp272026",
+      "level": "critical",
+      "title": "Koguma: major typhoon, Category 4-equivalent typhoon",
+      "detail": "120 kt sustained, 942 mb, at 22.9N 149.6E in the West Pacific. It is over open ocean.",
+      "kind": "state",
+      "value": 120.0,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-09T14:26:25+00:00"
+    },
+    {
+      "code": "tc_threat_ep202026_cabo_corrientes",
+      "level": "critical",
+      "title": "Simon passes 31 km from Cabo Corrientes in 30 h (00Z 12 Oct)",
+      "detail": "Official forecast has it as a Category 1 hurricane at 80 kt on approach to Cabo Corrientes, Mexico, 30 h after the 2026-10-10 18Z analysis. This is a centre-line distance; the wind field is wider than the line. Track spread across the ensemble at +30 h is 103 km, the members' mean distance from their mean position.",
+      "kind": "state",
+      "value": 31.266296280455332,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-07T15:30:27+00:00"
+    },
+    {
+      "code": "tc_threat_ep202026_manzanillo",
+      "level": "critical",
+      "title": "Simon passes 93 km from Manzanillo in 16 h (10Z 11 Oct)",
+      "detail": "Official forecast has it as a Category 4 hurricane at 125 kt on approach to Manzanillo, Mexico, 16 h after the 2026-10-10 18Z analysis. This is a centre-line distance; the wind field is wider than the line. Track spread across the ensemble at +18 h is 70 km, the members' mean distance from their mean position.",
+      "kind": "state",
+      "value": 92.96315190582963,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-07T15:30:27+00:00"
+    },
+    {
+      "code": "tc_threat_ep202026_puerto_vallarta",
+      "level": "critical",
+      "title": "Simon passes 21 km from Puerto Vallarta in 32 h (02Z 12 Oct)",
+      "detail": "Official forecast has it as a Category 1 hurricane at 75 kt on approach to Puerto Vallarta, Mexico, 32 h after the 2026-10-10 18Z analysis. This is a centre-line distance; the wind field is wider than the line. Track spread across the ensemble at +36 h is 109 km, the members' mean distance from their mean position.",
+      "kind": "state",
+      "value": 20.817012973958548,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-07T15:30:27+00:00"
+    },
+    {
+      "code": "tc_ww_ep202026_hurricane_warning",
+      "level": "critical",
+      "title": "Simon: Hurricane Warning in effect",
+      "detail": "NHC advisory 13A: a Hurricane Warning is in effect for Punta San Telmo to El Roblito; Las Islas Marias. Hurricane conditions (64 kt or more) are expected in the area; warnings go out 36 hours before tropical-storm-force wind is expected to arrive.",
+      "kind": "state",
+      "value": 2.0,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-08T21:26:08+00:00"
+    },
+    {
+      "code": "wwv_record",
+      "level": "critical",
+      "title": "Record equatorial warm water volume",
+      "detail": "Aug 2026 WWV anomaly is +3.46 x10^14 m3 - the highest of 560 months on record. Stored heat is the fuel available to the surface anomaly over the following two to three seasons.",
+      "kind": "state",
+      "value": 3.459717,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    },
+    {
+      "code": "forecast_very_strong",
+      "level": "warning",
+      "title": "Projected to peak in very strong territory",
+      "detail": "Ensemble peak +2.29 degC at NDJ 2026, 82% probability of exceeding +2.0 degC.",
+      "kind": "state",
+      "value": 2.287641764679974,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    },
+    {
+      "code": "index_ge_1.5",
+      "level": "warning",
+      "title": "RONI at or above +1.5 degC - Strong El Nino",
+      "detail": "JAS 2026 RONI is +1.69 degC, which CPC prints as +1.7: Strong El Nino conditions this season. An event's category is set by its peak, which is still ahead of it while it is building.",
+      "kind": "state",
+      "value": 1.69,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    },
+    {
+      "code": "recharge_during_event",
+      "level": "warning",
+      "title": "Heat content still rising during an active event",
+      "detail": "WWV is +0.253 x10^14 m3 per month and still climbing while the surface anomaly is already large. Events normally begin discharging by this stage; continued recharge means the event has not yet spent its fuel.",
+      "kind": "change",
+      "value": 0.25302733333333327,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    },
+    {
+      "code": "tc_ri_ep202026",
+      "level": "warning",
+      "title": "Simon: rapid intensification, +40 kt in 24 h",
+      "detail": "NHC calls 30 kt in 24 hours rapid intensification; this is 40, through 2026-10-10 18Z. Forecast intensity error is at its largest exactly here, so treat the official intensity forecast as a floor rather than a centre.",
+      "kind": "change",
+      "value": 40.0,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-09T19:22:10+00:00"
+    },
+    {
+      "code": "tc_threat_ep182026_ensenada",
+      "level": "warning",
+      "title": "Rachel passes 70 km from Ensenada in 15 h (09Z 11 Oct)",
+      "detail": "Official forecast has it as a tropical storm at 45 kt on approach to Ensenada, Mexico, 15 h after the 2026-10-10 18Z analysis. This is a centre-line distance; the wind field is wider than the line. Track spread across the ensemble at +18 h is 74 km, the members' mean distance from their mean position.",
+      "kind": "state",
+      "value": 70.08923546391202,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-07T07:48:30+00:00"
+    },
+    {
+      "code": "tc_threat_ep202026_lazaro_cardenas",
+      "level": "warning",
+      "title": "Simon is 281 km from Lazaro Cardenas now, moving away",
+      "detail": "The 2026-10-10 18Z analysis has it as a Category 4 hurricane at 130 kt, 281 km from Lazaro Cardenas, Mexico, and the official forecast takes it further away from here on. This is a centre-line distance; the wind field is wider than the line.",
+      "kind": "state",
+      "value": 281.0482821306145,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-07T15:30:27+00:00"
+    },
+    {
+      "code": "tc_threat_ep202026_zihuatanejo",
+      "level": "warning",
+      "title": "Simon is 340 km from Zihuatanejo now, moving away",
+      "detail": "The 2026-10-10 18Z analysis has it as a Category 4 hurricane at 130 kt, 340 km from Zihuatanejo, Mexico, and the official forecast takes it further away from here on. This is a centre-line distance; the wind field is wider than the line.",
+      "kind": "state",
+      "value": 340.07886618771687,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-10T00:47:40+00:00"
+    },
+    {
+      "code": "tc_ww_ep182026_tropical_storm_warning",
+      "level": "warning",
+      "title": "Rachel: Tropical Storm Warning in effect",
+      "detail": "NHC advisory 54A: a Tropical Storm Warning is in effect for West coast of Baja California and Baja California Sur, from Punta Eugenia northward to the U.S./Mexico Border; East coast of Baja California, from Isla San Luis northward to Puerto Penasco. Tropical storm conditions (34 to 63 kt) are expected in the area within 36 hours.",
+      "kind": "state",
+      "value": 2.0,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-09T20:54:21+00:00"
+    },
+    {
+      "code": "top3_season",
+      "level": "warning",
+      "title": "Third-warmest JAS or better",
+      "detail": "Rank 2 of 77 for this calendar season on RONI.",
+      "kind": "state",
+      "value": 1.69,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    },
+    {
+      "code": "walker_coupled",
+      "level": "warning",
+      "title": "Ocean and atmosphere are coupled",
+      "detail": "Composite atmospheric index +1.93 sigma, with 100% of indicators in agreement.",
+      "kind": "state",
+      "value": 1.9326086956521737,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    },
+    {
+      "code": "episode_forming",
+      "level": "watch",
+      "title": "El Nino conditions present, episode not yet formal",
+      "detail": "El Nino conditions present for 4 consecutive seasons of RONI at or above +0.5 degC; 1 more needed before NOAA logs this as a formal episode.",
+      "kind": "state",
+      "value": 4.0,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    },
+    {
+      "code": "momentum_building",
+      "level": "watch",
+      "title": "Still intensifying",
+      "detail": "RONI rose +0.33 degC from the previous season (intensifying rapidly).",
+      "kind": "change",
+      "value": 0.32999999999999985,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    },
+    {
+      "code": "tc_formation_ep1",
+      "level": "watch",
+      "title": "South of Southwestern Mexico: 70% chance of a tropical cyclone within 7 days",
+      "detail": "NHC's outlook of Sat Oct 10 17:36:09 2026: 0% within 48 hours, 70% within 7 days. An area of low pressure is forecast to develop south or southwest of the coast of Mexico by early next week. Environmental conditions are expected to be conducive for gradual development thereafter, and a tropical depression is likely to form by the middle or latter half of next week as the system moves generally west-northwestward at around 10 mph. Formation chance through 48 hours...low...near 0 percent. Formation chance through 7 days...high...70 percent.",
+      "kind": "state",
+      "value": 70.0,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-09T17:25:59+00:00"
+    },
+    {
+      "code": "tc_season_hot_EP",
+      "level": "watch",
+      "title": "East and central Pacific: 2.5x normal activity for the date",
+      "detail": "313 units of accumulated cyclone energy against 127 for a normal season by 10 October. 21 named storms, 11 hurricanes, 9 major.",
+      "kind": "state",
+      "value": 2.464966208564873,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    },
+    {
+      "code": "tc_threat_ep182026_punta_eugenia",
+      "level": "watch",
+      "title": "Rachel passes 235 km from Punta Eugenia in 7 h (01Z 11 Oct)",
+      "detail": "Official forecast has it as a tropical storm at 55 kt on approach to Punta Eugenia, Mexico, 7 h after the 2026-10-10 18Z analysis. This is a centre-line distance; the wind field is wider than the line. Track spread across the ensemble at +12 h is 54 km, the members' mean distance from their mean position.",
+      "kind": "state",
+      "value": 234.7304024833543,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-06T21:15:19+00:00"
+    },
+    {
+      "code": "tc_threat_ep182026_san_diego",
+      "level": "watch",
+      "title": "Rachel passes 154 km from San Diego in 16 h (10Z 11 Oct)",
+      "detail": "Official forecast has it as a tropical storm at 40 kt on approach to San Diego, United States, 16 h after the 2026-10-10 18Z analysis. This is a centre-line distance; the wind field is wider than the line. Track spread across the ensemble at +18 h is 74 km, the members' mean distance from their mean position.",
+      "kind": "state",
+      "value": 154.24231874951337,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-07T15:30:27+00:00"
+    },
+    {
+      "code": "tc_ww_ep182026_tropical_storm_watch",
+      "level": "watch",
+      "title": "Rachel: Tropical Storm Watch in effect",
+      "detail": "NHC advisory 54A: a Tropical Storm Watch is in effect for Southern California coast from the U.S/Mexico Border northward to the San Diego/Orange County Line; East coast of Baja California, from Bahia De Los Angeles northward to Isla San Luis; Northwest Mexico from Puerto Libertad to Puerto Penasco. Tropical storm conditions are possible in the area within 48 hours.",
+      "kind": "state",
+      "value": 3.0,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-09T15:26:14+00:00"
+    },
+    {
+      "code": "tc_ww_ep202026_tropical_storm_watch",
+      "level": "watch",
+      "title": "Simon: Tropical Storm Watch in effect",
+      "detail": "NHC advisory 13A: a Tropical Storm Watch is in effect for East of Punta San Telmo to Lazaro Cardenas. Tropical storm conditions are possible in the area within 48 hours.",
+      "kind": "state",
+      "value": 1.0,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-08T09:26:01+00:00"
+    },
+    {
+      "code": "westerly_forcing",
+      "level": "watch",
+      "title": "Repeated westerly wind forcing over the warm pool",
+      "detail": "5 months in the last year averaged strongly westerly at 850 hPa in the western Pacific, which is how downwelling Kelvin waves get launched.",
+      "kind": "state",
+      "value": 5.0,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    },
+    {
+      "code": "feeds_cached",
+      "level": "info",
+      "title": "8 feeds served from cache",
+      "detail": "Live fetch failed for: ssh_hovmoller, ssh_pacific, sst_global, sst_hovmoller, sst_pacific, tao_isotherm, tao_mesh, tao_temperature.",
+      "kind": "integrity",
+      "value": 8.0,
+      "is_new": true,
+      "escalated_from": null,
+      "first_seen": "2026-10-10T19:26:06+00:00"
+    },
+    {
+      "code": "roni_divergence",
+      "level": "info",
+      "title": "Legacy ONI and official RONI diverging",
+      "detail": "ONI +2.16 against RONI +1.69, a gap of +0.47 degC. That much of the raw anomaly is the whole tropical ocean running warm rather than the Pacific, which is why CPC has classified on RONI since February 2026.",
+      "kind": "state",
+      "value": 0.4700000000000002,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    },
+    {
+      "code": "tc_season_quiet_AL",
+      "level": "info",
+      "title": "Atlantic: 0.17x normal activity for the date",
+      "detail": "18 units against 104 normal by 10 October. A suppressed basin is the expected signature of El Nino in the Atlantic, and it is not a reason to relax: 1992 was a quiet season and it produced Andrew.",
+      "kind": "state",
+      "value": 0.17391178464663914,
+      "is_new": false,
+      "escalated_from": null,
+      "first_seen": "2026-10-05T13:23:02+00:00"
+    }
+  ],
+  "alerts_cleared": [],
+  "impacts": [
+    {
+      "area": "Maritime Continent",
+      "region": "Indonesia and Malaysia",
+      "effect": "Suppressed rainfall; elevated peatland and forest fire risk",
+      "window": "Jun-Feb",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Maritime Continent",
+      "region": "Eastern Australia",
+      "effect": "Below-average rainfall, higher fire danger",
+      "window": "Jun-Feb",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Maritime Continent",
+      "region": "Philippines",
+      "effect": "Rainfall deficit and delayed monsoon onset",
+      "window": "Sep-Apr",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Africa",
+      "region": "Southern Africa",
+      "effect": "Rainfall failure during the main growing season",
+      "window": "Dec-Mar",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Africa",
+      "region": "Equatorial East Africa",
+      "effect": "Enhanced short rains, flooding and landslides",
+      "window": "Oct-Dec",
+      "polarity": "wet",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Africa",
+      "region": "Ethiopian highlands and Sudan",
+      "effect": "Weak Kiremt rains",
+      "window": "Jun-Sep",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "South America",
+      "region": "Northern South America",
+      "effect": "Rainfall deficit",
+      "window": "Dec-Mar",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "South America",
+      "region": "Northeast Brazil",
+      "effect": "Failure of the main rainy season",
+      "window": "Feb-May",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "South America",
+      "region": "Southern Brazil, Uruguay, northeast Argentina",
+      "effect": "Above-average rainfall and flooding",
+      "window": "Nov-Feb",
+      "polarity": "wet",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Central America",
+      "region": "Central American Dry Corridor",
+      "effect": "Delayed onset and mid-summer drought",
+      "window": "May-Aug",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "North America",
+      "region": "US Gulf Coast and Southeast",
+      "effect": "Wetter and stormier than normal",
+      "window": "Dec-Mar",
+      "polarity": "wet",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "North America",
+      "region": "Canada and the northern United States",
+      "effect": "Milder winter",
+      "window": "Dec-Feb",
+      "polarity": "hot",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Global systems",
+      "region": "Atlantic hurricane season",
+      "effect": "Suppressed activity",
+      "window": "Aug-Oct",
+      "polarity": "storm",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "east-pacific"
+    },
+    {
+      "area": "Global systems",
+      "region": "Eastern and central Pacific hurricanes",
+      "effect": "Enhanced activity, tracking further west",
+      "window": "Jul-Oct",
+      "polarity": "storm",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Global systems",
+      "region": "Pacific island states",
+      "effect": "Rainfall redistribution and a shifted cyclone belt",
+      "window": "Nov-Apr",
+      "polarity": "storm",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Maritime Continent",
+      "region": "Papua New Guinea highlands",
+      "effect": "Drought and, at altitude, damaging frost",
+      "window": "Aug-Feb",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "South America",
+      "region": "Coastal Peru and Ecuador",
+      "effect": "Extreme coastal rainfall, flooding and debris flows",
+      "window": "Dec-Apr",
+      "polarity": "wet",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 1.0,
+      "flavour": "east-pacific"
+    },
+    {
+      "area": "South America",
+      "region": "Peruvian anchoveta fishery",
+      "effect": "Thermocline deepens and the fishery collapses",
+      "window": "Nov-May",
+      "polarity": "marine",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 1.0,
+      "flavour": "east-pacific"
+    },
+    {
+      "area": "Global systems",
+      "region": "Pacific and Indian Ocean coral reefs",
+      "effect": "Mass bleaching from accumulated heat stress",
+      "window": "Dec-Jun",
+      "polarity": "marine",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "Global systems",
+      "region": "Global mean surface temperature",
+      "effect": "Elevated for roughly a year, peaking after the event",
+      "window": "Dec-Nov",
+      "polarity": "hot",
+      "likelihood": "likely",
+      "confidence": "high",
+      "threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "Central America",
+      "region": "Caribbean",
+      "effect": "Drier than normal dry season",
+      "window": "Dec-Apr",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "North America",
+      "region": "US Pacific Northwest and Ohio Valley",
+      "effect": "Drier and milder than normal",
+      "window": "Dec-Mar",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "threshold": 0.5,
+      "flavour": "any"
+    },
+    {
+      "area": "Southeast Asia",
+      "region": "Mekong basin and Thailand",
+      "effect": "Reduced river flow and dry-season water stress",
+      "window": "Nov-May",
+      "polarity": "dry",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "Africa",
+      "region": "Rift Valley fever risk, East Africa",
+      "effect": "Outbreak conditions following heavy rain",
+      "window": "Nov-Mar",
+      "polarity": "health",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "Africa",
+      "region": "Highland malaria, East Africa and Andes",
+      "effect": "Transmission at unusual altitude",
+      "window": "Dec-May",
+      "polarity": "health",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "North America",
+      "region": "California and the US Southwest",
+      "effect": "Tilt toward a wetter winter, strongest in the south",
+      "window": "Dec-Mar",
+      "polarity": "wet",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "threshold": 1.0,
+      "flavour": "any"
+    },
+    {
+      "area": "Global systems",
+      "region": "Western North Pacific typhoons",
+      "effect": "Formation shifts southeast; longer, more intense tracks",
+      "window": "Aug-Dec",
+      "polarity": "storm",
+      "likelihood": "likely",
+      "confidence": "moderate",
+      "threshold": 1.0,
+      "flavour": "any"
+    }
+  ],
+  "impacts_watch": [
+    {
+      "area": "South Asia",
+      "region": "India and Pakistan",
+      "effect": "Weaker summer monsoon",
+      "likelihood": "possible",
+      "confidence": "weaker / contested",
+      "threshold": 1.0,
+      "needs": null,
+      "flavour": "east-pacific"
+    }
+  ],
+  "footprints": [
+    {
+      "region": "Indonesia and Malaysia",
+      "scope": "regional",
+      "anchor": [
+        118.0,
+        -1.75
+      ],
+      "boxes": [
+        [
+          95.0,
+          141.0,
+          -11.0,
+          7.5
+        ]
+      ]
+    },
+    {
+      "region": "Papua New Guinea highlands",
+      "scope": "regional",
+      "anchor": [
+        145.5,
+        -6.25
+      ],
+      "boxes": [
+        [
+          140.0,
+          151.0,
+          -10.0,
+          -2.5
+        ]
+      ]
+    },
+    {
+      "region": "Eastern Australia",
+      "scope": "regional",
+      "anchor": [
+        146.0,
+        -27.0
+      ],
+      "boxes": [
+        [
+          138.0,
+          154.0,
+          -39.0,
+          -15.0
+        ]
+      ]
+    },
+    {
+      "region": "Philippines",
+      "scope": "regional",
+      "anchor": [
+        121.75,
+        12.0
+      ],
+      "boxes": [
+        [
+          116.5,
+          127.0,
+          4.5,
+          19.5
+        ]
+      ]
+    },
+    {
+      "region": "Mekong basin and Thailand",
+      "scope": "regional",
+      "anchor": [
+        103.5,
+        15.5
+      ],
+      "boxes": [
+        [
+          97.0,
+          110.0,
+          8.0,
+          23.0
+        ]
+      ]
+    },
+    {
+      "region": "India and Pakistan",
+      "scope": "regional",
+      "anchor": [
+        78.0,
+        20.5
+      ],
+      "boxes": [
+        [
+          66.0,
+          90.0,
+          7.0,
+          34.0
+        ]
+      ]
+    },
+    {
+      "region": "Southern Africa",
+      "scope": "regional",
+      "anchor": [
+        26.5,
+        -25.0
+      ],
+      "boxes": [
+        [
+          12.0,
+          41.0,
+          -35.0,
+          -15.0
+        ]
+      ]
+    },
+    {
+      "region": "Equatorial East Africa",
+      "scope": "regional",
+      "anchor": [
+        40.5,
+        0.0
+      ],
+      "boxes": [
+        [
+          32.0,
+          49.0,
+          -6.0,
+          6.0
+        ]
+      ]
+    },
+    {
+      "region": "Ethiopian highlands and Sudan",
+      "scope": "regional",
+      "anchor": [
+        33.0,
+        13.0
+      ],
+      "boxes": [
+        [
+          23.0,
+          43.0,
+          6.0,
+          20.0
+        ]
+      ]
+    },
+    {
+      "region": "Rift Valley fever risk, East Africa",
+      "scope": "regional",
+      "anchor": [
+        42.5,
+        3.5
+      ],
+      "boxes": [
+        [
+          33.0,
+          52.0,
+          -5.0,
+          12.0
+        ]
+      ]
+    },
+    {
+      "region": "Highland malaria, East Africa and Andes",
+      "scope": "regional",
+      "anchor": [
+        34.0,
+        0.0
+      ],
+      "boxes": [
+        [
+          28.0,
+          40.0,
+          -5.0,
+          5.0
+        ],
+        [
+          -79.0,
+          -65.0,
+          -18.0,
+          8.0
+        ]
+      ]
+    },
+    {
+      "region": "Coastal Peru and Ecuador",
+      "scope": "regional",
+      "anchor": [
+        -78.25,
+        -8.0
+      ],
+      "boxes": [
+        [
+          -82.0,
+          -74.5,
+          -18.0,
+          2.0
+        ]
+      ]
+    },
+    {
+      "region": "Peruvian anchoveta fishery",
+      "scope": "basin",
+      "anchor": [
+        -77.0,
+        -12.0
+      ],
+      "boxes": [
+        [
+          -84.0,
+          -70.0,
+          -20.0,
+          -4.0
+        ]
+      ]
+    },
+    {
+      "region": "Northern South America",
+      "scope": "regional",
+      "anchor": [
+        -67.0,
+        5.25
+      ],
+      "boxes": [
+        [
+          -76.0,
+          -58.0,
+          -2.0,
+          12.5
+        ]
+      ]
+    },
+    {
+      "region": "Northeast Brazil",
+      "scope": "regional",
+      "anchor": [
+        -39.5,
+        -9.0
+      ],
+      "boxes": [
+        [
+          -45.0,
+          -34.0,
+          -16.0,
+          -2.0
+        ]
+      ]
+    },
+    {
+      "region": "Southern Brazil, Uruguay, northeast Argentina",
+      "scope": "regional",
+      "anchor": [
+        -53.5,
+        -28.5
+      ],
+      "boxes": [
+        [
+          -60.0,
+          -47.0,
+          -35.0,
+          -22.0
+        ]
+      ]
+    },
+    {
+      "region": "Central American Dry Corridor",
+      "scope": "regional",
+      "anchor": [
+        -87.5,
+        14.5
+      ],
+      "boxes": [
+        [
+          -92.0,
+          -83.0,
+          11.5,
+          17.5
+        ]
+      ]
+    },
+    {
+      "region": "Caribbean",
+      "scope": "regional",
+      "anchor": [
+        -72.5,
+        16.5
+      ],
+      "boxes": [
+        [
+          -85.0,
+          -60.0,
+          9.5,
+          23.5
+        ]
+      ]
+    },
+    {
+      "region": "US Gulf Coast and Southeast",
+      "scope": "regional",
+      "anchor": [
+        -88.0,
+        30.75
+      ],
+      "boxes": [
+        [
+          -100.0,
+          -76.0,
+          25.0,
+          36.5
+        ]
+      ]
+    },
+    {
+      "region": "California and the US Southwest",
+      "scope": "regional",
+      "anchor": [
+        -114.25,
+        36.5
+      ],
+      "boxes": [
+        [
+          -124.5,
+          -104.0,
+          31.0,
+          42.0
+        ]
+      ]
+    },
+    {
+      "region": "US Pacific Northwest and Ohio Valley",
+      "scope": "regional",
+      "anchor": [
+        -120.5,
+        45.5
+      ],
+      "boxes": [
+        [
+          -125.0,
+          -116.0,
+          42.0,
+          49.0
+        ],
+        [
+          -90.0,
+          -78.0,
+          36.0,
+          42.5
+        ]
+      ]
+    },
+    {
+      "region": "Canada and the northern United States",
+      "scope": "regional",
+      "anchor": [
+        -95.0,
+        53.0
+      ],
+      "boxes": [
+        [
+          -130.0,
+          -60.0,
+          44.0,
+          62.0
+        ]
+      ]
+    },
+    {
+      "region": "Atlantic hurricane season",
+      "scope": "basin",
+      "anchor": [
+        -55.0,
+        20.0
+      ],
+      "boxes": [
+        [
+          -90.0,
+          -20.0,
+          8.0,
+          32.0
+        ]
+      ]
+    },
+    {
+      "region": "Eastern and central Pacific hurricanes",
+      "scope": "basin",
+      "anchor": [
+        -115.0,
+        15.0
+      ],
+      "boxes": [
+        [
+          -140.0,
+          -90.0,
+          8.0,
+          22.0
+        ]
+      ]
+    },
+    {
+      "region": "Western North Pacific typhoons",
+      "scope": "basin",
+      "anchor": [
+        145.0,
+        15.0
+      ],
+      "boxes": [
+        [
+          120.0,
+          170.0,
+          5.0,
+          25.0
+        ]
+      ]
+    },
+    {
+      "region": "Pacific and Indian Ocean coral reefs",
+      "scope": "basin",
+      "anchor": [
+        160.0,
+        -7.0
+      ],
+      "boxes": [
+        [
+          140.0,
+          180.0,
+          -20.0,
+          6.0
+        ],
+        [
+          -180.0,
+          -150.0,
+          -20.0,
+          6.0
+        ],
+        [
+          40.0,
+          80.0,
+          -15.0,
+          6.0
+        ],
+        [
+          145.0,
+          155.0,
+          -24.0,
+          -10.0
+        ]
+      ]
+    },
+    {
+      "region": "Global mean surface temperature",
+      "scope": "global",
+      "anchor": [
+        0.0,
+        0.0
+      ],
+      "boxes": [
+        [
+          -180.0,
+          180.0,
+          -90.0,
+          90.0
+        ]
+      ]
+    },
+    {
+      "region": "Pacific island states",
+      "scope": "basin",
+      "anchor": [
+        167.5,
+        -11.5
+      ],
+      "boxes": [
+        [
+          155.0,
+          180.0,
+          -25.0,
+          2.0
+        ],
+        [
+          -180.0,
+          -155.0,
+          -25.0,
+          2.0
+        ]
+      ]
+    }
+  ],
+  "cyclones": {
+    "as_of": "2026-10-10T18:00:00.000Z",
+    "season": 2026,
+    "through": "10 October",
+    "elnino_seasons": [
+      1951,
+      1953,
+      1957,
+      1963,
+      1965,
+      1969,
+      1972,
+      1976,
+      1977,
+      1982,
+      1986,
+      1987,
+      1991,
+      1993,
+      1994,
+      1997,
+      2002,
+      2004,
+      2006,
+      2009,
+      2015,
+      2023
+    ],
+    "active": [
+      {
+        "id": "ep202026",
+        "name": "Simon",
+        "designation": "EP20",
+        "basin": "EP",
+        "basin_name": "East Pacific",
+        "advisory": "013a",
+        "ace": 9.58,
+        "peak_category": 4,
+        "rapid_intensification_kt_24h": 40.0,
+        "track_spread_km": 230,
+        "track_spread_lead_hours": 54,
+        "ensemble_members": 30,
+        "guidance_models": 11,
+        "current": {
+          "time_utc": "2026-10-10T18:00:00Z",
+          "lead_hours": 0,
+          "lat": 17.4,
+          "lon": -104.8,
+          "wind_kt": 130,
+          "pressure_mb": 932,
+          "stage": "HU",
+          "category": 4,
+          "intensity": "Category 4 hurricane"
+        },
+        "forecast": [
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 6,
+            "lat": 18.1,
+            "lon": -105.0,
+            "wind_kt": 135,
+            "pressure_mb": null,
+            "stage": "HU",
+            "category": 4,
+            "intensity": "Category 4 hurricane"
+          },
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 18,
+            "lat": 19.1,
+            "lon": -105.2,
+            "wind_kt": 125,
+            "pressure_mb": null,
+            "stage": "HU",
+            "category": 4,
+            "intensity": "Category 4 hurricane"
+          },
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 30,
+            "lat": 20.4,
+            "lon": -105.4,
+            "wind_kt": 80,
+            "pressure_mb": null,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 42,
+            "lat": 21.7,
+            "lon": -105.4,
+            "wind_kt": 55,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 54,
+            "lat": 23.0,
+            "lon": -105.5,
+            "wind_kt": 30,
+            "pressure_mb": null,
+            "stage": "LO",
+            "category": 0,
+            "intensity": "remnant low"
+          }
+        ],
+        "track": [
+          {
+            "time_utc": "2026-10-04T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 11.8,
+            "lon": -91.5,
+            "wind_kt": 15,
+            "pressure_mb": null,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-04T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 11.9,
+            "lon": -92.6,
+            "wind_kt": 15,
+            "pressure_mb": null,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-05T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.0,
+            "lon": -93.8,
+            "wind_kt": 15,
+            "pressure_mb": null,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-05T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.0,
+            "lon": -94.9,
+            "wind_kt": 15,
+            "pressure_mb": null,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-05T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.2,
+            "lon": -95.8,
+            "wind_kt": 25,
+            "pressure_mb": 1009,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-05T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.4,
+            "lon": -96.4,
+            "wind_kt": 25,
+            "pressure_mb": 1009,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-06T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.4,
+            "lon": -97.0,
+            "wind_kt": 25,
+            "pressure_mb": 1009,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-06T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.6,
+            "lon": -97.7,
+            "wind_kt": 25,
+            "pressure_mb": 1009,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-06T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.8,
+            "lon": -98.2,
+            "wind_kt": 25,
+            "pressure_mb": 1008,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-06T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 13.0,
+            "lon": -98.7,
+            "wind_kt": 25,
+            "pressure_mb": 1007,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-07T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 13.9,
+            "lon": -99.4,
+            "wind_kt": 25,
+            "pressure_mb": 1006,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-07T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 14.5,
+            "lon": -100.0,
+            "wind_kt": 25,
+            "pressure_mb": 1006,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-07T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 14.9,
+            "lon": -100.6,
+            "wind_kt": 30,
+            "pressure_mb": 1006,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-10-07T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.2,
+            "lon": -101.3,
+            "wind_kt": 35,
+            "pressure_mb": 1004,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-08T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.3,
+            "lon": -102.1,
+            "wind_kt": 40,
+            "pressure_mb": 1002,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-08T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.4,
+            "lon": -102.7,
+            "wind_kt": 45,
+            "pressure_mb": 1000,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-08T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.4,
+            "lon": -103.3,
+            "wind_kt": 55,
+            "pressure_mb": 995,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-08T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.4,
+            "lon": -103.8,
+            "wind_kt": 60,
+            "pressure_mb": 992,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-09T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.5,
+            "lon": -104.2,
+            "wind_kt": 65,
+            "pressure_mb": 985,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-09T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.7,
+            "lon": -104.4,
+            "wind_kt": 80,
+            "pressure_mb": 978,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-09T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.8,
+            "lon": -104.5,
+            "wind_kt": 80,
+            "pressure_mb": 976,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-09T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 16.0,
+            "lon": -104.6,
+            "wind_kt": 90,
+            "pressure_mb": 966,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-10T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 16.6,
+            "lon": -104.6,
+            "wind_kt": 105,
+            "pressure_mb": 952,
+            "stage": "HU",
+            "category": 3,
+            "intensity": "Category 3 hurricane"
+          },
+          {
+            "time_utc": "2026-10-10T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 17.0,
+            "lon": -104.7,
+            "wind_kt": 120,
+            "pressure_mb": 945,
+            "stage": "HU",
+            "category": 4,
+            "intensity": "Category 4 hurricane"
+          },
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 17.3,
+            "lon": -104.8,
+            "wind_kt": 130,
+            "pressure_mb": 938,
+            "stage": "HU",
+            "category": 4,
+            "intensity": "Category 4 hurricane"
+          },
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 17.4,
+            "lon": -104.8,
+            "wind_kt": 130,
+            "pressure_mb": 932,
+            "stage": "HU",
+            "category": 4,
+            "intensity": "Category 4 hurricane"
+          }
+        ],
+        "threats": [
+          {
+            "place": "Puerto Vallarta",
+            "country": "Mexico",
+            "km": 21,
+            "lead_hours": 32,
+            "wind_kt": 75,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "place": "Cabo Corrientes",
+            "country": "Mexico",
+            "km": 31,
+            "lead_hours": 30,
+            "wind_kt": 80,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "place": "Manzanillo",
+            "country": "Mexico",
+            "km": 93,
+            "lead_hours": 16,
+            "wind_kt": 125,
+            "intensity": "Category 4 hurricane"
+          },
+          {
+            "place": "Lazaro Cardenas",
+            "country": "Mexico",
+            "km": 281,
+            "lead_hours": 0,
+            "wind_kt": 130,
+            "intensity": "Category 4 hurricane"
+          },
+          {
+            "place": "Zihuatanejo",
+            "country": "Mexico",
+            "km": 340,
+            "lead_hours": 0,
+            "wind_kt": 130,
+            "intensity": "Category 4 hurricane"
+          }
+        ],
+        "notes": []
+      },
+      {
+        "id": "wp272026",
+        "name": "Koguma",
+        "designation": "WP27",
+        "basin": "WP",
+        "basin_name": "West Pacific",
+        "advisory": "23",
+        "ace": 11.7,
+        "peak_category": 4,
+        "rapid_intensification_kt_24h": 20.0,
+        "track_spread_km": null,
+        "track_spread_lead_hours": null,
+        "ensemble_members": 0,
+        "guidance_models": 0,
+        "current": {
+          "time_utc": "2026-10-10T12:00:00Z",
+          "lead_hours": 0,
+          "lat": 22.9,
+          "lon": 149.6,
+          "wind_kt": 120,
+          "pressure_mb": 942,
+          "stage": "TY",
+          "category": 4,
+          "intensity": "Category 4-equivalent typhoon"
+        },
+        "forecast": [
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 12,
+            "lat": 24.6,
+            "lon": 148.3,
+            "wind_kt": 120,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 4,
+            "intensity": "Category 4-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 24,
+            "lat": 26.3,
+            "lon": 147.6,
+            "wind_kt": 115,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 4,
+            "intensity": "Category 4-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 36,
+            "lat": 28.4,
+            "lon": 147.5,
+            "wind_kt": 105,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 3,
+            "intensity": "Category 3-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 48,
+            "lat": 31.0,
+            "lon": 148.6,
+            "wind_kt": 90,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 2,
+            "intensity": "Category 2-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 60,
+            "lat": 33.7,
+            "lon": 151.2,
+            "wind_kt": 75,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 1,
+            "intensity": "Category 1-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 72,
+            "lat": 36.5,
+            "lon": 154.8,
+            "wind_kt": 65,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 1,
+            "intensity": "Category 1-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 96,
+            "lat": 41.2,
+            "lon": 162.4,
+            "wind_kt": 50,
+            "pressure_mb": null,
+            "stage": "EX",
+            "category": 0,
+            "intensity": "post-tropical"
+          },
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 120,
+            "lat": 43.8,
+            "lon": 172.7,
+            "wind_kt": 40,
+            "pressure_mb": null,
+            "stage": "EX",
+            "category": 0,
+            "intensity": "post-tropical"
+          }
+        ],
+        "track": [
+          {
+            "time_utc": "2026-10-03T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 8.1,
+            "lon": 167.9,
+            "wind_kt": 20,
+            "pressure_mb": null,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-10-03T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 8.3,
+            "lon": 167.4,
+            "wind_kt": 20,
+            "pressure_mb": null,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-10-03T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 8.7,
+            "lon": 167.5,
+            "wind_kt": 20,
+            "pressure_mb": null,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-10-04T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 9.1,
+            "lon": 167.4,
+            "wind_kt": 20,
+            "pressure_mb": null,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-10-04T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 9.3,
+            "lon": 167.3,
+            "wind_kt": 20,
+            "pressure_mb": null,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-10-04T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 9.5,
+            "lon": 167.3,
+            "wind_kt": 20,
+            "pressure_mb": null,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-10-04T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 9.9,
+            "lon": 167.6,
+            "wind_kt": 25,
+            "pressure_mb": null,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-10-05T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 10.5,
+            "lon": 168.0,
+            "wind_kt": 30,
+            "pressure_mb": null,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-10-05T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 10.9,
+            "lon": 168.2,
+            "wind_kt": 35,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-05T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 11.5,
+            "lon": 168.0,
+            "wind_kt": 35,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-05T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.2,
+            "lon": 167.6,
+            "wind_kt": 40,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-06T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.8,
+            "lon": 167.0,
+            "wind_kt": 45,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-06T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 13.4,
+            "lon": 166.6,
+            "wind_kt": 45,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-06T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 14.1,
+            "lon": 165.7,
+            "wind_kt": 45,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-06T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 14.8,
+            "lon": 164.8,
+            "wind_kt": 45,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-07T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.2,
+            "lon": 164.0,
+            "wind_kt": 45,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-07T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.5,
+            "lon": 163.2,
+            "wind_kt": 45,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-07T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.9,
+            "lon": 162.5,
+            "wind_kt": 50,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-07T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 16.5,
+            "lon": 161.8,
+            "wind_kt": 55,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-08T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 16.8,
+            "lon": 161.1,
+            "wind_kt": 55,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-08T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 17.2,
+            "lon": 160.1,
+            "wind_kt": 60,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-08T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 17.7,
+            "lon": 158.9,
+            "wind_kt": 70,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 1,
+            "intensity": "Category 1-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-08T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 18.1,
+            "lon": 157.5,
+            "wind_kt": 75,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 1,
+            "intensity": "Category 1-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-09T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 18.5,
+            "lon": 156.5,
+            "wind_kt": 85,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 2,
+            "intensity": "Category 2-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-09T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.3,
+            "lon": 155.5,
+            "wind_kt": 95,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 2,
+            "intensity": "Category 2-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-09T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.1,
+            "lon": 154.1,
+            "wind_kt": 100,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 3,
+            "intensity": "Category 3-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-09T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.8,
+            "lon": 152.7,
+            "wind_kt": 105,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 3,
+            "intensity": "Category 3-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-10T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 21.4,
+            "lon": 151.5,
+            "wind_kt": 115,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 4,
+            "intensity": "Category 4-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-10T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.2,
+            "lon": 150.4,
+            "wind_kt": 115,
+            "pressure_mb": null,
+            "stage": "TY",
+            "category": 4,
+            "intensity": "Category 4-equivalent typhoon"
+          },
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.9,
+            "lon": 149.6,
+            "wind_kt": 120,
+            "pressure_mb": 942,
+            "stage": "TY",
+            "category": 4,
+            "intensity": "Category 4-equivalent typhoon"
+          }
+        ],
+        "threats": [],
+        "notes": []
+      },
+      {
+        "id": "ep182026",
+        "name": "Rachel",
+        "designation": "EP18",
+        "basin": "EP",
+        "basin_name": "East Pacific",
+        "advisory": "054a",
+        "ace": 26.37,
+        "peak_category": 3,
+        "rapid_intensification_kt_24h": 15.0,
+        "track_spread_km": 144,
+        "track_spread_lead_hours": 42,
+        "ensemble_members": 31,
+        "guidance_models": 11,
+        "current": {
+          "time_utc": "2026-10-10T18:00:00Z",
+          "lead_hours": 0,
+          "lat": 25.8,
+          "lon": -118.9,
+          "wind_kt": 55,
+          "pressure_mb": 989,
+          "stage": "TS",
+          "category": 0,
+          "intensity": "tropical storm"
+        },
+        "forecast": [
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 6,
+            "lat": 28.2,
+            "lon": -117.5,
+            "wind_kt": 55,
+            "pressure_mb": null,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 18,
+            "lat": 33.0,
+            "lon": -115.3,
+            "wind_kt": 40,
+            "pressure_mb": null,
+            "stage": "PT",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 30,
+            "lat": 38.5,
+            "lon": -112.5,
+            "wind_kt": 30,
+            "pressure_mb": null,
+            "stage": "LO",
+            "category": 0,
+            "intensity": "remnant low"
+          }
+        ],
+        "track": [
+          {
+            "time_utc": "2026-09-25T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 9.2,
+            "lon": -92.6,
+            "wind_kt": 20,
+            "pressure_mb": 1010,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-09-25T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 10.2,
+            "lon": -93.6,
+            "wind_kt": 20,
+            "pressure_mb": 1010,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-09-25T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 11.2,
+            "lon": -94.6,
+            "wind_kt": 20,
+            "pressure_mb": 1010,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-09-25T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 11.2,
+            "lon": -95.6,
+            "wind_kt": 20,
+            "pressure_mb": 1009,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-09-26T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 11.3,
+            "lon": -96.1,
+            "wind_kt": 25,
+            "pressure_mb": 1008,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-09-26T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 11.4,
+            "lon": -96.7,
+            "wind_kt": 25,
+            "pressure_mb": 1008,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-09-26T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 11.7,
+            "lon": -97.3,
+            "wind_kt": 25,
+            "pressure_mb": 1008,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-09-26T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 11.9,
+            "lon": -97.6,
+            "wind_kt": 25,
+            "pressure_mb": 1008,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-09-27T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.2,
+            "lon": -97.9,
+            "wind_kt": 25,
+            "pressure_mb": 1008,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-09-27T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.4,
+            "lon": -98.1,
+            "wind_kt": 30,
+            "pressure_mb": 1008,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-09-27T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.6,
+            "lon": -98.4,
+            "wind_kt": 30,
+            "pressure_mb": 1006,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-09-27T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.7,
+            "lon": -98.9,
+            "wind_kt": 35,
+            "pressure_mb": 1005,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-09-28T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 12.8,
+            "lon": -99.5,
+            "wind_kt": 35,
+            "pressure_mb": 1003,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-09-28T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 13.1,
+            "lon": -100.2,
+            "wind_kt": 40,
+            "pressure_mb": 1001,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-09-28T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 13.6,
+            "lon": -100.8,
+            "wind_kt": 45,
+            "pressure_mb": 999,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-09-28T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 13.9,
+            "lon": -101.6,
+            "wind_kt": 45,
+            "pressure_mb": 999,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-09-29T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 14.2,
+            "lon": -102.7,
+            "wind_kt": 50,
+            "pressure_mb": 997,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-09-29T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 14.5,
+            "lon": -103.8,
+            "wind_kt": 50,
+            "pressure_mb": 992,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-09-29T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.1,
+            "lon": -104.4,
+            "wind_kt": 55,
+            "pressure_mb": 993,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-09-29T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 15.8,
+            "lon": -105.4,
+            "wind_kt": 60,
+            "pressure_mb": 989,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-09-30T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 16.6,
+            "lon": -106.3,
+            "wind_kt": 60,
+            "pressure_mb": 989,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-09-30T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 17.3,
+            "lon": -106.9,
+            "wind_kt": 70,
+            "pressure_mb": 979,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-09-30T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 17.8,
+            "lon": -107.5,
+            "wind_kt": 75,
+            "pressure_mb": 979,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-09-30T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 18.4,
+            "lon": -107.8,
+            "wind_kt": 75,
+            "pressure_mb": 978,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-01T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.0,
+            "lon": -108.3,
+            "wind_kt": 75,
+            "pressure_mb": 978,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-01T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.2,
+            "lon": -108.8,
+            "wind_kt": 80,
+            "pressure_mb": 975,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-01T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.4,
+            "lon": -109.2,
+            "wind_kt": 90,
+            "pressure_mb": 964,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-01T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.4,
+            "lon": -109.4,
+            "wind_kt": 100,
+            "pressure_mb": 955,
+            "stage": "HU",
+            "category": 3,
+            "intensity": "Category 3 hurricane"
+          },
+          {
+            "time_utc": "2026-10-02T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.4,
+            "lon": -109.6,
+            "wind_kt": 105,
+            "pressure_mb": 950,
+            "stage": "HU",
+            "category": 3,
+            "intensity": "Category 3 hurricane"
+          },
+          {
+            "time_utc": "2026-10-02T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.4,
+            "lon": -110.1,
+            "wind_kt": 105,
+            "pressure_mb": 950,
+            "stage": "HU",
+            "category": 3,
+            "intensity": "Category 3 hurricane"
+          },
+          {
+            "time_utc": "2026-10-02T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.3,
+            "lon": -110.6,
+            "wind_kt": 95,
+            "pressure_mb": 959,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-02T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.3,
+            "lon": -110.9,
+            "wind_kt": 90,
+            "pressure_mb": 963,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-03T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.3,
+            "lon": -111.3,
+            "wind_kt": 90,
+            "pressure_mb": 963,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-03T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.3,
+            "lon": -111.6,
+            "wind_kt": 85,
+            "pressure_mb": 968,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-03T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.5,
+            "lon": -111.9,
+            "wind_kt": 75,
+            "pressure_mb": 973,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-03T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.7,
+            "lon": -112.3,
+            "wind_kt": 70,
+            "pressure_mb": 977,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-04T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 19.9,
+            "lon": -112.6,
+            "wind_kt": 75,
+            "pressure_mb": 973,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-04T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.1,
+            "lon": -113.0,
+            "wind_kt": 80,
+            "pressure_mb": 970,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-04T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.2,
+            "lon": -113.5,
+            "wind_kt": 90,
+            "pressure_mb": 965,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-04T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.1,
+            "lon": -114.0,
+            "wind_kt": 90,
+            "pressure_mb": 965,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-05T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.2,
+            "lon": -114.5,
+            "wind_kt": 85,
+            "pressure_mb": 967,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-05T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.4,
+            "lon": -115.2,
+            "wind_kt": 80,
+            "pressure_mb": 970,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-05T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.4,
+            "lon": -115.8,
+            "wind_kt": 75,
+            "pressure_mb": 976,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-05T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.3,
+            "lon": -116.7,
+            "wind_kt": 80,
+            "pressure_mb": 973,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-06T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.4,
+            "lon": -117.5,
+            "wind_kt": 80,
+            "pressure_mb": 973,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-06T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.3,
+            "lon": -118.2,
+            "wind_kt": 80,
+            "pressure_mb": 973,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-06T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.4,
+            "lon": -119.1,
+            "wind_kt": 75,
+            "pressure_mb": 977,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-06T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.4,
+            "lon": -119.7,
+            "wind_kt": 70,
+            "pressure_mb": 979,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-07T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.4,
+            "lon": -120.3,
+            "wind_kt": 70,
+            "pressure_mb": 979,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-07T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.5,
+            "lon": -120.9,
+            "wind_kt": 70,
+            "pressure_mb": 979,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-07T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 20.7,
+            "lon": -121.5,
+            "wind_kt": 70,
+            "pressure_mb": 979,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-07T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 21.0,
+            "lon": -122.0,
+            "wind_kt": 70,
+            "pressure_mb": 979,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-08T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 21.3,
+            "lon": -122.6,
+            "wind_kt": 65,
+            "pressure_mb": 982,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-08T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 21.6,
+            "lon": -123.3,
+            "wind_kt": 60,
+            "pressure_mb": 985,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-08T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.0,
+            "lon": -124.0,
+            "wind_kt": 60,
+            "pressure_mb": 985,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-08T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.3,
+            "lon": -124.5,
+            "wind_kt": 55,
+            "pressure_mb": 987,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-09T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.5,
+            "lon": -125.2,
+            "wind_kt": 50,
+            "pressure_mb": 990,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-09T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.5,
+            "lon": -125.1,
+            "wind_kt": 45,
+            "pressure_mb": 994,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-09T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.6,
+            "lon": -124.9,
+            "wind_kt": 45,
+            "pressure_mb": 994,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-09T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 23.0,
+            "lon": -124.5,
+            "wind_kt": 40,
+            "pressure_mb": 995,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-10T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 23.3,
+            "lon": -123.6,
+            "wind_kt": 40,
+            "pressure_mb": 995,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-10T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 23.8,
+            "lon": -122.2,
+            "wind_kt": 50,
+            "pressure_mb": 992,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 24.7,
+            "lon": -120.5,
+            "wind_kt": 50,
+            "pressure_mb": 992,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 25.8,
+            "lon": -118.9,
+            "wind_kt": 55,
+            "pressure_mb": 989,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          }
+        ],
+        "threats": [
+          {
+            "place": "Ensenada",
+            "country": "Mexico",
+            "km": 70,
+            "lead_hours": 15,
+            "wind_kt": 45,
+            "intensity": "tropical storm"
+          },
+          {
+            "place": "San Diego",
+            "country": "United States",
+            "km": 154,
+            "lead_hours": 16,
+            "wind_kt": 40,
+            "intensity": "tropical storm"
+          },
+          {
+            "place": "Punta Eugenia",
+            "country": "Mexico",
+            "km": 235,
+            "lead_hours": 7,
+            "wind_kt": 55,
+            "intensity": "tropical storm"
+          }
+        ],
+        "notes": []
+      },
+      {
+        "id": "al092026",
+        "name": "Isaias",
+        "designation": "AL09",
+        "basin": "AL",
+        "basin_name": "Atlantic",
+        "advisory": "016",
+        "ace": 7.23,
+        "peak_category": 3,
+        "rapid_intensification_kt_24h": -80.0,
+        "track_spread_km": 344,
+        "track_spread_lead_hours": 120,
+        "ensemble_members": 31,
+        "guidance_models": 11,
+        "current": {
+          "time_utc": "2026-10-10T18:00:00Z",
+          "lead_hours": 0,
+          "lat": 33.0,
+          "lon": -87.1,
+          "wind_kt": 25,
+          "pressure_mb": 1007,
+          "stage": "EX",
+          "category": 0,
+          "intensity": "post-tropical"
+        },
+        "forecast": [
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 6,
+            "lat": 34.0,
+            "lon": -87.4,
+            "wind_kt": 30,
+            "pressure_mb": null,
+            "stage": "EX",
+            "category": 0,
+            "intensity": "post-tropical"
+          },
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 18,
+            "lat": 36.7,
+            "lon": -85.5,
+            "wind_kt": 25,
+            "pressure_mb": null,
+            "stage": "EX",
+            "category": 0,
+            "intensity": "post-tropical"
+          },
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 30,
+            "lat": 38.3,
+            "lon": -81.0,
+            "wind_kt": 20,
+            "pressure_mb": null,
+            "stage": "EX",
+            "category": 0,
+            "intensity": "post-tropical"
+          }
+        ],
+        "track": [
+          {
+            "time_utc": "2026-10-04T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.0,
+            "lon": -96.5,
+            "wind_kt": 15,
+            "pressure_mb": null,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-05T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.0,
+            "lon": -96.5,
+            "wind_kt": 20,
+            "pressure_mb": null,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-05T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.0,
+            "lon": -96.5,
+            "wind_kt": 25,
+            "pressure_mb": null,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-05T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.0,
+            "lon": -96.5,
+            "wind_kt": 25,
+            "pressure_mb": 1010,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-05T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.2,
+            "lon": -96.3,
+            "wind_kt": 25,
+            "pressure_mb": 1010,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-06T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.3,
+            "lon": -96.1,
+            "wind_kt": 25,
+            "pressure_mb": 1009,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-06T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.2,
+            "lon": -96.0,
+            "wind_kt": 25,
+            "pressure_mb": 1009,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-06T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.0,
+            "lon": -96.0,
+            "wind_kt": 25,
+            "pressure_mb": 1008,
+            "stage": "DB",
+            "category": 0,
+            "intensity": "disturbance"
+          },
+          {
+            "time_utc": "2026-10-06T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 21.9,
+            "lon": -95.7,
+            "wind_kt": 30,
+            "pressure_mb": 1007,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-10-07T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 21.7,
+            "lon": -95.3,
+            "wind_kt": 30,
+            "pressure_mb": 1006,
+            "stage": "TD",
+            "category": 0,
+            "intensity": "tropical depression"
+          },
+          {
+            "time_utc": "2026-10-07T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 21.9,
+            "lon": -94.6,
+            "wind_kt": 35,
+            "pressure_mb": 1004,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-07T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.2,
+            "lon": -93.9,
+            "wind_kt": 40,
+            "pressure_mb": 1002,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-07T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.5,
+            "lon": -93.3,
+            "wind_kt": 50,
+            "pressure_mb": 995,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-08T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 22.7,
+            "lon": -92.3,
+            "wind_kt": 60,
+            "pressure_mb": 988,
+            "stage": "TS",
+            "category": 0,
+            "intensity": "tropical storm"
+          },
+          {
+            "time_utc": "2026-10-08T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 23.1,
+            "lon": -91.5,
+            "wind_kt": 70,
+            "pressure_mb": 981,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-08T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 23.4,
+            "lon": -90.6,
+            "wind_kt": 75,
+            "pressure_mb": 977,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-08T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 23.9,
+            "lon": -89.8,
+            "wind_kt": 80,
+            "pressure_mb": 975,
+            "stage": "HU",
+            "category": 1,
+            "intensity": "Category 1 hurricane"
+          },
+          {
+            "time_utc": "2026-10-09T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 24.8,
+            "lon": -89.0,
+            "wind_kt": 85,
+            "pressure_mb": 974,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-09T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 25.8,
+            "lon": -88.4,
+            "wind_kt": 90,
+            "pressure_mb": 970,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-09T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 27.0,
+            "lon": -87.6,
+            "wind_kt": 105,
+            "pressure_mb": 959,
+            "stage": "HU",
+            "category": 3,
+            "intensity": "Category 3 hurricane"
+          },
+          {
+            "time_utc": "2026-10-09T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 28.5,
+            "lon": -87.1,
+            "wind_kt": 105,
+            "pressure_mb": 959,
+            "stage": "HU",
+            "category": 3,
+            "intensity": "Category 3 hurricane"
+          },
+          {
+            "time_utc": "2026-10-10T00:00:00Z",
+            "lead_hours": 0,
+            "lat": 30.2,
+            "lon": -86.6,
+            "wind_kt": 95,
+            "pressure_mb": 967,
+            "stage": "HU",
+            "category": 2,
+            "intensity": "Category 2 hurricane"
+          },
+          {
+            "time_utc": "2026-10-10T06:00:00Z",
+            "lead_hours": 0,
+            "lat": 31.4,
+            "lon": -86.5,
+            "wind_kt": 45,
+            "pressure_mb": 1001,
+            "stage": "LO",
+            "category": 0,
+            "intensity": "remnant low"
+          },
+          {
+            "time_utc": "2026-10-10T12:00:00Z",
+            "lead_hours": 0,
+            "lat": 32.3,
+            "lon": -86.7,
+            "wind_kt": 30,
+            "pressure_mb": 1004,
+            "stage": "EX",
+            "category": 0,
+            "intensity": "post-tropical"
+          },
+          {
+            "time_utc": "2026-10-10T18:00:00Z",
+            "lead_hours": 0,
+            "lat": 33.0,
+            "lon": -87.1,
+            "wind_kt": 25,
+            "pressure_mb": 1007,
+            "stage": "EX",
+            "category": 0,
+            "intensity": "post-tropical"
+          }
+        ],
+        "threats": [],
+        "notes": []
+      }
+    ],
+    "seasons": {
+      "AL": {
+        "name": "Atlantic",
+        "ace": 18.0,
+        "named": 9,
+        "hurricanes": 1,
+        "major": 1,
+        "normal_ace_to_date": 103.6,
+        "normal_ace_full_season": 122.6,
+        "elnino_ace_to_date": 68.5,
+        "ratio_vs_normal": 0.174,
+        "season_elapsed_fraction": 0.845,
+        "storms": 9,
+        "verdict": {
+          "basin": "AL",
+          "name": "Atlantic",
+          "region": "Atlantic hurricane season",
+          "effect": "Suppressed activity",
+          "expected": "below normal",
+          "observed": "below normal",
+          "agrees": true,
+          "likelihood": "likely",
+          "margin": 1.19,
+          "note": "Reinforced by the east-Pacific flavour of this event.",
+          "confidence": "high",
+          "ace": 18.0,
+          "named": 9,
+          "hurricanes": 1,
+          "major": 1,
+          "normal_ace": 103.6,
+          "full_normal_ace": 122.6,
+          "ratio": 0.17,
+          "elnino_ace": 68.5,
+          "elnino_ratio": 0.26,
+          "elapsed": 0.85,
+          "sample": 22,
+          "through": "10 October"
+        }
+      },
+      "EP": {
+        "name": "East and central Pacific",
+        "ace": 312.9,
+        "named": 21,
+        "hurricanes": 11,
+        "major": 9,
+        "normal_ace_to_date": 126.9,
+        "normal_ace_full_season": 141.6,
+        "elnino_ace_to_date": 114.5,
+        "ratio_vs_normal": 2.465,
+        "season_elapsed_fraction": 0.896,
+        "storms": 22,
+        "verdict": {
+          "basin": "EP",
+          "name": "East and central Pacific",
+          "region": "Eastern and central Pacific hurricanes",
+          "effect": "Enhanced activity, tracking further west",
+          "expected": "above normal",
+          "observed": "above normal",
+          "agrees": true,
+          "likelihood": "likely",
+          "margin": 1.19,
+          "note": "",
+          "confidence": "high",
+          "ace": 312.9,
+          "named": 21,
+          "hurricanes": 11,
+          "major": 9,
+          "normal_ace": 126.9,
+          "full_normal_ace": 141.6,
+          "ratio": 2.46,
+          "elnino_ace": 114.5,
+          "elnino_ratio": 2.73,
+          "elapsed": 0.9,
+          "sample": 22,
+          "through": "10 October"
+        }
+      }
+    },
+    "notes": [],
+    "upgrades": []
+  },
+  "outlook": [
+    {
+      "key": "ep1",
+      "centre": "NHC",
+      "basin": "EP",
+      "label": "South of Southwestern Mexico",
+      "lon": -103.04,
+      "lat": 12.64,
+      "chance_2day": 0,
+      "chance_7day": 70,
+      "potential": "high",
+      "text": "1. South of Southwestern Mexico: An area of low pressure is forecast to develop south or southwest of the coast of Mexico by early next week. Environmental conditions are expected to be conducive for gradual development thereafter, and a tropical depression is likely to form by the middle or latter half of next week as the system moves generally west-northwestward at around 10 mph. Formation chance through 48 hours...low...near 0 percent. Formation chance through 7 days...high...70 percent.",
+      "alert": false,
+      "issued": "Sat Oct 10 17:36:09 2026",
+      "area": [
+        [
+          -95.16,
+          11.638
+        ],
+        [
+          -95.16,
+          11.744
+        ],
+        [
+          -95.18,
+          11.847
+        ],
+        [
+          -95.19,
+          11.95
+        ],
+        [
+          -95.21,
+          12.05
+        ],
+        [
+          -95.24,
+          12.148
+        ],
+        [
+          -95.27,
+          12.245
+        ],
+        [
+          -95.3,
+          12.34
+        ],
+        [
+          -95.34,
+          12.433
+        ],
+        [
+          -95.38,
+          12.525
+        ],
+        [
+          -95.42,
+          12.615
+        ],
+        [
+          -95.47,
+          12.703
+        ],
+        [
+          -95.52,
+          12.79
+        ],
+        [
+          -95.57,
+          12.875
+        ],
+        [
+          -95.63,
+          12.958
+        ],
+        [
+          -95.69,
+          13.04
+        ],
+        [
+          -95.75,
+          13.12
+        ],
+        [
+          -95.82,
+          13.199
+        ],
+        [
+          -95.88,
+          13.276
+        ],
+        [
+          -95.95,
+          13.351
+        ],
+        [
+          -96.02,
+          13.426
+        ],
+        [
+          -96.1,
+          13.498
+        ],
+        [
+          -96.17,
+          13.57
+        ],
+        [
+          -96.25,
+          13.64
+        ],
+        [
+          -96.32,
+          13.708
+        ],
+        [
+          -96.4,
+          13.775
+        ],
+        [
+          -96.48,
+          13.841
+        ],
+        [
+          -96.56,
+          13.905
+        ],
+        [
+          -96.64,
+          13.968
+        ],
+        [
+          -96.72,
+          14.03
+        ],
+        [
+          -96.8,
+          14.091
+        ],
+        [
+          -96.88,
+          14.15
+        ],
+        [
+          -96.97,
+          14.208
+        ],
+        [
+          -97.05,
+          14.265
+        ],
+        [
+          -97.13,
+          14.321
+        ],
+        [
+          -97.22,
+          14.375
+        ],
+        [
+          -97.3,
+          14.429
+        ],
+        [
+          -97.38,
+          14.482
+        ],
+        [
+          -97.47,
+          14.533
+        ],
+        [
+          -97.56,
+          14.583
+        ],
+        [
+          -97.64,
+          14.633
+        ],
+        [
+          -97.73,
+          14.682
+        ],
+        [
+          -97.82,
+          14.729
+        ],
+        [
+          -97.91,
+          14.776
+        ],
+        [
+          -98.0,
+          14.822
+        ],
+        [
+          -98.09,
+          14.867
+        ],
+        [
+          -98.18,
+          14.912
+        ],
+        [
+          -98.28,
+          14.956
+        ],
+        [
+          -98.37,
+          14.999
+        ],
+        [
+          -98.47,
+          15.041
+        ],
+        [
+          -98.57,
+          15.083
+        ],
+        [
+          -98.67,
+          15.124
+        ],
+        [
+          -98.77,
+          15.164
+        ],
+        [
+          -98.87,
+          15.204
+        ],
+        [
+          -98.97,
+          15.244
+        ],
+        [
+          -99.08,
+          15.283
+        ],
+        [
+          -99.19,
+          15.322
+        ],
+        [
+          -99.3,
+          15.36
+        ],
+        [
+          -99.41,
+          15.398
+        ],
+        [
+          -99.52,
+          15.435
+        ],
+        [
+          -99.63,
+          15.473
+        ],
+        [
+          -99.75,
+          15.51
+        ],
+        [
+          -99.87,
+          15.546
+        ],
+        [
+          -99.99,
+          15.583
+        ],
+        [
+          -100.11,
+          15.619
+        ],
+        [
+          -100.24,
+          15.654
+        ],
+        [
+          -100.36,
+          15.689
+        ],
+        [
+          -100.49,
+          15.724
+        ],
+        [
+          -100.62,
+          15.759
+        ],
+        [
+          -100.74,
+          15.793
+        ],
+        [
+          -100.88,
+          15.826
+        ],
+        [
+          -101.01,
+          15.859
+        ],
+        [
+          -101.14,
+          15.892
+        ],
+        [
+          -101.27,
+          15.924
+        ],
+        [
+          -101.41,
+          15.956
+        ],
+        [
+          -101.54,
+          15.987
+        ],
+        [
+          -101.68,
+          16.017
+        ],
+        [
+          -101.82,
+          16.047
+        ],
+        [
+          -101.95,
+          16.076
+        ],
+        [
+          -102.09,
+          16.105
+        ],
+        [
+          -102.23,
+          16.133
+        ],
+        [
+          -102.37,
+          16.16
+        ],
+        [
+          -102.5,
+          16.187
+        ],
+        [
+          -102.64,
+          16.213
+        ],
+        [
+          -102.78,
+          16.238
+        ],
+        [
+          -102.92,
+          16.263
+        ],
+        [
+          -103.06,
+          16.286
+        ],
+        [
+          -103.19,
+          16.309
+        ],
+        [
+          -103.33,
+          16.331
+        ],
+        [
+          -103.47,
+          16.353
+        ],
+        [
+          -103.6,
+          16.373
+        ],
+        [
+          -103.74,
+          16.393
+        ],
+        [
+          -103.87,
+          16.412
+        ],
+        [
+          -104.01,
+          16.429
+        ],
+        [
+          -104.14,
+          16.445
+        ],
+        [
+          -104.28,
+          16.46
+        ],
+        [
+          -104.41,
+          16.474
+        ],
+        [
+          -104.54,
+          16.486
+        ],
+        [
+          -104.67,
+          16.496
+        ],
+        [
+          -104.81,
+          16.505
+        ],
+        [
+          -104.94,
+          16.511
+        ],
+        [
+          -105.07,
+          16.516
+        ],
+        [
+          -105.2,
+          16.518
+        ],
+        [
+          -105.33,
+          16.518
+        ],
+        [
+          -105.46,
+          16.516
+        ],
+        [
+          -105.59,
+          16.511
+        ],
+        [
+          -105.72,
+          16.504
+        ],
+        [
+          -105.85,
+          16.494
+        ],
+        [
+          -105.98,
+          16.481
+        ],
+        [
+          -106.11,
+          16.465
+        ],
+        [
+          -106.24,
+          16.447
+        ],
+        [
+          -106.37,
+          16.425
+        ],
+        [
+          -106.5,
+          16.399
+        ],
+        [
+          -106.63,
+          16.371
+        ],
+        [
+          -106.76,
+          16.338
+        ],
+        [
+          -106.89,
+          16.303
+        ],
+        [
+          -107.02,
+          16.263
+        ],
+        [
+          -107.15,
+          16.22
+        ],
+        [
+          -107.28,
+          16.172
+        ],
+        [
+          -107.41,
+          16.121
+        ],
+        [
+          -107.54,
+          16.065
+        ],
+        [
+          -107.67,
+          16.005
+        ],
+        [
+          -107.8,
+          15.941
+        ],
+        [
+          -107.93,
+          15.874
+        ],
+        [
+          -108.07,
+          15.803
+        ],
+        [
+          -108.2,
+          15.728
+        ],
+        [
+          -108.32,
+          15.651
+        ],
+        [
+          -108.45,
+          15.571
+        ],
+        [
+          -108.58,
+          15.488
+        ],
+        [
+          -108.71,
+          15.402
+        ],
+        [
+          -108.83,
+          15.315
+        ],
+        [
+          -108.95,
+          15.225
+        ],
+        [
+          -109.07,
+          15.134
+        ],
+        [
+          -109.19,
+          15.041
+        ],
+        [
+          -109.31,
+          14.947
+        ],
+        [
+          -109.42,
+          14.852
+        ],
+        [
+          -109.54,
+          14.755
+        ],
+        [
+          -109.64,
+          14.659
+        ],
+        [
+          -109.75,
+          14.561
+        ],
+        [
+          -109.85,
+          14.464
+        ],
+        [
+          -109.95,
+          14.367
+        ],
+        [
+          -110.05,
+          14.269
+        ],
+        [
+          -110.14,
+          14.173
+        ],
+        [
+          -110.23,
+          14.077
+        ],
+        [
+          -110.31,
+          13.981
+        ],
+        [
+          -110.39,
+          13.887
+        ],
+        [
+          -110.46,
+          13.794
+        ],
+        [
+          -110.54,
+          13.703
+        ],
+        [
+          -110.6,
+          13.614
+        ],
+        [
+          -110.66,
+          13.526
+        ],
+        [
+          -110.72,
+          13.441
+        ],
+        [
+          -110.77,
+          13.358
+        ],
+        [
+          -110.81,
+          13.277
+        ],
+        [
+          -110.85,
+          13.199
+        ],
+        [
+          -110.88,
+          13.122
+        ],
+        [
+          -110.91,
+          13.047
+        ],
+        [
+          -110.94,
+          12.974
+        ],
+        [
+          -110.96,
+          12.903
+        ],
+        [
+          -110.98,
+          12.833
+        ],
+        [
+          -110.99,
+          12.765
+        ],
+        [
+          -110.99,
+          12.698
+        ],
+        [
+          -111.0,
+          12.632
+        ],
+        [
+          -111.0,
+          12.568
+        ],
+        [
+          -110.99,
+          12.505
+        ],
+        [
+          -110.98,
+          12.443
+        ],
+        [
+          -110.97,
+          12.382
+        ],
+        [
+          -110.95,
+          12.322
+        ],
+        [
+          -110.94,
+          12.262
+        ],
+        [
+          -110.91,
+          12.204
+        ],
+        [
+          -110.89,
+          12.146
+        ],
+        [
+          -110.86,
+          12.088
+        ],
+        [
+          -110.83,
+          12.031
+        ],
+        [
+          -110.79,
+          11.974
+        ],
+        [
+          -110.75,
+          11.917
+        ],
+        [
+          -110.71,
+          11.86
+        ],
+        [
+          -110.67,
+          11.804
+        ],
+        [
+          -110.62,
+          11.747
+        ],
+        [
+          -110.57,
+          11.69
+        ],
+        [
+          -110.52,
+          11.633
+        ],
+        [
+          -110.47,
+          11.575
+        ],
+        [
+          -110.42,
+          11.517
+        ],
+        [
+          -110.36,
+          11.459
+        ],
+        [
+          -110.3,
+          11.4
+        ],
+        [
+          -110.24,
+          11.341
+        ],
+        [
+          -110.18,
+          11.282
+        ],
+        [
+          -110.11,
+          11.222
+        ],
+        [
+          -110.05,
+          11.162
+        ],
+        [
+          -109.98,
+          11.103
+        ],
+        [
+          -109.9,
+          11.043
+        ],
+        [
+          -109.83,
+          10.984
+        ],
+        [
+          -109.75,
+          10.924
+        ],
+        [
+          -109.67,
+          10.865
+        ],
+        [
+          -109.59,
+          10.807
+        ],
+        [
+          -109.5,
+          10.748
+        ],
+        [
+          -109.41,
+          10.691
+        ],
+        [
+          -109.32,
+          10.633
+        ],
+        [
+          -109.23,
+          10.577
+        ],
+        [
+          -109.13,
+          10.52
+        ],
+        [
+          -109.03,
+          10.465
+        ],
+        [
+          -108.92,
+          10.411
+        ],
+        [
+          -108.81,
+          10.357
+        ],
+        [
+          -108.7,
+          10.304
+        ],
+        [
+          -108.59,
+          10.253
+        ],
+        [
+          -108.47,
+          10.202
+        ],
+        [
+          -108.34,
+          10.153
+        ],
+        [
+          -108.22,
+          10.105
+        ],
+        [
+          -108.09,
+          10.058
+        ],
+        [
+          -107.96,
+          10.013
+        ],
+        [
+          -107.82,
+          9.969
+        ],
+        [
+          -107.68,
+          9.926
+        ],
+        [
+          -107.53,
+          9.885
+        ],
+        [
+          -107.38,
+          9.846
+        ],
+        [
+          -107.23,
+          9.808
+        ],
+        [
+          -107.07,
+          9.771
+        ],
+        [
+          -106.91,
+          9.736
+        ],
+        [
+          -106.74,
+          9.702
+        ],
+        [
+          -106.58,
+          9.669
+        ],
+        [
+          -106.41,
+          9.638
+        ],
+        [
+          -106.23,
+          9.607
+        ],
+        [
+          -106.06,
+          9.577
+        ],
+        [
+          -105.88,
+          9.548
+        ],
+        [
+          -105.7,
+          9.52
+        ],
+        [
+          -105.51,
+          9.492
+        ],
+        [
+          -105.33,
+          9.465
+        ],
+        [
+          -105.14,
+          9.438
+        ],
+        [
+          -104.95,
+          9.412
+        ],
+        [
+          -104.76,
+          9.386
+        ],
+        [
+          -104.57,
+          9.36
+        ],
+        [
+          -104.38,
+          9.335
+        ],
+        [
+          -104.18,
+          9.309
+        ],
+        [
+          -103.99,
+          9.284
+        ],
+        [
+          -103.79,
+          9.258
+        ],
+        [
+          -103.59,
+          9.232
+        ],
+        [
+          -103.4,
+          9.206
+        ],
+        [
+          -103.2,
+          9.18
+        ],
+        [
+          -103.0,
+          9.153
+        ],
+        [
+          -102.8,
+          9.126
+        ],
+        [
+          -102.6,
+          9.098
+        ],
+        [
+          -102.41,
+          9.07
+        ],
+        [
+          -102.21,
+          9.04
+        ],
+        [
+          -102.01,
+          9.01
+        ],
+        [
+          -101.82,
+          8.98
+        ],
+        [
+          -101.62,
+          8.949
+        ],
+        [
+          -101.43,
+          8.917
+        ],
+        [
+          -101.23,
+          8.886
+        ],
+        [
+          -101.04,
+          8.855
+        ],
+        [
+          -100.85,
+          8.824
+        ],
+        [
+          -100.66,
+          8.794
+        ],
+        [
+          -100.48,
+          8.765
+        ],
+        [
+          -100.29,
+          8.737
+        ],
+        [
+          -100.1,
+          8.711
+        ],
+        [
+          -99.92,
+          8.686
+        ],
+        [
+          -99.74,
+          8.663
+        ],
+        [
+          -99.56,
+          8.642
+        ],
+        [
+          -99.39,
+          8.623
+        ],
+        [
+          -99.21,
+          8.607
+        ],
+        [
+          -99.04,
+          8.593
+        ],
+        [
+          -98.87,
+          8.583
+        ],
+        [
+          -98.71,
+          8.575
+        ],
+        [
+          -98.54,
+          8.571
+        ],
+        [
+          -98.38,
+          8.571
+        ],
+        [
+          -98.22,
+          8.575
+        ],
+        [
+          -98.07,
+          8.582
+        ],
+        [
+          -97.92,
+          8.594
+        ],
+        [
+          -97.77,
+          8.611
+        ],
+        [
+          -97.62,
+          8.632
+        ],
+        [
+          -97.48,
+          8.658
+        ],
+        [
+          -97.34,
+          8.69
+        ],
+        [
+          -97.21,
+          8.726
+        ],
+        [
+          -97.08,
+          8.769
+        ],
+        [
+          -96.95,
+          8.817
+        ],
+        [
+          -96.83,
+          8.872
+        ],
+        [
+          -96.71,
+          8.931
+        ],
+        [
+          -96.6,
+          8.996
+        ],
+        [
+          -96.49,
+          9.065
+        ],
+        [
+          -96.38,
+          9.14
+        ],
+        [
+          -96.28,
+          9.218
+        ],
+        [
+          -96.18,
+          9.301
+        ],
+        [
+          -96.09,
+          9.388
+        ],
+        [
+          -96.0,
+          9.478
+        ],
+        [
+          -95.92,
+          9.571
+        ],
+        [
+          -95.84,
+          9.668
+        ],
+        [
+          -95.76,
+          9.768
+        ],
+        [
+          -95.69,
+          9.87
+        ],
+        [
+          -95.62,
+          9.974
+        ],
+        [
+          -95.56,
+          10.08
+        ],
+        [
+          -95.5,
+          10.188
+        ],
+        [
+          -95.44,
+          10.298
+        ],
+        [
+          -95.39,
+          10.409
+        ],
+        [
+          -95.35,
+          10.521
+        ],
+        [
+          -95.31,
+          10.634
+        ],
+        [
+          -95.27,
+          10.747
+        ],
+        [
+          -95.24,
+          10.86
+        ],
+        [
+          -95.22,
+          10.973
+        ],
+        [
+          -95.19,
+          11.086
+        ],
+        [
+          -95.18,
+          11.199
+        ],
+        [
+          -95.16,
+          11.31
+        ],
+        [
+          -95.16,
+          11.421
+        ],
+        [
+          -95.15,
+          11.53
+        ],
+        [
+          -95.16,
+          11.638
+        ]
+      ],
+      "arrow": [],
+      "formation": null
+    },
+    {
+      "key": "95w",
+      "centre": "JTWC",
+      "basin": "WP",
+      "label": "Invest 95W",
+      "lon": 147.8,
+      "lat": 14.3,
+      "chance_2day": null,
+      "chance_7day": null,
+      "potential": "medium",
+      "text": "THE AREA OF CONVECTION (INVEST 95W) PREVIOUSLY LOCATED NEAR 14.0N 146.7E IS NOW LOCATED NEAR 14.3N 147.8E, APPROXIMATELY 73 NM EAST-NORTHEAST OF GUAM. ANIMATED ENHANCED INFRARED (EIR) SATELLITE IMAGERY DEPICTS A SLOWLY CONSOLIDATING LOW LEVEL CIRCULATION WITH FLARING CONVECTION TO THE SOUTH AND EAST. ANALYSIS OF THE LOW-LEVEL CLOUD BANDS INDICATE THAT 95W LIKELY DOES NOT HAVE A CLOSED CIRCULATION AND RESEMBLES A TROUGH. RECENT SCATTEROMETER DATA INDICATED 25 KT WINDS IN THE SOUTHEAST QUADRANT. ENVIRONMENTAL ANALYSIS INDICATES A FAVORABLE AREA FOR DEVELOPMENT WITH MODERATE VERTICAL WIND SHEAR (15-20KTS), GOOD WESTWARD OUTFLOW, AND VERY WARM SEA SURFACE TEMPERATURES (29-30C). GLOBAL DETERMINISTIC AND ENSEMBLE MODELS AGREE ON A SLOW DEVELOPMENT TREND, AND THE SYSTEM COULD BECOME A TROPICAL DEPRESSION OUTSIDE OF 24 HOURS BUT WITHIN 48 HOURS AS IT TRACKS NORTHEASTWARD FOR THE NEXT 24-36 HOURS BEFORE CURVING SHARPLY NORTHWESTWARD. MAXIMUM SUSTAINED SURFACE WINDS ARE ESTIMATED AT 23 TO 28 KNOTS. MINIMUM SEA LEVEL PRESSURE IS ESTIMATED TO BE NEAR 1007 MB. THE POTENTIAL FOR THE DEVELOPMENT OF A SIGNIFICANT TROPICAL CYCLONE WITHIN THE NEXT 24 HOURS IS UPGRADED TO MEDIUM.",
+      "alert": false,
+      "issued": "2026-10-10T14:30:00Z",
+      "area": [],
+      "arrow": [],
+      "formation": null
+    }
+  ],
+  "storm_desk": {
+    "page": "storms.html",
+    "data": "storms.json",
+    "schema": 1
+  },
+  "stormfury": {
+    "as_of": "2026-10-10T18:00:00.000Z",
+    "verdict": "4 of 4 live storms fail STORMFURY's own criteria. Every one of them fails on supercooled water, which is the criterion no hurricane has ever passed and the reason the programme ended.",
+    "reasons": [
+      "TRIGGER: the seeding agent needs supercooled liquid water and hurricane eyewalls are already glaciated at seeding altitude. Nothing to freeze, so the mechanism never starts. Willoughby et al., Bull. Am. Meteorol. Soc., 1985.",
+      "MAGNITUDE: across 34 natural eyewall expansions in 11 hurricanes this season, conserving angular momentum predicted a mean 26.9% wind drop and the storms actually gave up 4.0%, overstating it 6.7-fold. A hurricane is fed high-momentum air continuously, so a closed-system argument is an upper bound, not a forecast. STORMFURY's predicted effect came from that same calculation.",
+      "DETECTION: 16 of 259 unseeded hurricane intervals this season weakened by at least the 31% STORMFURY claimed for Debbie, and 48 moved that far in one direction or the other. An effect that size is indistinguishable from what hurricanes do untouched, which is what closed the programme."
+    ],
+    "seedable_layer_km": {
+      "freezing_km": 4.4,
+      "base_km": 5.0,
+      "top_km": 7.5,
+      "depth_km": 2.5
+    },
+    "programme": {
+      "ran": "1962 to 1983",
+      "agencies": "US Weather Bureau / NOAA with the US Navy",
+      "storms_seeded": 4
+    },
+    "seeded_storms": [
+      {
+        "name": "Esther",
+        "year": 1961,
+        "dates": "September 1961",
+        "claimed": "about 10 per cent",
+        "outcome": "Flown before STORMFURY formally existed, as the proof of concept that got the programme funded."
+      },
+      {
+        "name": "Beulah",
+        "year": 1963,
+        "dates": "August 1963",
+        "claimed": "eyewall dissipated and reformed further out",
+        "outcome": "The first run missed the target area entirely. The second produced the reformation the hypothesis predicted, which is also what an unseeded eyewall replacement looks like."
+      },
+      {
+        "name": "Debbie",
+        "year": 1969,
+        "dates": "18 and 20 August 1969",
+        "claimed": "31 per cent, then 15 per cent",
+        "outcome": "The showcase: five seedings on each of two days. These are the numbers the programme is remembered for, and the ones the natural replacement cycle later explained without any silver iodide."
+      },
+      {
+        "name": "Ginger",
+        "year": 1971,
+        "dates": "September 1971",
+        "claimed": "no measurable effect",
+        "outcome": "A large, diffuse storm with no coherent eyewall to move. It was seeded because it was what was available, which is itself a statement about how rarely the criteria above are met."
+      }
+    ],
+    "assessments": [
+      {
+        "id": "ep202026",
+        "name": "Simon",
+        "basin": "East Pacific",
+        "wind_kt": 130,
+        "rmw_nm": 5,
+        "lat": 17.4,
+        "lon": -104.8,
+        "eligible": false,
+        "blocked_by": [
+          "Within aircraft range",
+          "Clear of land for 24 h",
+          "Supercooled water to seed"
+        ],
+        "unknown": [],
+        "criteria": [
+          {
+            "name": "Within aircraft range",
+            "passed": false,
+            "detail": "2,610 km from Lakeland, Florida, beyond the 2,040 km operational radius assumed here"
+          },
+          {
+            "name": "Coherent eyewall",
+            "passed": true,
+            "detail": "130 kt with the eyewall at 5 nm"
+          },
+          {
+            "name": "Clear of land for 24 h",
+            "passed": false,
+            "detail": "93% of 30 tracks come within 80 km of land inside 24 h (rule: at most 10%); official track's closest approach 35 km"
+          },
+          {
+            "name": "Supercooled water to seed",
+            "passed": false,
+            "detail": "Hurricane eyewall updrafts are largely glaciated by the time they reach those temperatures. Warm-rain coalescence removes liquid water below the freezing level efficiently enough that little survives to be supercooled, leaving the seeding agent with nearly nothing to act on. The trigger is absent. The mechanism cannot start."
+          }
+        ],
+        "momentum": [
+          {
+            "factor": 1.25,
+            "from_nm": 5.0,
+            "to_nm": 6.2,
+            "before_kt": 130,
+            "after_kt": 104,
+            "drop_pct": 20.1,
+            "category_before": 4,
+            "category_after": 3
+          },
+          {
+            "factor": 1.5,
+            "from_nm": 5.0,
+            "to_nm": 7.5,
+            "before_kt": 130,
+            "after_kt": 86,
+            "drop_pct": 33.6,
+            "category_before": 4,
+            "category_after": 2
+          },
+          {
+            "factor": 1.75,
+            "from_nm": 5.0,
+            "to_nm": 8.8,
+            "before_kt": 130,
+            "after_kt": 74,
+            "drop_pct": 43.2,
+            "category_before": 4,
+            "category_after": 1
+          },
+          {
+            "factor": 2.0,
+            "from_nm": 5.0,
+            "to_nm": 10.0,
+            "before_kt": 130,
+            "after_kt": 64,
+            "drop_pct": 50.5,
+            "category_before": 4,
+            "category_after": 1
+          }
+        ]
+      },
+      {
+        "id": "wp272026",
+        "name": "Koguma",
+        "basin": "West Pacific",
+        "wind_kt": 120,
+        "rmw_nm": null,
+        "lat": 22.9,
+        "lon": 149.6,
+        "eligible": false,
+        "blocked_by": [
+          "Within aircraft range",
+          "Supercooled water to seed"
+        ],
+        "unknown": [
+          "Coherent eyewall"
+        ],
+        "criteria": [
+          {
+            "name": "Within aircraft range",
+            "passed": false,
+            "detail": "12,099 km from Lakeland, Florida, beyond the 2,040 km operational radius assumed here"
+          },
+          {
+            "name": "Coherent eyewall",
+            "passed": null,
+            "detail": "120 kt, but the deck reports no radius of maximum wind, so the eyewall's position is unknown"
+          },
+          {
+            "name": "Clear of land for 24 h",
+            "passed": true,
+            "detail": "official track stays 1,204 km off the coast; no ensemble on file, so this is the deterministic track alone"
+          },
+          {
+            "name": "Supercooled water to seed",
+            "passed": false,
+            "detail": "Hurricane eyewall updrafts are largely glaciated by the time they reach those temperatures. Warm-rain coalescence removes liquid water below the freezing level efficiently enough that little survives to be supercooled, leaving the seeding agent with nearly nothing to act on. The trigger is absent. The mechanism cannot start."
+          }
+        ],
+        "momentum": []
+      },
+      {
+        "id": "ep182026",
+        "name": "Rachel",
+        "basin": "East Pacific",
+        "wind_kt": 55,
+        "rmw_nm": 40,
+        "lat": 25.8,
+        "lon": -118.9,
+        "eligible": false,
+        "blocked_by": [
+          "Within aircraft range",
+          "Coherent eyewall",
+          "Clear of land for 24 h",
+          "Supercooled water to seed"
+        ],
+        "unknown": [],
+        "criteria": [
+          {
+            "name": "Within aircraft range",
+            "passed": false,
+            "detail": "3,652 km from Lakeland, Florida, beyond the 2,040 km operational radius assumed here"
+          },
+          {
+            "name": "Coherent eyewall",
+            "passed": false,
+            "detail": "55 kt is below the 64 kt hurricane threshold; there is no closed eyewall to relocate"
+          },
+          {
+            "name": "Clear of land for 24 h",
+            "passed": false,
+            "detail": "87% of 31 tracks come within 80 km of land inside 24 h (rule: at most 10%); official track's closest approach 117 km"
+          },
+          {
+            "name": "Supercooled water to seed",
+            "passed": false,
+            "detail": "Hurricane eyewall updrafts are largely glaciated by the time they reach those temperatures. Warm-rain coalescence removes liquid water below the freezing level efficiently enough that little survives to be supercooled, leaving the seeding agent with nearly nothing to act on. The trigger is absent. The mechanism cannot start."
+          }
+        ],
+        "momentum": [
+          {
+            "factor": 1.25,
+            "from_nm": 40.0,
+            "to_nm": 50.0,
+            "before_kt": 55,
+            "after_kt": 42,
+            "drop_pct": 23.7,
+            "category_before": 0,
+            "category_after": 0
+          },
+          {
+            "factor": 1.5,
+            "from_nm": 40.0,
+            "to_nm": 60.0,
+            "before_kt": 55,
+            "after_kt": 33,
+            "drop_pct": 40.3,
+            "category_before": 0,
+            "category_after": 0
+          },
+          {
+            "factor": 1.75,
+            "from_nm": 40.0,
+            "to_nm": 70.0,
+            "before_kt": 55,
+            "after_kt": 26,
+            "drop_pct": 52.7,
+            "category_before": 0,
+            "category_after": 0
+          },
+          {
+            "factor": 2.0,
+            "from_nm": 40.0,
+            "to_nm": 80.0,
+            "before_kt": 55,
+            "after_kt": 21,
+            "drop_pct": 62.5,
+            "category_before": 0,
+            "category_after": 0
+          }
+        ]
+      },
+      {
+        "id": "al092026",
+        "name": "Isaias",
+        "basin": "Atlantic",
+        "wind_kt": 25,
+        "rmw_nm": 100,
+        "lat": 33.0,
+        "lon": -87.1,
+        "eligible": false,
+        "blocked_by": [
+          "Coherent eyewall",
+          "Supercooled water to seed"
+        ],
+        "unknown": [],
+        "criteria": [
+          {
+            "name": "Within aircraft range",
+            "passed": true,
+            "detail": "740 km from Lakeland, Florida"
+          },
+          {
+            "name": "Coherent eyewall",
+            "passed": false,
+            "detail": "25 kt is below the 64 kt hurricane threshold; there is no closed eyewall to relocate"
+          },
+          {
+            "name": "Clear of land for 24 h",
+            "passed": true,
+            "detail": "0% of 31 tracks come within 80 km of land inside 24 h (rule: at most 10%); official track's closest approach 367 km"
+          },
+          {
+            "name": "Supercooled water to seed",
+            "passed": false,
+            "detail": "Hurricane eyewall updrafts are largely glaciated by the time they reach those temperatures. Warm-rain coalescence removes liquid water below the freezing level efficiently enough that little survives to be supercooled, leaving the seeding agent with nearly nothing to act on. The trigger is absent. The mechanism cannot start."
+          }
+        ],
+        "momentum": [
+          {
+            "factor": 1.25,
+            "from_nm": 100.0,
+            "to_nm": 125.0,
+            "before_kt": 25,
+            "after_kt": 14,
+            "drop_pct": 45.7,
+            "category_before": 0,
+            "category_after": 0
+          },
+          {
+            "factor": 1.5,
+            "from_nm": 100.0,
+            "to_nm": 150.0,
+            "before_kt": 25,
+            "after_kt": 5,
+            "drop_pct": 81.0,
+            "category_before": 0,
+            "category_after": 0
+          },
+          {
+            "factor": 1.75,
+            "from_nm": 100.0,
+            "to_nm": 175.0,
+            "before_kt": 25,
+            "after_kt": null,
+            "drop_pct": null,
+            "category_before": 0,
+            "category_after": null
+          },
+          {
+            "factor": 2.0,
+            "from_nm": 100.0,
+            "to_nm": 200.0,
+            "before_kt": 25,
+            "after_kt": null,
+            "drop_pct": null,
+            "category_before": 0,
+            "category_after": null
+          }
+        ]
+      }
+    ],
+    "relocation_skill": {
+      "count": 34,
+      "mean_predicted_drop": 26.9,
+      "mean_observed_drop": 4.0,
+      "overstatement": 6.7,
+      "held_or_strengthened": 14,
+      "storms": 11
+    },
+    "natural_eyewall_moves": [
+      {
+        "storm": "Fausto",
+        "key": "ep062026",
+        "stamp": "2026072218",
+        "hours": 6,
+        "from_nm": 15,
+        "to_nm": 30,
+        "wind_before": 70,
+        "wind_after": 70,
+        "predicted_kt": 33,
+        "observed_pct": 0.0
+      },
+      {
+        "storm": "Nolo",
+        "key": "ep152026",
+        "stamp": "2026092900",
+        "hours": 6,
+        "from_nm": 15,
+        "to_nm": 30,
+        "wind_before": 130,
+        "wind_after": 125,
+        "predicted_kt": 63,
+        "observed_pct": -3.8
+      },
+      {
+        "storm": "Odalys",
+        "key": "ep162026",
+        "stamp": "2026092318",
+        "hours": 6,
+        "from_nm": 10,
+        "to_nm": 20,
+        "wind_before": 65,
+        "wind_after": 70,
+        "predicted_kt": 31,
+        "observed_pct": 7.7
+      },
+      {
+        "storm": "Genevieve",
+        "key": "ep072026",
+        "stamp": "2026072712",
+        "hours": 6,
+        "from_nm": 10,
+        "to_nm": 15,
+        "wind_before": 140,
+        "wind_after": 135,
+        "predicted_kt": 93,
+        "observed_pct": -3.6
+      },
+      {
+        "storm": "Lowell",
+        "key": "ep122026",
+        "stamp": "2026090318",
+        "hours": 6,
+        "from_nm": 10,
+        "to_nm": 15,
+        "wind_before": 120,
+        "wind_after": 120,
+        "predicted_kt": 79,
+        "observed_pct": 0.0
+      },
+      {
+        "storm": "Nolo",
+        "key": "ep152026",
+        "stamp": "2026093006",
+        "hours": 6,
+        "from_nm": 20,
+        "to_nm": 30,
+        "wind_before": 80,
+        "wind_after": 65,
+        "predicted_kt": 52,
+        "observed_pct": -18.8
+      },
+      {
+        "storm": "Odalys",
+        "key": "ep162026",
+        "stamp": "2026092618",
+        "hours": 6,
+        "from_nm": 10,
+        "to_nm": 15,
+        "wind_before": 90,
+        "wind_after": 80,
+        "predicted_kt": 59,
+        "observed_pct": -11.1
+      },
+      {
+        "storm": "Polo",
+        "key": "ep172026",
+        "stamp": "2026092418",
+        "hours": 6,
+        "from_nm": 10,
+        "to_nm": 15,
+        "wind_before": 135,
+        "wind_after": 130,
+        "predicted_kt": 89,
+        "observed_pct": -3.7
+      },
+      {
+        "storm": "Polo",
+        "key": "ep172026",
+        "stamp": "2026092618",
+        "hours": 6,
+        "from_nm": 10,
+        "to_nm": 15,
+        "wind_before": 135,
+        "wind_after": 125,
+        "predicted_kt": 89,
+        "observed_pct": -7.4
+      },
+      {
+        "storm": "Marie",
+        "key": "ep132026",
+        "stamp": "2026090500",
+        "hours": 6,
+        "from_nm": 25,
+        "to_nm": 35,
+        "wind_before": 85,
+        "wind_after": 85,
+        "predicted_kt": 59,
+        "observed_pct": 0.0
+      },
+      {
+        "storm": "Isaias",
+        "key": "al092026",
+        "stamp": "2026100912",
+        "hours": 6,
+        "from_nm": 15,
+        "to_nm": 20,
+        "wind_before": 90,
+        "wind_after": 105,
+        "predicted_kt": 67,
+        "observed_pct": 16.7
+      },
+      {
+        "storm": "Lala",
+        "key": "cp012026",
+        "stamp": "2026082012",
+        "hours": 6,
+        "from_nm": 15,
+        "to_nm": 20,
+        "wind_before": 95,
+        "wind_after": 80,
+        "predicted_kt": 70,
+        "observed_pct": -15.8
+      },
+      {
+        "storm": "Fausto",
+        "key": "ep062026",
+        "stamp": "2026072506",
+        "hours": 6,
+        "from_nm": 15,
+        "to_nm": 20,
+        "wind_before": 90,
+        "wind_after": 85,
+        "predicted_kt": 67,
+        "observed_pct": -5.6
+      },
+      {
+        "storm": "Genevieve",
+        "key": "ep072026",
+        "stamp": "2026072912",
+        "hours": 6,
+        "from_nm": 15,
+        "to_nm": 20,
+        "wind_before": 110,
+        "wind_after": 100,
+        "predicted_kt": 82,
+        "observed_pct": -9.1
+      },
+      {
+        "storm": "Karina",
+        "key": "ep112026",
+        "stamp": "2026090318",
+        "hours": 6,
+        "from_nm": 15,
+        "to_nm": 20,
+        "wind_before": 100,
+        "wind_after": 90,
+        "predicted_kt": 74,
+        "observed_pct": -10.0
+      },
+      {
+        "storm": "Lowell",
+        "key": "ep122026",
+        "stamp": "2026090712",
+        "hours": 6,
+        "from_nm": 15,
+        "to_nm": 20,
+        "wind_before": 105,
+        "wind_after": 100,
+        "predicted_kt": 78,
+        "observed_pct": -4.8
+      },
+      {
+        "storm": "Nolo",
+        "key": "ep152026",
+        "stamp": "2026092912",
+        "hours": 6,
+        "from_nm": 15,
+        "to_nm": 20,
+        "wind_before": 100,
+        "wind_after": 100,
+        "predicted_kt": 74,
+        "observed_pct": 0.0
+      },
+      {
+        "storm": "Polo",
+        "key": "ep172026",
+        "stamp": "2026092906",
+        "hours": 6,
+        "from_nm": 15,
+        "to_nm": 20,
+        "wind_before": 100,
+        "wind_after": 90,
+        "predicted_kt": 74,
+        "observed_pct": -10.0
+      },
+      {
+        "storm": "Rachel",
+        "key": "ep182026",
+        "stamp": "2026100218",
+        "hours": 6,
+        "from_nm": 15,
+        "to_nm": 20,
+        "wind_before": 95,
+        "wind_after": 90,
+        "predicted_kt": 70,
+        "observed_pct": -5.3
+      },
+      {
+        "storm": "Lala",
+        "key": "cp012026",
+        "stamp": "2026082018",
+        "hours": 6,
+        "from_nm": 20,
+        "to_nm": 25,
+        "wind_before": 80,
+        "wind_after": 80,
+        "predicted_kt": 63,
+        "observed_pct": 0.0
+      },
+      {
+        "storm": "Fausto",
+        "key": "ep062026",
+        "stamp": "2026072512",
+        "hours": 6,
+        "from_nm": 20,
+        "to_nm": 25,
+        "wind_before": 85,
+        "wind_after": 85,
+        "predicted_kt": 67,
+        "observed_pct": 0.0
+      },
+      {
+        "storm": "Genevieve",
+        "key": "ep072026",
+        "stamp": "2026072918",
+        "hours": 6,
+        "from_nm": 20,
+        "to_nm": 25,
+        "wind_before": 100,
+        "wind_after": 90,
+        "predicted_kt": 79,
+        "observed_pct": -10.0
+      },
+      {
+        "storm": "Karina",
+        "key": "ep112026",
+        "stamp": "2026090418",
+        "hours": 6,
+        "from_nm": 20,
+        "to_nm": 25,
+        "wind_before": 85,
+        "wind_after": 75,
+        "predicted_kt": 67,
+        "observed_pct": -11.8
+      },
+      {
+        "storm": "Lowell",
+        "key": "ep122026",
+        "stamp": "2026090718",
+        "hours": 6,
+        "from_nm": 20,
+        "to_nm": 25,
+        "wind_before": 100,
+        "wind_after": 95,
+        "predicted_kt": 79,
+        "observed_pct": -5.0
+      },
+      {
+        "storm": "Marie",
+        "key": "ep132026",
+        "stamp": "2026090418",
+        "hours": 6,
+        "from_nm": 20,
+        "to_nm": 25,
+        "wind_before": 85,
+        "wind_after": 85,
+        "predicted_kt": 67,
+        "observed_pct": 0.0
+      },
+      {
+        "storm": "Rachel",
+        "key": "ep182026",
+        "stamp": "2026100300",
+        "hours": 6,
+        "from_nm": 20,
+        "to_nm": 25,
+        "wind_before": 90,
+        "wind_after": 90,
+        "predicted_kt": 71,
+        "observed_pct": 0.0
+      },
+      {
+        "storm": "Rachel",
+        "key": "ep182026",
+        "stamp": "2026100506",
+        "hours": 6,
+        "from_nm": 20,
+        "to_nm": 25,
+        "wind_before": 85,
+        "wind_after": 80,
+        "predicted_kt": 67,
+        "observed_pct": -5.9
+      },
+      {
+        "storm": "Lala",
+        "key": "cp012026",
+        "stamp": "2026082200",
+        "hours": 6,
+        "from_nm": 25,
+        "to_nm": 30,
+        "wind_before": 80,
+        "wind_after": 75,
+        "predicted_kt": 66,
+        "observed_pct": -6.2
+      },
+      {
+        "storm": "Fausto",
+        "key": "ep062026",
+        "stamp": "2026072518",
+        "hours": 6,
+        "from_nm": 25,
+        "to_nm": 30,
+        "wind_before": 85,
+        "wind_after": 85,
+        "predicted_kt": 70,
+        "observed_pct": 0.0
+      },
+      {
+        "storm": "Lowell",
+        "key": "ep122026",
+        "stamp": "2026090800",
+        "hours": 6,
+        "from_nm": 25,
+        "to_nm": 30,
+        "wind_before": 95,
+        "wind_after": 95,
+        "predicted_kt": 78,
+        "observed_pct": 0.0
+      },
+      {
+        "storm": "Rachel",
+        "key": "ep182026",
+        "stamp": "2026100306",
+        "hours": 6,
+        "from_nm": 25,
+        "to_nm": 30,
+        "wind_before": 90,
+        "wind_after": 85,
+        "predicted_kt": 74,
+        "observed_pct": -5.6
+      },
+      {
+        "storm": "Rachel",
+        "key": "ep182026",
+        "stamp": "2026100706",
+        "hours": 6,
+        "from_nm": 25,
+        "to_nm": 30,
+        "wind_before": 70,
+        "wind_after": 70,
+        "predicted_kt": 57,
+        "observed_pct": 0.0
+      },
+      {
+        "storm": "Lala",
+        "key": "cp012026",
+        "stamp": "2026082212",
+        "hours": 6,
+        "from_nm": 30,
+        "to_nm": 35,
+        "wind_before": 75,
+        "wind_after": 70,
+        "predicted_kt": 63,
+        "observed_pct": -6.7
+      },
+      {
+        "storm": "Marie",
+        "key": "ep132026",
+        "stamp": "2026090600",
+        "hours": 6,
+        "from_nm": 35,
+        "to_nm": 40,
+        "wind_before": 80,
+        "wind_after": 80,
+        "predicted_kt": 69,
+        "observed_pct": 0.0
+      }
+    ],
+    "natural_swings": {
+      "window": 24,
+      "count": 259,
+      "storms": 13,
+      "weakened_as_much": 16,
+      "moved_as_much": 48,
+      "share_weakened": 0.06177606177606178,
+      "share_moved": 0.18532818532818532,
+      "biggest_drop": -50.0,
+      "biggest_rise": 121.4,
+      "claim": 31.0
+    }
+  },
+  "spatial": {
+    "fields": {
+      "sst_map": {
+        "as_of": "2026-09-25",
+        "age_days": 15,
+        "rows": 121,
+        "cols": 401,
+        "coverage": 0.8448
+      },
+      "sst_global": {
+        "as_of": "2026-09-25",
+        "age_days": 15,
+        "rows": 633,
+        "cols": 1440,
+        "coverage": 0.695
+      },
+      "sst_hov": {
+        "as_of": "2026-09-23",
+        "age_days": 17,
+        "rows": 69,
+        "cols": 161,
+        "coverage": 1.0
+      },
+      "ssh_map": {
+        "as_of": "2026-09-28",
+        "age_days": 12,
+        "rows": 21,
+        "cols": 69,
+        "coverage": 0.9013
+      },
+      "ssh_hov": {
+        "as_of": "2026-09-24",
+        "age_days": 16,
+        "rows": 69,
+        "cols": 161,
+        "coverage": 1.0
+      },
+      "section": {
+        "as_of": "2026-09",
+        "age_days": 39,
+        "rows": 31,
+        "cols": 21,
+        "coverage": 0.9677
+      },
+      "section_anomaly": {
+        "as_of": "2026-09",
+        "age_days": 39,
+        "rows": 31,
+        "cols": 21,
+        "coverage": 0.9677
+      },
+      "iso_hov": {
+        "as_of": "2026-09",
+        "age_days": 39,
+        "rows": 16,
+        "cols": 8,
+        "coverage": 0.9609
+      },
+      "iso_hov_anomaly": {
+        "as_of": "2026-09",
+        "age_days": 39,
+        "rows": 16,
+        "cols": 8,
+        "coverage": 0.9609
+      }
+    },
+    "box_means_from_map": {
+      "nino4": 1.351,
+      "nino34": 3.228,
+      "nino3": 4.108,
+      "nino12": 5.102
+    },
+    "warm_pool_east_edge": 256.125,
+    "equatorial_isotherm_20c": [
+      {
+        "longitude": 165.0,
+        "depth_m": 149.59702936514765,
+        "as_of": "2026-09"
+      },
+      {
+        "longitude": 180.0,
+        "depth_m": 153.0229692473777,
+        "as_of": "2026-09"
+      },
+      {
+        "longitude": 190.0,
+        "depth_m": 171.45983376319316,
+        "as_of": "2026-09"
+      },
+      {
+        "longitude": 205.0,
+        "depth_m": 170.5622958947887,
+        "as_of": "2026-09"
+      },
+      {
+        "longitude": 220.0,
+        "depth_m": 164.89301985048684,
+        "as_of": "2026-09"
+      },
+      {
+        "longitude": 235.0,
+        "depth_m": 151.99844906192055,
+        "as_of": "2026-09"
+      },
+      {
+        "longitude": 250.0,
+        "depth_m": 134.41569456872224,
+        "as_of": "2026-09"
+      },
+      {
+        "longitude": 265.0,
+        "depth_m": 120.52199085958078,
+        "as_of": "2026-09"
+      }
+    ],
+    "thermocline_mesh": {
+      "as_of": "2026-09-27",
+      "age_days": 13,
+      "nodes": 43
+    },
+    "notes": []
+  },
+  "atlas": {
+    "method": "Past El Ninos (RONI >= +1.0) minus neutral years (|RONI| < 0.5), per season, per grid cell, since 1979, with each event and each neutral year counted once. Welch's t accompanies every difference and is judged against each season's own 95% point of Student's t. An event under way when the grids were built is left out.",
+    "samples": {
+      "DJF": {
+        "warm_months": 23,
+        "base_months": 39,
+        "warm_events": [
+          1983,
+          1987,
+          1992,
+          1995,
+          1998,
+          2003,
+          2010,
+          2016,
+          2024
+        ],
+        "base_years": 18,
+        "t_crit": 2.306,
+        "in_progress": []
+      },
+      "MAM": {
+        "warm_months": 10,
+        "base_months": 70,
+        "warm_events": [
+          1983,
+          1987,
+          1992,
+          1993,
+          1998,
+          2016
+        ],
+        "base_years": 33,
+        "t_crit": 2.571,
+        "in_progress": [
+          2026
+        ]
+      },
+      "JJA": {
+        "warm_months": 9,
+        "base_months": 74,
+        "warm_events": [
+          1982,
+          1987,
+          1997,
+          2015
+        ],
+        "base_years": 33,
+        "t_crit": 3.182,
+        "in_progress": [
+          2026
+        ]
+      },
+      "SON": {
+        "warm_months": 26,
+        "base_months": 47,
+        "warm_events": [
+          1982,
+          1986,
+          1987,
+          1991,
+          1994,
+          1997,
+          2002,
+          2009,
+          2015,
+          2023
+        ],
+        "base_years": 20,
+        "t_crit": 2.262,
+        "in_progress": []
+      }
+    },
+    "in_progress": [
+      2026
+    ],
+    "anchors": [
+      {
+        "title": "Jakarta, Jakarta Raya, Indonesia",
+        "longitude": 106.85,
+        "latitude": -6.21,
+        "strongest_season": "JJA",
+        "seasons": {
+          "DJF": {
+            "precip_mm_day": {
+              "value": -1.68,
+              "neutral_mean": 12.93,
+              "t": -3.18,
+              "t_needed": 2.306,
+              "significant": true,
+              "percent_of_normal": -13.0
+            },
+            "air_degc": {
+              "value": 0.45,
+              "neutral_mean": 27.09,
+              "t": 2.0,
+              "t_needed": 2.306,
+              "significant": false
+            }
+          },
+          "MAM": {
+            "precip_mm_day": {
+              "value": 2.65,
+              "neutral_mean": 8.2,
+              "t": 2.41,
+              "t_needed": 2.571,
+              "significant": false,
+              "percent_of_normal": 32.3
+            },
+            "air_degc": {
+              "value": 0.07,
+              "neutral_mean": 27.87,
+              "t": 0.27,
+              "t_needed": 2.571,
+              "significant": false
+            }
+          },
+          "JJA": {
+            "precip_mm_day": {
+              "value": -2.62,
+              "neutral_mean": 4.31,
+              "t": -8.97,
+              "t_needed": 3.182,
+              "significant": true,
+              "percent_of_normal": -60.8
+            },
+            "air_degc": {
+              "value": -0.31,
+              "neutral_mean": 27.51,
+              "t": -1.25,
+              "t_needed": 3.182,
+              "significant": false
+            }
+          },
+          "SON": {
+            "precip_mm_day": {
+              "value": -0.63,
+              "neutral_mean": 6.75,
+              "t": -0.55,
+              "t_needed": 2.262,
+              "significant": false,
+              "percent_of_normal": -9.3
+            },
+            "air_degc": {
+              "value": 0.16,
+              "neutral_mean": 27.82,
+              "t": 0.66,
+              "t_needed": 2.262,
+              "significant": false
+            }
+          }
+        },
+        "teleconnections": [
+          "Indonesia and Malaysia",
+          "Global mean surface temperature"
+        ]
+      },
+      {
+        "title": "Darwin, Northern Territory, Australia",
+        "longitude": 130.84,
+        "latitude": -12.46,
+        "strongest_season": "MAM",
+        "seasons": {
+          "DJF": {
+            "precip_mm_day": {
+              "value": -1.02,
+              "neutral_mean": 10.17,
+              "t": -0.77,
+              "t_needed": 2.306,
+              "significant": false,
+              "percent_of_normal": -10.0
+            },
+            "air_degc": {
+              "value": null,
+              "neutral_mean": null,
+              "t": null,
+              "t_needed": 2.306,
+              "significant": false
+            }
+          },
+          "MAM": {
+            "precip_mm_day": {
+              "value": 1.8,
+              "neutral_mean": 4.25,
+              "t": 1.29,
+              "t_needed": 2.571,
+              "significant": false,
+              "percent_of_normal": 42.4
+            },
+            "air_degc": {
+              "value": null,
+              "neutral_mean": null,
+              "t": null,
+              "t_needed": 2.571,
+              "significant": false
+            }
+          },
+          "JJA": {
+            "precip_mm_day": {
+              "value": -0.08,
+              "neutral_mean": 0.21,
+              "t": -1.59,
+              "t_needed": 3.182,
+              "significant": false,
+              "percent_of_normal": -38.1
+            },
+            "air_degc": {
+              "value": null,
+              "neutral_mean": null,
+              "t": null,
+              "t_needed": 3.182,
+              "significant": false
+            }
+          },
+          "SON": {
+            "precip_mm_day": {
+              "value": 0.15,
+              "neutral_mean": 1.53,
+              "t": 0.36,
+              "t_needed": 2.262,
+              "significant": false,
+              "percent_of_normal": 9.8
+            },
+            "air_degc": {
+              "value": null,
+              "neutral_mean": null,
+              "t": null,
+              "t_needed": 2.262,
+              "significant": false
+            }
+          }
+        },
+        "teleconnections": [
+          "Global mean surface temperature"
+        ]
+      },
+      {
+        "title": "Manila, Metropolitan Manila, Philippines",
+        "longitude": 120.98,
+        "latitude": 14.6,
+        "strongest_season": "MAM",
+        "seasons": {
+          "DJF": {
+            "precip_mm_day": {
+              "value": 0.09,
+              "neutral_mean": 3.06,
+              "t": 0.15,
+              "t_needed": 2.306,
+              "significant": false,
+              "percent_of_normal": 2.9
+            },
+            "air_degc": {
+              "value": 0.2,
+              "neutral_mean": 27.85,
+              "t": 0.73,
+              "t_needed": 2.306,
+              "significant": false
+            }
+          },
+          "MAM": {
+            "precip_mm_day": {
+              "value": -1.95,
+              "neutral_mean": 3.13,
+              "t": -4.76,
+              "t_needed": 2.571,
+              "significant": true,
+              "percent_of_normal": -62.3
+            },
+            "air_degc": {
+              "value": -0.48,
+              "neutral_mean": 30.29,
+              "t": -2.36,
+              "t_needed": 2.571,
+              "significant": false
+            }
+          },
+          "JJA": {
+            "precip_mm_day": {
+              "value": -1.25,
+              "neutral_mean": 10.53,
+              "t": -1.64,
+              "t_needed": 3.182,
+              "significant": false,
+              "percent_of_normal": -11.9
+            },
+            "air_degc": {
+              "value": -0.08,
+              "neutral_mean": 28.79,
+              "t": -0.21,
+              "t_needed": 3.182,
+              "significant": false
+            }
+          },
+          "SON": {
+            "precip_mm_day": {
+              "value": -2.21,
+              "neutral_mean": 9.35,
+              "t": -2.49,
+              "t_needed": 2.262,
+              "significant": true,
+              "percent_of_normal": -23.6
+            },
+            "air_degc": {
+              "value": 0.17,
+              "neutral_mean": 28.52,
+              "t": 0.96,
+              "t_needed": 2.262,
+              "significant": false
+            }
+          }
+        },
+        "teleconnections": [
+          "Philippines",
+          "Western North Pacific typhoons",
+          "Global mean surface temperature"
+        ]
+      },
+      {
+        "title": "Nairobi, Kenya",
+        "longitude": 36.82,
+        "latitude": -1.29,
+        "strongest_season": "MAM",
+        "seasons": {
+          "DJF": {
+            "precip_mm_day": {
+              "value": 0.97,
+              "neutral_mean": 2.52,
+              "t": 1.44,
+              "t_needed": 2.306,
+              "significant": false,
+              "percent_of_normal": 38.5
+            },
+            "air_degc": {
+              "value": -0.12,
+              "neutral_mean": 25.03,
+              "t": -0.4,
+              "t_needed": 2.306,
+              "significant": false
+            }
+          },
+          "MAM": {
+            "precip_mm_day": {
+              "value": -1.56,
+              "neutral_mean": 4.37,
+              "t": -3.74,
+              "t_needed": 2.571,
+              "significant": true,
+              "percent_of_normal": -35.7
+            },
+            "air_degc": {
+              "value": 0.87,
+              "neutral_mean": 24.94,
+              "t": 2.03,
+              "t_needed": 2.571,
+              "significant": false
+            }
+          },
+          "JJA": {
+            "precip_mm_day": {
+              "value": -0.03,
+              "neutral_mean": 1.36,
+              "t": -0.19,
+              "t_needed": 3.182,
+              "significant": false,
+              "percent_of_normal": -2.2
+            },
+            "air_degc": {
+              "value": -0.18,
+              "neutral_mean": 22.65,
+              "t": -0.53,
+              "t_needed": 3.182,
+              "significant": false
+            }
+          },
+          "SON": {
+            "precip_mm_day": {
+              "value": 1.16,
+              "neutral_mean": 2.06,
+              "t": 2.7,
+              "t_needed": 2.262,
+              "significant": true,
+              "percent_of_normal": 56.3
+            },
+            "air_degc": {
+              "value": 0.4,
+              "neutral_mean": 24.47,
+              "t": 1.47,
+              "t_needed": 2.262,
+              "significant": false
+            }
+          }
+        },
+        "teleconnections": [
+          "Equatorial East Africa",
+          "Rift Valley fever risk, East Africa",
+          "Highland malaria, East Africa and Andes",
+          "Global mean surface temperature"
+        ]
+      },
+      {
+        "title": "Harare, Zimbabwe",
+        "longitude": 31.05,
+        "latitude": -17.83,
+        "strongest_season": "DJF",
+        "seasons": {
+          "DJF": {
+            "precip_mm_day": {
+              "value": -2.13,
+              "neutral_mean": 5.32,
+              "t": -4.26,
+              "t_needed": 2.306,
+              "significant": true,
+              "percent_of_normal": -40.0
+            },
+            "air_degc": {
+              "value": 0.79,
+              "neutral_mean": 21.17,
+              "t": 3.97,
+              "t_needed": 2.306,
+              "significant": true
+            }
+          },
+          "MAM": {
+            "precip_mm_day": {
+              "value": 0.61,
+              "neutral_mean": 1.27,
+              "t": 1.11,
+              "t_needed": 2.571,
+              "significant": false,
+              "percent_of_normal": 48.0
+            },
+            "air_degc": {
+              "value": 2.4,
+              "neutral_mean": 18.41,
+              "t": 4.08,
+              "t_needed": 2.571,
+              "significant": true
+            }
+          },
+          "JJA": {
+            "precip_mm_day": {
+              "value": -0.08,
+              "neutral_mean": 0.11,
+              "t": -3.13,
+              "t_needed": 3.182,
+              "significant": false,
+              "percent_of_normal": null
+            },
+            "air_degc": {
+              "value": 0.56,
+              "neutral_mean": 14.77,
+              "t": 2.02,
+              "t_needed": 3.182,
+              "significant": false
+            }
+          },
+          "SON": {
+            "precip_mm_day": {
+              "value": 0.41,
+              "neutral_mean": 1.18,
+              "t": 1.08,
+              "t_needed": 2.262,
+              "significant": false,
+              "percent_of_normal": 34.7
+            },
+            "air_degc": {
+              "value": 0.28,
+              "neutral_mean": 20.99,
+              "t": 1.01,
+              "t_needed": 2.262,
+              "significant": false
+            }
+          }
+        },
+        "teleconnections": [
+          "Southern Africa",
+          "Global mean surface temperature"
+        ]
+      },
+      {
+        "title": "Lima, Peru",
+        "longitude": -77.03,
+        "latitude": -12.05,
+        "strongest_season": "MAM",
+        "seasons": {
+          "DJF": {
+            "precip_mm_day": {
+              "value": -0.03,
+              "neutral_mean": 4.42,
+              "t": -0.09,
+              "t_needed": 2.306,
+              "significant": false,
+              "percent_of_normal": -0.7
+            },
+            "air_degc": {
+              "value": null,
+              "neutral_mean": null,
+              "t": null,
+              "t_needed": 2.306,
+              "significant": false
+            }
+          },
+          "MAM": {
+            "precip_mm_day": {
+              "value": 1.28,
+              "neutral_mean": 2.33,
+              "t": 2.75,
+              "t_needed": 2.571,
+              "significant": true,
+              "percent_of_normal": 54.9
+            },
+            "air_degc": {
+              "value": null,
+              "neutral_mean": null,
+              "t": null,
+              "t_needed": 2.571,
+              "significant": false
+            }
+          },
+          "JJA": {
+            "precip_mm_day": {
+              "value": 0.18,
+              "neutral_mean": 0.73,
+              "t": 1.9,
+              "t_needed": 3.182,
+              "significant": false,
+              "percent_of_normal": 24.7
+            },
+            "air_degc": {
+              "value": null,
+              "neutral_mean": null,
+              "t": null,
+              "t_needed": 3.182,
+              "significant": false
+            }
+          },
+          "SON": {
+            "precip_mm_day": {
+              "value": 0.12,
+              "neutral_mean": 2.18,
+              "t": 0.42,
+              "t_needed": 2.262,
+              "significant": false,
+              "percent_of_normal": 5.5
+            },
+            "air_degc": {
+              "value": null,
+              "neutral_mean": null,
+              "t": null,
+              "t_needed": 2.262,
+              "significant": false
+            }
+          }
+        },
+        "teleconnections": [
+          "Highland malaria, East Africa and Andes",
+          "Coastal Peru and Ecuador",
+          "Peruvian anchoveta fishery",
+          "Global mean surface temperature"
+        ]
+      },
+      {
+        "title": "Guayaquil, Guayas, Ecuador",
+        "longitude": -79.9,
+        "latitude": -2.19,
+        "strongest_season": "MAM",
+        "seasons": {
+          "DJF": {
+            "precip_mm_day": {
+              "value": 1.56,
+              "neutral_mean": 5.9,
+              "t": 1.73,
+              "t_needed": 2.306,
+              "significant": false,
+              "percent_of_normal": 26.4
+            },
+            "air_degc": {
+              "value": 0.46,
+              "neutral_mean": 29.18,
+              "t": 0.76,
+              "t_needed": 2.306,
+              "significant": false
+            }
+          },
+          "MAM": {
+            "precip_mm_day": {
+              "value": 3.66,
+              "neutral_mean": 6.95,
+              "t": 4.38,
+              "t_needed": 2.571,
+              "significant": true,
+              "percent_of_normal": 52.7
+            },
+            "air_degc": {
+              "value": 0.13,
+              "neutral_mean": 29.76,
+              "t": 0.2,
+              "t_needed": 2.571,
+              "significant": false
+            }
+          },
+          "JJA": {
+            "precip_mm_day": {
+              "value": 0.14,
+              "neutral_mean": 3.47,
+              "t": 0.34,
+              "t_needed": 3.182,
+              "significant": false,
+              "percent_of_normal": 4.0
+            },
+            "air_degc": {
+              "value": 0.2,
+              "neutral_mean": 27.24,
+              "t": 0.19,
+              "t_needed": 3.182,
+              "significant": false
+            }
+          },
+          "SON": {
+            "precip_mm_day": {
+              "value": 0.66,
+              "neutral_mean": 3.51,
+              "t": 1.11,
+              "t_needed": 2.262,
+              "significant": false,
+              "percent_of_normal": 18.8
+            },
+            "air_degc": {
+              "value": 1.1,
+              "neutral_mean": 26.99,
+              "t": 1.83,
+              "t_needed": 2.262,
+              "significant": false
+            }
+          }
+        },
+        "teleconnections": [
+          "Coastal Peru and Ecuador",
+          "Global mean surface temperature"
+        ]
+      },
+      {
+        "title": "Fortaleza, Cear\u00e1, Brazil",
+        "longitude": -38.54,
+        "latitude": -3.72,
+        "strongest_season": "DJF",
+        "seasons": {
+          "DJF": {
+            "precip_mm_day": {
+              "value": -1.43,
+              "neutral_mean": 3.47,
+              "t": -1.86,
+              "t_needed": 2.306,
+              "significant": false,
+              "percent_of_normal": -41.2
+            },
+            "air_degc": {
+              "value": 0.51,
+              "neutral_mean": 28.46,
+              "t": 1.99,
+              "t_needed": 2.306,
+              "significant": false
+            }
+          },
+          "MAM": {
+            "precip_mm_day": {
+              "value": -1.39,
+              "neutral_mean": 6.28,
+              "t": -1.04,
+              "t_needed": 2.571,
+              "significant": false,
+              "percent_of_normal": -22.1
+            },
+            "air_degc": {
+              "value": 0.34,
+              "neutral_mean": 27.79,
+              "t": 1.6,
+              "t_needed": 2.571,
+              "significant": false
+            }
+          },
+          "JJA": {
+            "precip_mm_day": {
+              "value": -1.24,
+              "neutral_mean": 1.94,
+              "t": -2.48,
+              "t_needed": 3.182,
+              "significant": false,
+              "percent_of_normal": -63.9
+            },
+            "air_degc": {
+              "value": 0.03,
+              "neutral_mean": 27.15,
+              "t": 0.16,
+              "t_needed": 3.182,
+              "significant": false
+            }
+          },
+          "SON": {
+            "precip_mm_day": {
+              "value": -0.12,
+              "neutral_mean": 0.3,
+              "t": -1.63,
+              "t_needed": 2.262,
+              "significant": false,
+              "percent_of_normal": -40.0
+            },
+            "air_degc": {
+              "value": 0.15,
+              "neutral_mean": 28.35,
+              "t": 0.67,
+              "t_needed": 2.262,
+              "significant": false
+            }
+          }
+        },
+        "teleconnections": [
+          "Northeast Brazil",
+          "Global mean surface temperature"
+        ]
+      },
+      {
+        "title": "Los Angeles, California, United States of America",
+        "longitude": -118.24,
+        "latitude": 34.05,
+        "strongest_season": "SON",
+        "seasons": {
+          "DJF": {
+            "precip_mm_day": {
+              "value": 1.25,
+              "neutral_mean": 2.29,
+              "t": 1.49,
+              "t_needed": 2.306,
+              "significant": false,
+              "percent_of_normal": 54.6
+            },
+            "air_degc": {
+              "value": -0.02,
+              "neutral_mean": 14.08,
+              "t": -0.05,
+              "t_needed": 2.306,
+              "significant": false
+            }
+          },
+          "MAM": {
+            "precip_mm_day": {
+              "value": 1.12,
+              "neutral_mean": 0.98,
+              "t": 1.45,
+              "t_needed": 2.571,
+              "significant": false,
+              "percent_of_normal": 114.3
+            },
+            "air_degc": {
+              "value": -0.35,
+              "neutral_mean": 15.9,
+              "t": -0.54,
+              "t_needed": 2.571,
+              "significant": false
+            }
+          },
+          "JJA": {
+            "precip_mm_day": {
+              "value": 0.02,
+              "neutral_mean": 0.05,
+              "t": 0.41,
+              "t_needed": 3.182,
+              "significant": false,
+              "percent_of_normal": null
+            },
+            "air_degc": {
+              "value": 0.25,
+              "neutral_mean": 20.14,
+              "t": 0.56,
+              "t_needed": 3.182,
+              "significant": false
+            }
+          },
+          "SON": {
+            "precip_mm_day": {
+              "value": 0.29,
+              "neutral_mean": 0.46,
+              "t": 1.69,
+              "t_needed": 2.262,
+              "significant": false,
+              "percent_of_normal": 63.0
+            },
+            "air_degc": {
+              "value": -1.14,
+              "neutral_mean": 19.62,
+              "t": -1.84,
+              "t_needed": 2.262,
+              "significant": false
+            }
+          }
+        },
+        "teleconnections": [
+          "California and the US Southwest",
+          "Global mean surface temperature"
+        ]
+      },
+      {
+        "title": "Sydney, New South Wales, Australia",
+        "longitude": 151.21,
+        "latitude": -33.87,
+        "strongest_season": "DJF",
+        "seasons": {
+          "DJF": {
+            "precip_mm_day": {
+              "value": -0.16,
+              "neutral_mean": 3.47,
+              "t": -0.26,
+              "t_needed": 2.306,
+              "significant": false,
+              "percent_of_normal": -4.6
+            },
+            "air_degc": {
+              "value": -0.08,
+              "neutral_mean": 20.4,
+              "t": -0.22,
+              "t_needed": 2.306,
+              "significant": false
+            }
+          },
+          "MAM": {
+            "precip_mm_day": {
+              "value": -0.09,
+              "neutral_mean": 2.41,
+              "t": -0.12,
+              "t_needed": 2.571,
+              "significant": false,
+              "percent_of_normal": -3.7
+            },
+            "air_degc": {
+              "value": 2.17,
+              "neutral_mean": 14.69,
+              "t": 2.1,
+              "t_needed": 2.571,
+              "significant": false
+            }
+          },
+          "JJA": {
+            "precip_mm_day": {
+              "value": -0.06,
+              "neutral_mean": 2.03,
+              "t": -0.06,
+              "t_needed": 3.182,
+              "significant": false,
+              "percent_of_normal": -3.0
+            },
+            "air_degc": {
+              "value": -0.09,
+              "neutral_mean": 8.81,
+              "t": -0.19,
+              "t_needed": 3.182,
+              "significant": false
+            }
+          },
+          "SON": {
+            "precip_mm_day": {
+              "value": -0.07,
+              "neutral_mean": 1.96,
+              "t": -0.2,
+              "t_needed": 2.262,
+              "significant": false,
+              "percent_of_normal": -3.6
+            },
+            "air_degc": {
+              "value": 1.57,
+              "neutral_mean": 13.71,
+              "t": 2.28,
+              "t_needed": 2.262,
+              "significant": true
+            }
+          }
+        },
+        "teleconnections": [
+          "Eastern Australia",
+          "Global mean surface temperature"
+        ]
+      }
+    ]
+  },
+  "cpc_discussion": {
+    "issued": "8 October 2026",
+    "status": "El Nino Advisory",
+    "synopsis": "El Nino continues to strengthen, with a strong-to-very strong El Nino likely through January-March 2027 (remaining greater than an 83% chance).",
+    "body": "El Nino strengthened further last month, with sea surface temperature anomalies exceeding +4.0\u00b0C in portions of the eastern equatorial Pacific [Fig. 1] . Most Nino indices increased in the past month, reaching +2.1\u00b0C in Nino-3.4, +3.0\u00b0C in Nino-3, and +3.9\u00b0C in Nino-1+2 [Fig. 2] . The equatorial subsurface temperature index (average from 180\u00b0-100\u00b0W) was well above average [Fig. 3] , reflecting a deeper-than-average thermocline. Subsurface temperatures remained in excess of +10.0\u00b0C at depth in the eastern Pacific Ocean [Fig. 4] . Low-level westerly wind anomalies and upper-level easterly wind anomalies stretched from the western to the east-central equatorial Pacific. Enhanced convection and rainfall persisted from the central to the eastern Pacific, while anomalies remained suppressed over Indonesia [Fig. 5] . The traditional and equatorial Southern Oscillation indices were significantly negative. Collectively, the coupled ocean-atmosphere system reflected a strengthening El Nino.\n\nThe CPC Official ENSO outlook , which synthesizes multiple models from North America and abroad, indicates El Nino will continue to strengthen through the end of the year [Figs. 6 -7 -8] . Chances remain high for a historic event that would exceed the strength of previous El Nino events dating back to 1950 (+2.5\u00b0C or more for a 3-month RONI value ): the chance is 54% for September-November, 83% for October-December, and 70% for November-January. With an event of this magnitude, the chances of experiencing impacts consistent with El Nino are larger, though not guaranteed (see CPC outlooks for probabilities of seasonal anomalies). In summary, El Nino continues to strengthen, with a strong-to-very strong El Nino likely through January-March 2027 (remaining greater than an 83% chance).",
+    "next_update": "12 November 2026"
+  },
+  "feeds": {
+    "oni": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt"
+    },
+    "roni": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/RONI.ascii.txt"
+    },
+    "weekly_sst": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/wksst9120.for"
+    },
+    "monthly_sst": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/sstoi.indices"
+    },
+    "rel_weekly_sst": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/rel_wksst9120.txt"
+    },
+    "rel_monthly_sst": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/rel_mthsst9120.txt"
+    },
+    "nino34_detrended": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/detrend.nino34.ascii.txt"
+    },
+    "nino34_relative": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/Rnino34.ascii.txt"
+    },
+    "wwv": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.pmel.noaa.gov/tao/wwv/data/wwv.dat"
+    },
+    "wwv_west": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.pmel.noaa.gov/tao/wwv/data/wwv_west.dat"
+    },
+    "soi": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/soi"
+    },
+    "eqsoi": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/reqsoi.for"
+    },
+    "darwin": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/darwin"
+    },
+    "tahiti": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/tahiti"
+    },
+    "olr": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/olr"
+    },
+    "olr_central": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:21+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/cpolr.mth.91-20.ascii"
+    },
+    "trade_central": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:22+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/cpac850"
+    },
+    "trade_west": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:22+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/wpac850"
+    },
+    "trade_east": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:22+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/epac850"
+    },
+    "zwnd200": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:22+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/zwnd200"
+    },
+    "mjo": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:22+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/products/precip/CWlink/daily_mjo_index/proj_norm_order.ascii"
+    },
+    "qbo30": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:22+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/qbo.u30.index"
+    },
+    "qbo50": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:22+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/qbo.u50.index"
+    },
+    "atlantic": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:22+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/data/indices/sstoi.atl.indices"
+    },
+    "mei": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:22+00:00",
+      "error": null,
+      "url": "https://psl.noaa.gov/enso/mei/data/meiv2.data"
+    },
+    "discussion": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:22+00:00",
+      "error": null,
+      "url": "https://www.cpc.ncep.noaa.gov/products/analysis_monitoring/enso_advisory/ensodisc.shtml"
+    },
+    "sst_pacific": {
+      "ok": true,
+      "from_cache": true,
+      "fetched_at": "2026-10-10T18:32:40+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.csv?anom%5Blast%5D%5B%280.0%29%5D%5B%28-30%29:2:%2830%29%5D%5B%28100%29:2:%28300%29%5D,sst%5Blast%5D%5B%280.0%29%5D%5B%28-30%29:2:%2830%29%5D%5B%28100%29:2:%28300%29%5D"
+    },
+    "sst_global": {
+      "ok": true,
+      "from_cache": true,
+      "fetched_at": "2026-10-10T18:32:40+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.csv?anom%5Blast%5D%5B%280.0%29%5D%5B%28-79%29:1:%2879%29%5D%5B%280%29:1:%28359.75%29%5D"
+    },
+    "sst_hovmoller": {
+      "ok": true,
+      "from_cache": true,
+      "fetched_at": "2026-10-10T18:32:40+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.csv?anom%5B%282025-06-01%29:7:last%5D%5B%280.0%29%5D%5B%28-2%29:4:%282%29%5D%5B%28120%29:4:%28280%29%5D"
+    },
+    "tao_temperature": {
+      "ok": true,
+      "from_cache": true,
+      "fetched_at": "2026-10-10T18:32:40+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonT.csv?time,longitude,depth,T_20&latitude%3E=-0.6&latitude%3C=0.6"
+    },
+    "tao_isotherm": {
+      "ok": true,
+      "from_cache": true,
+      "fetched_at": "2026-10-10T18:32:40+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonIso.csv?time,longitude,ISO_6&latitude%3E=-0.6&latitude%3C=0.6"
+    },
+    "tao_mesh": {
+      "ok": true,
+      "from_cache": true,
+      "fetched_at": "2026-10-10T18:32:40+00:00",
+      "error": null,
+      "url": "https://data.pmel.noaa.gov/pmel/erddap/tabledap/pmelTaoDyIso.csv?time,latitude,longitude,ISO_6&time%3E=2026-09-01"
+    },
+    "ssh_pacific": {
+      "ok": true,
+      "from_cache": true,
+      "fetched_at": "2026-10-10T18:32:41+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day_Lon0360.csv?sla%5Blast%5D%5B%28-25%29:10:%2825%29%5D%5B%28120%29:10:%28290%29%5D"
+    },
+    "ssh_hovmoller": {
+      "ok": true,
+      "from_cache": true,
+      "fetched_at": "2026-10-10T18:32:43+00:00",
+      "error": null,
+      "url": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day_Lon0360.csv?sla%5B%282025-06-01%29:7:last%5D%5B%28-2%29:4:%282%29%5D%5B%28120%29:4:%28280%29%5D"
+    },
+    "nhc_current": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:38+00:00",
+      "error": null,
+      "url": "https://www.nhc.noaa.gov/CurrentStorms.json"
+    },
+    "atcf_index": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:39+00:00",
+      "error": null,
+      "url": "https://ftp.nhc.noaa.gov/atcf/btk/"
+    },
+    "hurdat_index": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:39+00:00",
+      "error": null,
+      "url": "https://www.nhc.noaa.gov/data/#hurdat"
+    },
+    "nhc_outlook_at": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:39+00:00",
+      "error": null,
+      "url": "https://www.nhc.noaa.gov/xgtwo/gtwo_atl.kmz"
+    },
+    "nhc_outlook_ep": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:39+00:00",
+      "error": null,
+      "url": "https://www.nhc.noaa.gov/xgtwo/gtwo_pac.kmz"
+    },
+    "nhc_outlook_cp": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:39+00:00",
+      "error": null,
+      "url": "https://www.nhc.noaa.gov/xgtwo/gtwo_cpac.kmz"
+    },
+    "jtwc_rss": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:40+00:00",
+      "error": null,
+      "url": "https://www.metoc.navy.mil/jtwc/rss/jtwc.rss"
+    },
+    "jtwc_abpw": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:40+00:00",
+      "error": null,
+      "url": "https://www.metoc.navy.mil/jtwc/products/abpwweb.txt"
+    },
+    "jtwc_abio": {
+      "ok": true,
+      "from_cache": false,
+      "fetched_at": "2026-10-10T19:25:40+00:00",
+      "error": null,
+      "url": "https://www.metoc.navy.mil/jtwc/products/abioweb.txt"
+    }
+  }
+}
