@@ -757,10 +757,41 @@ def _js() -> str:
     return """
 (function () {
   var tip = document.getElementById('tip');
-  function show(el, x, y) {
+  // A field chart's hover blocks are one rectangle carrying them all
+  // (fields._draw_hits). The pointer is taken into the chart's own units
+  // through the transform from the screen, whatever size the chart is drawn
+  // at, and found among the blocks' edges; a block with nothing in it, or a
+  // point off them, says nothing.
+  function gridHit(el, x, y) {
+    var hits = el.hits || (el.hits = JSON.parse(el.getAttribute('data-hits')));
+    var m = el.getScreenCTM().inverse();
+    function at(edges, p) {
+      var lo = 0, hi = edges.length - 1;
+      if (!(p >= edges[0] && p < edges[hi])) { return -1; }
+      while (hi - lo > 1) {
+        var mid = (lo + hi) >> 1;
+        if (p < edges[mid]) { hi = mid; } else { lo = mid; }
+      }
+      return lo;
+    }
+    var col = at(hits.x, m.a * x + m.c * y + m.e), row = at(hits.y, m.b * x + m.d * y + m.f);
+    var value = row < 0 || col < 0 ? null : hits.v[row][col];
+    if (value === null) { return null; }
+    var where = [];
+    if (hits.yl) { where.push(hits.yl[row]); }
+    if (hits.xl) { where.push(hits.xl[col]); }
+    return { label: where.join(', '), value: value + ' ' + hits.u };
+  }
+  function words(el, x, y) {
+    if (el.hasAttribute('data-hits')) { return gridHit(el, x, y); }
     var extra = el.getAttribute('data-extra');
-    tip.innerHTML = '<b>' + el.getAttribute('data-label') + '</b><span>' +
-      el.getAttribute('data-value') + (extra ? '<br>' + extra : '') + '</span>';
+    return { label: el.getAttribute('data-label'),
+             value: el.getAttribute('data-value') + (extra ? '<br>' + extra : '') };
+  }
+  function show(el, x, y) {
+    var said = words(el, x, y);
+    if (!said) { hide(); return; }
+    tip.innerHTML = '<b>' + said.label + '</b><span>' + said.value + '</span>';
     tip.style.opacity = '1';
     var box = tip.getBoundingClientRect();
     var left = Math.min(Math.max(8, x + 14), window.innerWidth - box.width - 8);
@@ -1258,7 +1289,7 @@ def render(state) -> str:
 </head>
 <body class="dashpage">
 {sitenav.bar("dashboard.html")}
-<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute"><defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="transparent"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--surface)" stroke-width="2.4"/></pattern></defs></svg>
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute"><defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="transparent"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--surface)" stroke-width="2.4"/></pattern>{fields.ramp_defs()}</defs></svg>
 <main class="wrap" id="page">
   <header class="top">
     <div>

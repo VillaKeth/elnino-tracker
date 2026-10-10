@@ -6,6 +6,7 @@ changes shape these fail before a bad number reaches the dashboard.
 
 from __future__ import annotations
 
+import base64
 import dataclasses
 import http.client
 import json
@@ -19,6 +20,7 @@ import tempfile
 import textwrap
 import threading
 import unittest
+import zlib
 from datetime import date, datetime, timezone
 from unittest import mock
 from html import escape, unescape
@@ -7059,6 +7061,85 @@ class TestCoastline(unittest.TestCase):
                 self.assertTrue(-80.0 <= lon <= 480.0, lon)
 
 
+def _read_relative(d: str) -> list:
+    """A path svg.relative_d wrote, read back as a browser reads it: each
+    line's vertices, in tenths of a unit."""
+    number = r"-?(?:\d+(?:\.\d*)?|\.\d+)"
+    lines = []
+    for start, steps in re.findall(r"M([^Ml]*)l([^M]*)", d):
+        x, y = (round(float(v) * 10) for v in re.findall(number, start))
+        line = [(x, y)]
+        moves = [round(float(v) * 10) for v in re.findall(number, steps)]
+        for dx, dy in zip(moves[0::2], moves[1::2]):
+            x, y = x + dx, y + dy
+            line.append((x, y))
+        lines.append(line)
+    return lines
+
+
+def _as_written(lines) -> list:
+    """What an absolute path at a tenth of a unit drew: each vertex as
+    ``.1f`` writes it, in tenths, a repeat left out, and a line that never
+    moves not drawn."""
+    out = []
+    for line in lines:
+        points = [(round(float(f"{x:.1f}") * 10), round(float(f"{y:.1f}") * 10)) for x, y in line]
+        kept = [p for i, p in enumerate(points) if not i or p != points[i - 1]]
+        if len(kept) > 1:
+            out.append(kept)
+    return out
+
+
+class TestRelativePaths(unittest.TestCase):
+    """A coastline written as each vertex's step from the one before: the
+    same drawing in about half the bytes."""
+
+    def test_a_path_read_back_is_each_vertex_at_a_tenth_of_a_unit(self):
+        lines = [[(10.04, 20.06), (10.06, 20.04), (11.25, 19.95), (11.25, 19.95), (9.0, 21.0)],
+                 [(400.0, 0.0), (399.96, 0.04), (0.0, 300.0)]]
+        self.assertEqual(_read_relative(svg.relative_d(lines)), _as_written(lines))
+
+    def test_each_number_is_written_as_briefly_as_a_browser_reads_it(self):
+        # No space before a minus, which starts a number, nor before a point
+        # after a number that has one, as a number holds one point at most:
+        # "11.5.5" is 11.5 and then .5.
+        lines = [[(0.0, 0.0), (0.5, -0.5), (12.0, 0.0), (-1.2, 3.4), (-1.2, 13.4)]]
+        self.assertEqual(svg.relative_d(lines), "M0 0l.5-.5 11.5.5-13.2 3.4 0 10")
+
+    def test_a_line_that_never_moves_is_not_drawn(self):
+        lines = [[(1.0, 1.0)], [(2.0, 2.0), (2.01, 2.02), (1.96, 2.04)], [(0.0, 0.0), (1.0, 1.0)]]
+        self.assertEqual(svg.relative_d(lines), "M0 0l1 1")
+        self.assertEqual(svg.relative_d([]), "")
+
+    def test_the_global_map_s_coast_is_the_vertices_it_was(self):
+        lon_min, lon_max, lat_min, lat_max = 0.125, 359.875, -78.875, 79.125
+        plot = fields.map_plot(880, (10, 14, 26, 40), lon_max - lon_min, lat_max - lat_min)
+        plot.domain(lon_min, lon_max, lat_min, lat_max)
+        fields.draw_coast(plot, lon_min, lon_max, lat_min, lat_max)
+        drawn = re.search(r'<path d="([^"]+)" fill="none"', "".join(plot.parts)).group(1)
+        want = _as_written(
+            [(plot.sx(lon), plot.sy(lat)) for lon, lat in line
+             if lon_min - 60 <= lon <= lon_max + 60 and lat_min - 40 <= lat <= lat_max + 40]
+            for line in coastline.segments(lon_min, lon_max))
+        self.assertGreater(len(want), 900)
+        self.assertEqual(_read_relative(drawn), want)
+        self.assertNotIn(" L", drawn)
+
+    def test_the_track_map_s_coast_is_the_vertices_it_was(self):
+        lon_min, lon_max, lat_min, lat_max = -130.0, -40.0, 5.0, 40.0
+        plot = svg.Plot(940, 352, (18, 116, 34, 44))
+        plot.domain(lon_min, lon_max, lat_min, lat_max)
+        storms._coast(plot, lon_min, lon_max, lat_min, lat_max)
+        drawn = re.search(r'<path d="([^"]+)" fill="none"', "".join(plot.parts)).group(1)
+        want = _as_written(
+            [(plot.sx(lon), plot.sy(lat)) for lon, lat in line
+             if lon_min - 30 <= lon <= lon_max + 30 and lat_min - 20 <= lat <= lat_max + 20]
+            for line in coastline.segments(lon_min, lon_max))
+        self.assertGreater(len(want), 100)
+        self.assertEqual(_read_relative(drawn), want)
+        self.assertNotIn(" L", drawn)
+
+
 class TestFieldRendering(unittest.TestCase):
     def plot(self, cols=2, rows=2):
         plot = fields.Plot(400, 200, (10, 10, 10, 10))
@@ -7085,9 +7166,9 @@ class TestFieldRendering(unittest.TestCase):
                           row_label=lambda v, i: grids.lat_name(v),
                           col_label=grids.lon_name)
         markup = "".join(plot.parts)
-        self.assertIn('class="hit"', markup)
-        self.assertIn("data-label=", markup)
-        self.assertIn("data-value=", markup)
+        self.assertEqual(markup.count('<rect class="hit hitgrid" '), 1)
+        self.assertIn("data-hits='", markup)
+        self.assertNotIn("data-label=", markup)
 
     def test_cells_are_clipped_to_the_frame(self):
         plot = self.plot()
@@ -7167,6 +7248,254 @@ class TestFieldRendering(unittest.TestCase):
                                    max_rows=10, max_cols=10)
         self.assertIn("caption", table)
         self.assertIn("every", table)
+
+
+def _hover_field(ys, units="°C"):
+    """A field of 61 quarter-degree columns from 120E, a row a value of ``ys``,
+    that hover blocks of three cells do not divide evenly: with a block of
+    nothing, three cells by three, a block partly empty, and the narrow last
+    block of the first rows empty."""
+    cols = 61
+    values = [[round(math.sin(0.3 * r) + math.cos(0.2 * c), 3) for c in range(cols)]
+              for r in range(len(ys))]
+    for r in range(6, 9):
+        for c in range(12, 15):
+            values[r][c] = None
+    values[0][0] = None
+    for r in range(3):
+        values[r][cols - 1] = None
+    return grids.Field(x=tuple(120.0 + 0.25 * c for c in range(cols)), y=tuple(ys),
+                       values=values, label="test", units=units, as_of="2026-10-09")
+
+
+def _hover_cases():
+    """The ways a field chart lays out its rows, each as (name, plot, field,
+    number format, labels): a map, north up, of a field listed from the north;
+    a Hovmoller, its first row at the top, named by its rows' own labels and
+    its last rows unnamed; and a field drawn with no labels."""
+    world = svg.map_plot(300, (10, 10, 10, 10), 15.0, 10.0)
+    world.domain(120.0, 135.0, 10.0, 20.0)
+    weeks = svg.Plot(300, 200, (10, 10, 10, 10))
+    weeks.domain(120.0, 135.0, 40.5, -0.5)
+    bare = svg.Plot(300, 200, (10, 10, 10, 10))
+    bare.domain(120.0, 135.0, 0.0, 40.0)
+    names = [f"Week {i + 1}" for i in range(36)]
+    rows = [float(r) for r in range(41)]
+    return (
+        ("map", world, _hover_field([20.0 - 0.25 * r for r in range(41)]), "{:+.2f}",
+         {"row_label": lambda v, _i: grids.lat_name(v), "col_label": grids.lon_name}),
+        ("hovmoller", weeks, _hover_field(rows), "{:+.1f}",
+         {"row_label": lambda _v, i: names[i] if i < len(names) else "",
+          "col_label": grids.lon_name}),
+        ("unlabelled", bare, _hover_field(rows, units="m"), "{:+.2f}", {}),
+    )
+
+
+def _hover_blocks(plot, grid, fmt, row_label=None, col_label=None):
+    """The hover blocks over a field as the charts drew them, a rectangle each,
+    before they were one grid: cells pooled to ``fields.HIT_MIN_PX`` across and
+    down; each block's centre in plot units with what its tooltip said; and the
+    centres of the blocks with nothing in them, which drew nothing."""
+    def span_label(first, last):
+        return first if first == last else f"{first}-{last}"
+    x_edges, y_edges = fields._edges(grid.x), fields._edges(grid.y)
+    cell_w = abs(plot.sx(x_edges[0][1]) - plot.sx(x_edges[0][0])) or 1.0
+    cell_h = abs(plot.sy(y_edges[0][1]) - plot.sy(y_edges[0][0])) or 1.0
+    block_x = max(1, math.ceil(fields.HIT_MIN_PX / cell_w))
+    block_y = max(1, math.ceil(fields.HIT_MIN_PX / cell_h))
+    said, empty = [], []
+    for row in range(0, grid.rows, block_y):
+        row_end = min(row + block_y, grid.rows) - 1
+        for col in range(0, grid.cols, block_x):
+            col_end = min(col + block_x, grid.cols) - 1
+            centre = ((plot.sx(x_edges[col][0]) + plot.sx(x_edges[col_end][1])) / 2,
+                      (plot.sy(y_edges[row][0]) + plot.sy(y_edges[row_end][1])) / 2)
+            seen = [grid.values[r][c] for r in range(row, row_end + 1)
+                    for c in range(col, col_end + 1) if grid.values[r][c] is not None]
+            if not seen:
+                empty.append(centre)
+                continue
+            low, high = min(seen), max(seen)
+            span = fmt.format(low) if low == high else f"{fmt.format(low)} to {fmt.format(high)}"
+            where = []
+            if row_label:
+                where.append(span_label(row_label(grid.y[row], row),
+                                        row_label(grid.y[row_end], row_end)))
+            if col_label:
+                where.append(span_label(col_label(grid.x[col]), col_label(grid.x[col_end])))
+            said.append((centre, {"label": ", ".join(where), "value": f"{span} {grid.units}"}))
+    return said, empty
+
+
+def _hover_grid(markup):
+    """A chart's one hover grid: its rectangle, its data, and its data's text
+    as the page's script reads it from the attribute."""
+    [(box, text)] = re.findall(r'<rect class="hit hitgrid" ([^>]*?) ' r"data-hits='([^']*)'/>",
+                               markup)
+    raw = unescape(text)
+    return ({name: float(value) for name, value in re.findall(r'\b(x|y|width|height)="([-\d.]+)"', box)},
+            json.loads(raw), raw)
+
+
+def _words_at(hits, x, y):
+    """What a hover grid says at the point (x, y) of its plot, read the way the
+    page reads it (gridHit); None where it says nothing."""
+    def at(edges, p):
+        return next((i for i in range(len(edges) - 1) if edges[i] <= p < edges[i + 1]), -1)
+    col, row = at(hits["x"], x), at(hits["y"], y)
+    value = hits["v"][row][col] if min(col, row) >= 0 else None
+    if value is None:
+        return None
+    where = [names[i] for names, i in ((hits.get("yl"), row), (hits.get("xl"), col))
+             if names is not None]
+    return {"label": ", ".join(where), "value": f"{value} {hits['u']}"}
+
+
+class TestHoverGrid(unittest.TestCase):
+    """A field chart's hover blocks, pooled to a finger's size, are one
+    rectangle whose data are the blocks (fields._draw_hits): the blocks, and
+    the words, they had as a rectangle each."""
+
+    RAMP = fields.Ramp("d", 11, -2.0, 2.0, diverging=True)
+
+    def test_every_block_the_charts_drew_is_in_the_grid_and_no_other(self):
+        for name, plot, grid, fmt, labels in _hover_cases():
+            with self.subTest(name):
+                fields.draw_cells(plot, grid, self.RAMP, fmt=fmt, **labels)
+                markup = "".join(plot.parts)
+                box, hits, _raw = _hover_grid(markup)
+                said, empty = _hover_blocks(plot, grid, fmt, **labels)
+                # Fourteen rows of blocks by twenty-one, two with nothing in them.
+                self.assertEqual((len(said), len(empty)), (292, 2))
+                for (x, y), words in said:
+                    self.assertEqual(_words_at(hits, x, y), words)
+                for x, y in empty:
+                    self.assertIsNone(_words_at(hits, x, y))
+                # And no other: a range a block that had one, null for the rest.
+                self.assertEqual([len(line) for line in hits["v"]], [21] * 14)
+                self.assertEqual(sum(v is not None for line in hits["v"] for v in line), len(said))
+                self.assertEqual(sorted(hits), sorted(["x", "y", "v", "u"] + (["xl", "yl"] if labels else [])))
+                self.assertEqual(hits["u"], grid.units)
+                # The edges ascend in the plot's own units, and the rectangle
+                # spans them.
+                self.assertEqual((len(hits["x"]), len(hits["y"])), (22, 15))
+                for axis in ("x", "y"):
+                    self.assertEqual(hits[axis], sorted(hits[axis]))
+                self.assertEqual((box["x"], box["y"]), (hits["x"][0], hits["y"][0]))
+                self.assertAlmostEqual(box["width"], hits["x"][-1] - hits["x"][0], places=6)
+                self.assertAlmostEqual(box["height"], hits["y"][-1] - hits["y"][0], places=6)
+                # No block is an element of its own any more.
+                self.assertNotIn("data-label=", markup)
+
+    def test_a_field_with_nothing_in_it_has_no_grid(self):
+        grid = flat_field(4, 4)
+        for line in grid.values:
+            line[:] = [None] * len(line)
+        plot = svg.Plot(400, 200, (10, 10, 10, 10))
+        plot.domain(0, 3, 0, 3)
+        fields.draw_cells(plot, grid, self.RAMP)
+        self.assertNotIn('class="hit', "".join(plot.parts))
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class TestHoverGridRuns(unittest.TestCase):
+    """The page's tooltip over a hover grid, run under node: the dashboard's
+    own script, with the grid's transform from the screen scaling the chart as
+    a phone's narrow page does, by a different amount across and down, and
+    moving it."""
+
+    SCREEN = {"a": 0.42, "b": 0.0, "c": 0.0, "d": 0.37, "e": 16.0, "f": 1234.5}
+    HARNESS = r"""
+var SCREEN = __SCREEN__;
+function inverted(m) {
+  var det = m.a * m.d - m.b * m.c;
+  return {a: m.d / det, b: -m.b / det, c: -m.c / det, d: m.a / det,
+          e: (m.c * m.f - m.d * m.e) / det, f: (m.b * m.e - m.a * m.f) / det};
+}
+function grid(text) {
+  return {
+    hasAttribute: function (name) { return name === "data-hits"; },
+    getAttribute: function (name) { return name === "data-hits" ? text : null; },
+    getScreenCTM: function () {
+      var m = Object.assign({}, SCREEN);
+      m.inverse = function () { return inverted(SCREEN); };
+      return m;
+    },
+    closest: function (sel) { return sel === ".hit" ? this : null; }
+  };
+}
+"""
+
+    def harness(self):
+        return self.HARNESS.replace("__SCREEN__", json.dumps(self.SCREEN))
+
+    def on_screen(self, x, y):
+        s = self.SCREEN
+        return [s["a"] * x + s["c"] * y + s["e"], s["b"] * x + s["d"] * y + s["f"]]
+
+    def charts(self):
+        """Each case's chart drawn: its grid's data as the page's script reads
+        them, the data, and its blocks as they were drawn a rectangle each."""
+        for _name, plot, grid, fmt, labels in _hover_cases():
+            fields.draw_cells(plot, grid, TestHoverGrid.RAMP, fmt=fmt, **labels)
+            _box, hits, raw = _hover_grid("".join(plot.parts))
+            yield raw, hits, _hover_blocks(plot, grid, fmt, **labels)
+
+    def test_the_block_under_the_pointer_is_found_through_the_screen_transform(self):
+        cases, want = [], []
+        for raw, hits, (said, empty) in self.charts():
+            (x0, *_, x1), (y0, *_, y1) = hits["x"], hits["y"]
+            off = [(x0 - 0.5, (y0 + y1) / 2), (x1 + 0.5, (y0 + y1) / 2),
+                   ((x0 + x1) / 2, y0 - 0.5), ((x0 + x1) / 2, y1 + 0.5)]
+            points = [centre for centre, _words in said] + empty + off
+            cases.append({"text": raw, "points": [self.on_screen(x, y) for x, y in points]})
+            want.append([words for _centre, words in said] + [None] * (len(empty) + len(off)))
+        script = _js_function(dashboard._js(), "gridHit") + self.harness() + r"""
+var CASES = __CASES__;
+console.log(JSON.stringify(CASES.map(function (c) {
+  var el = grid(c.text);
+  return c.points.map(function (p) { return gridHit(el, p[0], p[1]); });
+})));
+"""
+        self.assertEqual(_node_json(self, script.replace("__CASES__", json.dumps(cases))), want)
+
+    def test_the_tooltip_says_nothing_where_the_grid_says_nothing(self):
+        js = dashboard._js()
+        tooltip = js[js.index("  var tip = document.getElementById('tip');\n"):
+                     js.index("  document.addEventListener('focusout', hide);\n")]
+        raw, _hits, (said, empty) = next(self.charts())
+        (centre, words), hole = said[0], empty[0]
+        script = self.harness() + r"""
+var LISTEN = {}, window = {innerWidth: 400};
+var TIP = {style: {}, innerHTML: "", getBoundingClientRect: function () { return {width: 120, height: 40}; }};
+var document = {getElementById: function (id) { return id === "tip" ? TIP : null; },
+                addEventListener: function (type, fn) { LISTEN[type] = fn; }};
+""" + tooltip + r"""
+var GRID = grid(__TEXT__), DATA = __DATA__, HOLE = __HOLE__;
+var ELSEWHERE = {closest: function () { return null; }};
+var STORM = {hasAttribute: function () { return false; }, closest: function () { return this; },
+             getAttribute: function (name) {
+               return {"data-label": "Polo", "data-value": "130 kt", "data-extra": "Category 4"}[name];
+             }};
+function on(type, target, at) {
+  LISTEN[type]({target: target, clientX: at[0], clientY: at[1]});
+  return [TIP.style.opacity, TIP.innerHTML];
+}
+console.log(JSON.stringify([
+  on("mouseover", GRID, DATA), on("mousemove", GRID, HOLE), on("mousemove", GRID, DATA),
+  on("mousemove", ELSEWHERE, DATA), on("mouseover", GRID, HOLE), on("mousemove", STORM, DATA),
+  on("mouseout", STORM, DATA)]));
+"""
+        got = _node_json(self, script.replace("__TEXT__", json.dumps(raw))
+                         .replace("__DATA__", json.dumps(self.on_screen(*centre)))
+                         .replace("__HOLE__", json.dumps(self.on_screen(*hole))))
+        block = f"<b>{words['label']}</b><span>{words['value']}</span>"
+        storm = "<b>Polo</b><span>130 kt<br>Category 4</span>"
+        # Shown over a block with something in it; gone over one with nothing,
+        # off the grid, and not brought back by arriving at nothing; and the
+        # page's other hover areas as they were.
+        self.assertEqual(got, [["1", block], ["0", block], ["1", block], ["0", block],
+                               ["0", block], ["1", storm], ["0", storm]])
 
 
 class TestThreeDimensions(unittest.TestCase):
@@ -7389,22 +7718,16 @@ class TestGlobeProjection(unittest.TestCase):
     def test_the_quantised_field_is_one_character_per_cell(self):
         grid = flat_field(4, 5, value=1.0)
         grid.values[1][1] = None
-        text = globe.encode(grid, 2.0)
+        text = globe.encode(grid, fields.Ramp("d", globe.STEPS, -2.0, 2.0, diverging=True))
         self.assertEqual(len(text), 20)
         self.assertEqual(text[6], globe.EMPTY_CHAR)
         self.assertEqual(set(text) - {globe.EMPTY_CHAR}, {"8"})
 
     def test_the_ramp_clamps_instead_of_running_off_the_end(self):
-        self.assertEqual(globe.ramp_index(0.0, 4.0), 5)
-        self.assertEqual(globe.ramp_index(99.0, 4.0), globe.STEPS - 1)
-        self.assertEqual(globe.ramp_index(-99.0, 4.0), 0)
-
-    def test_a_step_reads_back_within_half_a_step(self):
-        """The panel quotes a number off the colour, so the error needs a bound."""
-        half = 2.0 * 4.0 / globe.STEPS / 2.0
-        for value in (-3.9, -1.0, 0.0, 0.4, 2.2, 3.8):
-            index = globe.ramp_index(value, 4.0)
-            self.assertLessEqual(abs(globe.step_value(index, 4.0) - value), half)
+        ramp = fields.Ramp("d", globe.STEPS, -4.0, 4.0, diverging=True)
+        self.assertEqual(ramp.index(0.0), 5)
+        self.assertEqual(ramp.index(99.0), globe.STEPS - 1)
+        self.assertEqual(ramp.index(-99.0), 0)
 
 
 class TestGlobePanel(unittest.TestCase):
@@ -7448,13 +7771,25 @@ class TestGlobePanel(unittest.TestCase):
 
     def test_the_picture_and_the_data_to_redraw_it_both_ship(self):
         html = globe.card(self.state())
-        self.assertIn("<polygon", html)          # server-rendered cells
+        self.assertIn('<g class="cells"><g fill="var(--d', html)    # server-rendered cells
         self.assertIn('class="zone"', html)      # server-rendered footprints
         payload = self.payload(html)
         self.assertEqual(len(payload["grid"]["data"]),
                          payload["grid"]["rows"] * payload["grid"]["cols"])
         self.assertEqual(payload["view"]["lon"], globe.HOME[0])
         self.assertEqual(payload["view"]["lat"], globe.HOME[1])
+
+    def test_a_field_drawn_as_a_picture_ships_its_name_not_its_characters(self):
+        # The global map draws a field this size as a picture, a grey a class,
+        # and the globe's script reads the classes from it; a field too small
+        # to be a picture still ships a character a cell.
+        large = self.payload(globe.card(_globe_state()))["grid"]
+        self.assertEqual(large["picture"], fields.GLOBAL_PICTURE)
+        self.assertEqual(large["levels"], len(fields.DIVERGING_LIGHT))
+        self.assertNotIn("data", large)
+        small = self.payload(globe.card(self.state()))["grid"]
+        self.assertNotIn("picture", small)
+        self.assertEqual(len(small["data"]), small["rows"] * small["cols"])
 
     def test_a_run_with_no_global_field_drops_the_panel_rather_than_half_drawing(self):
         self.assertEqual(globe.card(self.state(grid=None)), "")
@@ -7509,6 +7844,518 @@ class TestGlobePanel(unittest.TestCase):
         self.assertIn("function unproject", script)
         # The redraw must repaint the no-data hatch, or a spin loses the land.
         self.assertIn("svg.innerHTML = DEFS +", script)
+
+
+def _globe_state(grid=None, step=2.0, amplitude=2.0):
+    """A run with a world under the globe at ``step`` degrees: a few classes of
+    warm and cool water, up to ``amplitude`` either way, and the Arctic, where
+    there is no sea surface to measure."""
+    if grid is None:
+        lons = [-180.0 + step / 2.0 + step * c for c in range(round(360 / step))]
+        lats = [-90.0 + step / 2.0 + step * r for r in range(round(180 / step))]
+        grid = grids.Field(
+            x=tuple(lons), y=tuple(lats),
+            values=[[None if lat > 70 else math.sin(lon / 20.0) * math.cos(lat / 15.0) * amplitude
+                     for lon in lons] for lat in lats],
+            label="global sst", units="degrees C", as_of="2026-10-09")
+    return SimpleNamespace(
+        spatial=SimpleNamespace(sst_global=grid),
+        assessment=SimpleNamespace(index_name="RONI", index_latest=SimpleNamespace(value=1.36),
+                                   scale=SimpleNamespace(flavour_index=3.24)),
+        forecast=SimpleNamespace(peak=SimpleNamespace(label="SON 2026")),
+        impacts=SimpleNamespace(peak_index=2.27))
+
+
+def _groups(svg_markup: str) -> dict:
+    """The globe's cells, graticule and coast, as drawn: the cells a group a
+    colour class inside theirs, so theirs is read to the graticule's."""
+    found = re.search(r'<g class="cells">(.*?)</g><g class="grat">(.*?)</g><g class="coast">(.*?)</g>',
+                      svg_markup, re.S)
+    return {"cells": found.group(1), "grat": found.group(2), "coast": found.group(3)}
+
+
+_CLASS_GROUP = r'<g fill="var\(--d(\d+)\)" stroke="var\(--d\1\)">(.*?)</g>'
+
+
+def _class_paths(cells: str) -> list:
+    """The cells' colour classes in the order drawn, each with its paths' d:
+    a class is a group whose fill and stroke are its colour."""
+    return [(int(k), re.findall(r'<path d="([^"]+)"/>', body))
+            for k, body in re.findall(_CLASS_GROUP, cells)]
+
+
+def _globe_payload(html: str) -> dict:
+    """The globe's payload, out of its attribute as the browser reads it."""
+    return json.loads(unescape(html.split("data-globe='", 1)[1].split("'>", 1)[0]))
+
+
+def _picture_page(grid) -> str:
+    """The global map's picture of ``grid`` by the name the globe reads it by,
+    drawn north up and west to the left as any map draws one, whichever way
+    the field lists its rows and columns."""
+    plot = fields.map_plot(880, (10, 14, 26, 40), 360.0, 180.0)
+    plot.domain(min(grid.x), max(grid.x), min(grid.y), max(grid.y))
+    fields.draw_cells(plot, grid, fields.global_ramp(grid), picture_id=fields.GLOBAL_PICTURE)
+    return "".join(plot.parts)
+
+
+def _repictured(page: str, change) -> str:
+    """``page`` with its picture's PNG chunks put through ``change``, a list
+    of (kind, body) in and out, and written back as a PNG."""
+    found = re.search(r'<image id="[^"]+" [^>]*href="data:image/png;base64,([^"]+)', page)
+    data = base64.b64decode(found.group(1))
+    chunks, at = [], 8
+    while at < len(data):
+        size = int.from_bytes(data[at:at + 4], "big")
+        chunks.append((data[at + 4:at + 8], data[at + 8:at + 8 + size]))
+        at += 12 + size
+    png = data[:8] + b"".join(len(body).to_bytes(4, "big") + kind + body
+                              + zlib.crc32(kind + body).to_bytes(4, "big")
+                              for kind, body in change(chunks))
+    return page[:found.start(1)] + base64.b64encode(png).decode("ascii") + page[found.end(1):]
+
+
+def _globe_points(d: str) -> set:
+    """Every vertex of a globe path, in tenths, but those of a line too small
+    to see: one that spans two tenths of a unit or less either way."""
+    out = set()
+    for line in _read_relative(d):
+        xs, ys = [p[0] for p in line], [p[1] for p in line]
+        if max(xs) - min(xs) > 2 or max(ys) - min(ys) > 2:
+            out.update(line)
+    return out
+
+
+def _within_a_tenth(a: set, b: set) -> bool:
+    """Whether each point of either set has one of the other's within a tenth
+    of a unit each way: the most a hair's difference between two engines'
+    trigonometry can move a vertex written to the tenth."""
+    def covered(points, others):
+        return all(any((x + dx, y + dy) in others for dx in range(-1, 2) for dy in range(-1, 2))
+                   for x, y in points)
+    return covered(a, b) and covered(b, a)
+
+
+class TestGlobeAsPaths(unittest.TestCase):
+    """The globe's cells a group a colour class of a few paths, its coast and
+    graticule a path each, from the server for the first view and the script
+    for every redraw: dozens of elements where there were thousands."""
+
+    def test_the_first_view_is_a_group_a_class_and_a_path_a_line_kind(self):
+        drawn = _groups(globe.card(_globe_state()))
+        groups = _class_paths(drawn["cells"])
+        classes = [k for k, _ in groups]
+        self.assertEqual(classes, sorted(set(classes)))
+        self.assertGreater(len(classes), 3)
+        self.assertLessEqual(len(classes), globe.STEPS)
+        self.assertLess(sum(len(paths) for _, paths in groups), 100)
+        self.assertEqual(re.sub(r'<g fill="var\(--d(\d+)\)" stroke="var\(--d\1\)">(?:<path d="[^"]+"/>)+</g>', "", drawn["cells"]), "")
+        for name in ("grat", "coast"):
+            with self.subTest(name):
+                self.assertRegex(drawn[name], r'^<path d="M[^"]+"/>$')
+
+    def test_no_path_carries_more_than_its_share_of_quads(self):
+        # A class's quads go to paths of QUADS_A_PATH in the order drawn, the
+        # last path the rest: however a browser fills a path, the work a path
+        # asks of it is bounded.
+        groups = _class_paths(_groups(globe.card(_globe_state()))["cells"])
+        self.assertTrue(any(len(paths) > 1 for _, paths in groups))
+        for k, paths in groups:
+            counts = [len(_read_relative(d)) for d in paths]
+            with self.subTest(cells=k):
+                self.assertEqual(counts[:-1], [globe.QUADS_A_PATH] * (len(counts) - 1))
+                self.assertLessEqual(counts[-1], globe.QUADS_A_PATH)
+
+    def test_the_globe_is_in_the_global_map_s_classes(self):
+        # One field, one ramp: a calm ocean, its span under half a degree, is
+        # in the global map's eleven classes on the globe too, where the globe
+        # once stretched its own ramp to half a degree either way.
+        state = _globe_state(amplitude=0.2)
+        grid = state.spatial.sst_global
+        ramp = fields.global_ramp(grid)
+        html = globe.card(state)
+        self.assertEqual(_globe_payload(html)["grid"]["limit"], round(ramp.high, 3))
+        drawn = {k for k, _ in _class_paths(_groups(html)["cells"])}
+        self.assertLessEqual({0, globe.STEPS - 1}, drawn)
+        self.assertLessEqual(drawn, {ramp.index(v) for row in grid.values for v in row if v is not None})
+
+    def test_the_styles_follow_the_paths(self):
+        css = globe.css()
+        for rule in (".grat path", ".coast path"):
+            self.assertIn(rule, css)
+        for rule in (".cells polygon", ".grat polyline", ".coast polyline"):
+            self.assertNotIn(rule, css)
+
+    def test_the_cells_are_smoothed_and_their_seams_closed(self):
+        # Drawn with crisp edges, a path went to Chrome's GPU raster to be
+        # triangulated on the CPU: half a minute for the commonest class, a
+        # third of a second for some paths of sixty-four quads mid-drag.
+        # Smoothed, two paths meet in a seam the ocean shows through, and a
+        # merged run's chord sags off the next row's: a stroke of each class's
+        # own colour closes both.
+        css = globe.css()
+        self.assertNotIn("crispEdges", css)
+        self.assertRegex(css, r"\.cells \{[^}]*stroke-width: 1;[^}]*stroke-linejoin: round;")
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class TestGlobeRedrawRuns(unittest.TestCase):
+    """The globe's script, run under node on the server's own payload: what a
+    spin draws is what the server drew."""
+
+    HARNESS = r"""
+var listeners = {};
+function el(name) {
+  var node = {
+    attrs: {}, classes: {}, innerHTML: "", textContent: "",
+    addEventListener: function (type, fn) { (listeners[name + " " + type] = listeners[name + " " + type] || []).push(fn); },
+    setAttribute: function (k, v) { this.attrs[k] = v; },
+    getAttribute: function (k) { return this.attrs[k]; },
+    querySelector: function () { return null; },
+    querySelectorAll: function () { return []; },
+    setPointerCapture: function () {},
+    getBoundingClientRect: function () { return {left: 0, top: 0, width: 640, height: 640}; }
+  };
+  node.classList = {
+    toggle: function (c, on) {
+      if (on === undefined ? !node.classes[c] : on) { node.classes[c] = true; } else { delete node.classes[c]; }
+    },
+    add: function (c) { node.classes[c] = true; },
+    remove: function (c) { delete node.classes[c]; }
+  };
+  return node;
+}
+// The page's pictures by id, as a browser has them: node's own fetch reads a
+// picture's address and its own DecompressionStream inflates the lines, as a
+// browser's do - unless, as INFLATE says, this is a browser without one.
+// FETCHED counts the pictures fetched.
+var PICTURES = /*PICTURES*/;
+/*NOINFLATE*/
+var FETCHED = 0;
+var fetch = function (href) { FETCHED++; return globalThis.fetch(href); };
+// Looks every few milliseconds until test holds, then calls then: a read
+// takes as long as the machine takes over it.
+function until(test, then) {
+  var started = Date.now();
+  (function look() {
+    if (test() || Date.now() - started > 20000) { then(); } else { setTimeout(look, 5); }
+  })();
+}
+var svg = el("svg"), panel = el("panel"), card = el("card"), host = el("host");
+var hint = el("hint"), how = el("how");
+host.attrs["data-globe"] = /*PAYLOAD*/;
+host.querySelector = function (s) { return s === "svg" ? svg : s === ".ghint" ? hint : null; };
+host.closest = function () { return card; };
+card.querySelector = function (s) { return s === ".dossier" ? panel : s === ".gdo" ? how : null; };
+var document = {
+  querySelectorAll: function (s) { return s === ".globe" ? [host] : []; },
+  getElementById: function (id) {
+    var href = PICTURES[id];
+    return href ? {getAttribute: function (k) { return k === "href" ? href : null; }} : null;
+  }
+};
+var window = {};
+function requestAnimationFrame(fn) { fn(); return 1; }
+/*SCRIPT*/
+/*ACT*/
+"""
+
+    def run_globe(self, html: str, act: str, page: str = "", script: str | None = None,
+                  inflate: bool = True):
+        """The globe's script, or ``script``, under node on the payload in
+        ``html``, with the pictures ``page`` carries on the page beside it, in
+        a browser that can inflate a picture's lines unless ``inflate`` is
+        false."""
+        payload = unescape(html.split("data-globe='", 1)[1].split("'>", 1)[0])
+        pictures = dict(re.findall(r'<image id="([^"]+)" [^>]*href="([^"]+)"', page))
+        return _node_json(self, self.HARNESS
+                          .replace("/*PAYLOAD*/", json.dumps(payload))
+                          .replace("/*PICTURES*/", json.dumps(pictures))
+                          .replace("/*NOINFLATE*/", "" if inflate else "var DecompressionStream = undefined;")
+                          .replace("/*SCRIPT*/", globe.js() if script is None else script)
+                          .replace("/*ACT*/", act))
+
+    def test_a_redraw_where_the_server_drew_is_the_server_s_drawing(self):
+        # Two degrees is a cell at a time; half a degree is past the budget
+        # and steps two cells at a time, as the day's quarter degree steps three.
+        for step, stride in ((2.0, 1), (0.5, 2)):
+            state = _globe_state(step=step)
+            with self.subTest(degrees=step):
+                self.assertEqual(globe.cell_stride(state.spatial.sst_global, globe.HOME[1], 90.0), stride)
+                self.assert_redraw_is_first_view(state)
+
+    def assert_redraw_is_first_view(self, state):
+        # Enter pins the centre of the view and redraws it, unmoved: once the
+        # field is read from the global map's picture, and not a moment before.
+        html = globe.card(state)
+        got = self.run_globe(html, r"""
+listeners["svg keydown"][0]({key: "Enter", preventDefault: function () {}});
+var before = svg.innerHTML;
+until(function () { return svg.innerHTML !== ""; }, function () {
+  console.log(JSON.stringify({before: before, after: svg.innerHTML, still: !!card.classes["globe-still"],
+                              hint: hint.textContent}));
+});""",
+                             fields.global_map(state.spatial.sst_global))
+        self.assertEqual(got["before"], "")
+        # Read, the globe keeps its controls and its hint.
+        self.assertFalse(got["still"])
+        self.assertEqual(got["hint"], "")
+        server, script = _groups(html.split('class="globe-svg"', 1)[1]), _groups(got["after"])
+        self.assert_same_cells(server["cells"], script["cells"])
+        for name in ("grat", "coast"):
+            with self.subTest(name):
+                self.assertRegex(script[name], r'^<path d="M[^"]+"/>$')
+                a = _globe_points(re.search(r'd="([^"]+)"', server[name]).group(1))
+                b = _globe_points(re.search(r'd="([^"]+)"', script[name]).group(1))
+                self.assertGreater(len(a), 50)
+                self.assertTrue(_within_a_tenth(a, b))
+
+    def assert_same_cells(self, server: str, script: str):
+        """The script's cells the server's: the same colour classes in the same
+        order, each in as many paths, and each class's quads at the same
+        vertices to within a tenth."""
+        mine, theirs = _class_paths(server), _class_paths(script)
+        self.assertGreater(len(mine), 3)
+        self.assertEqual([k for k, _ in theirs], [k for k, _ in mine])
+        for (k, paths), (_, drawn) in zip(mine, theirs):
+            with self.subTest(cells=k):
+                self.assertEqual(len(drawn), len(paths))
+                a, b = _globe_points("".join(paths)), _globe_points("".join(drawn))
+                self.assertTrue(a)
+                self.assertTrue(_within_a_tenth(a, b))
+
+    def test_a_zoomed_redraw_is_what_the_server_would_draw_there(self):
+        # A frame the server never draws, against its cells for that same view:
+        # two cells a step, and every row's last run closed and drawn.
+        state = _globe_state(step=0.5)
+        grid, html = state.spatial.sst_global, globe.card(state)
+        got = self.run_globe(html, r"""
+listeners["svg wheel"][0]({ctrlKey: true, deltaY: -1, preventDefault: function () {}});
+until(function () { return svg.innerHTML !== ""; }, function () { console.log(JSON.stringify(svg.innerHTML)); });""",
+                             fields.global_map(grid))
+        size, zoom = 640, 1.15
+        radius = size / 2.0 - 24.0
+        theta = globe.visible_radius(radius, size, zoom)
+        stride = globe.cell_stride(grid, globe.HOME[1], theta)
+        self.assertEqual(stride, 2)
+        server = "".join(globe._cells(grid, fields.global_ramp(grid), *globe.HOME, radius * zoom,
+                                      size / 2.0, size / 2.0, theta, stride))
+        self.assert_same_cells(server, _groups(got)["cells"])
+
+    def test_the_script_reads_the_field_from_the_global_map_s_picture(self):
+        # The globe ships no copy of the field: its script reads the classes
+        # from the global map's picture, a grey a class, into the payload's
+        # rows and columns whichever way the field lists them - cell for cell
+        # the characters the server would have written, none where there is
+        # no reading.
+        world = _globe_state().spatial.sst_global
+
+        def listed(grid, rows, cols):
+            order = (lambda seq: tuple(reversed(seq)))
+            y, values = (order(grid.y), order(grid.values)) if rows else (grid.y, grid.values)
+            x = order(grid.x) if cols else grid.x
+            return grids.Field(x=x, y=y, values=[order(row) if cols else row for row in values],
+                               label=grid.label, units=grid.units, as_of=grid.as_of)
+
+        for name, grid, page in (
+                ("as the map draws it", world, fields.global_map(world)),
+                ("listed from the north", listed(world, True, False), None),
+                ("listed from the north and the east", listed(world, True, True), None)):
+            with self.subTest(name):
+                got = self.run_globe(globe.card(_globe_state(grid)), r"""
+var g = JSON.parse(host.attrs["data-globe"]).grid;
+readField(g, function (ok) {
+  console.log(JSON.stringify({ok: ok, fetched: FETCHED, cells: ok ? Array.from(g.cells) : null}));
+});""",
+                                     page or _picture_page(grid), script=_js_function(globe.GLOBE_JS, "readField"))
+                self.assertTrue(got["ok"])
+                # Its bytes fetched once and its lines inflated: no canvas is
+                # asked for its pixels, so nothing a browser does to a canvas
+                # against fingerprinting can change what is read.
+                self.assertEqual(got["fetched"], 1)
+                want = [255 if c == globe.EMPTY_CHAR else globe.RAMP_CHARS.index(c)
+                        for c in globe.encode(grid, fields.global_ramp(grid))]
+                self.assertEqual(got["cells"], want)
+                self.assertIn(255, want)
+
+    def test_the_read_gives_way_to_the_page_s_own_work(self):
+        # Walked in one go, the day's field held a phone's processor some
+        # 30 ms on end as the page loaded. The read takes a few milliseconds
+        # at a time and lets the page's own work run between them: on a clock
+        # that runs a millisecond a look, it gives way many times, and still
+        # reads cell for cell what the server would have written.
+        world = _globe_state().spatial.sst_global
+        got = self.run_globe(globe.card(_globe_state(world)), r"""
+var CLOCK = 0, YIELDS = 0, reading = false;
+var performance = {now: function () { return CLOCK++; }};
+var timeout = setTimeout;
+setTimeout = function (fn, ms) { if (reading) { YIELDS++; } return timeout(fn, ms); };
+var fetched = fetch;
+fetch = function (href) { return fetched(href).then(function (answer) { reading = true; return answer; }); };
+var g = JSON.parse(host.attrs["data-globe"]).grid;
+readField(g, function (ok) {
+  reading = false;
+  console.log(JSON.stringify({ok: ok, yields: YIELDS, rows: g.rows, cells: ok ? Array.from(g.cells) : null}));
+});""", fields.global_map(world), script=_js_function(globe.GLOBE_JS, "readField"))
+        self.assertTrue(got["ok"])
+        self.assertGreater(got["yields"], got["rows"] // 10)
+        self.assertEqual(got["cells"], [255 if c == globe.EMPTY_CHAR else globe.RAMP_CHARS.index(c)
+                                        for c in globe.encode(world, fields.global_ramp(world))])
+
+    def test_a_click_reads_the_anomaly_back_within_half_a_step(self):
+        # The panel quotes the middle of the colour class under the pin, read
+        # from the global map's picture: within half a step of what the cell
+        # holds, and a twentieth more for the rounding to a tenth.
+        state = _globe_state()
+        grid = state.spatial.sst_global
+        got = self.run_globe(globe.card(state), r"""
+var press = function (key) { listeners["svg keydown"][0]({key: key, preventDefault: function () {}}); };
+press("Enter");
+until(function () { return svg.innerHTML !== ""; }, function () {
+  var out = [];
+  [[], ["ArrowRight", "ArrowRight", "ArrowRight"], ["ArrowDown", "ArrowDown"]].forEach(function (keys) {
+    keys.forEach(press); press("Enter"); out.push(panel.innerHTML);
+  });
+  console.log(JSON.stringify(out));
+});""", fields.global_map(grid))
+        half = fields.global_ramp(grid).high / globe.STEPS
+        dlat, dlon = grid.y[1] - grid.y[0], grid.x[1] - grid.x[0]
+        for (lon, lat), text in zip(((-150.0, 12.0), (-126.0, 12.0), (-126.0, 0.0)), got):
+            with self.subTest(lon=lon, lat=lat):
+                sign, size = re.search(r"Sea surface anomaly here: <strong>([+−])(\d+\.\d) °C", text).groups()
+                quoted = float(size) * (-1.0 if sign == "−" else 1.0)
+                # Rounded half up, as the script's Math.round rounds.
+                row = math.floor((lat - grid.y[0]) / dlat + 0.5)
+                col = math.floor(geo.wrap180(lon - geo.wrap180(grid.x[0])) / dlon + 0.5) % grid.cols
+                self.assertLessEqual(abs(quoted - grid.values[row][col]), half + 0.05)
+
+    def test_a_field_that_cannot_be_read_leaves_the_globe_as_served(self):
+        # No picture on the page, one that will not decode, one that is not
+        # the picture the server writes - in other colours, of another size,
+        # its lines put through a filter - or a browser that cannot inflate
+        # it: the globe stays as the server drew it, a drag does not turn it,
+        # and a click says where it landed on the globe as served and what
+        # covers that point there. And the globe says so: the controls that
+        # would turn it are set aside, with centring on a pick, and its hint
+        # and caption say a click still inspects a place.
+        state = _globe_state()
+        html, page = globe.card(state), fields.global_map(state.spatial.sst_global)
+        links = [link for link in _globe_payload(html)["links"] if link["scope"] != "global"]
+        radius = centre = 640 / 2.0
+        radius -= 24.0
+
+        def facing(box):
+            return (box[1] - box[0] >= 10 and box[3] - box[2] >= 10 and globe.project(
+                (box[0] + box[1]) / 2.0, (box[2] + box[3]) / 2.0, *globe.HOME) is not None)
+
+        box = next(box for link in links for box in link["boxes"] if facing(box))
+        p = globe.project((box[0] + box[1]) / 2.0, (box[2] + box[3]) / 2.0, *globe.HOME)
+        x, y = centre + p[0] * radius, centre - p[1] * radius
+        # The click lands three units right of where it went down: still a
+        # click, and the view a drag would have turned is put back first.
+        lon, lat = globe.unproject((x + 3 - centre) / radius, (centre - y) / radius, *globe.HOME)
+        place = (f"{abs(lat):.1f}{'N' if lat > 0 else 'S'}, "
+                 f"{abs(lon):.1f}{'E' if lon > 0 else 'W'}")
+        covering = [link["region"] for link in links
+                    if any(b[0] <= lon <= b[1] and b[2] <= lat <= b[3] for b in link["boxes"])]
+        self.assertTrue(covering)
+        act = r"""
+requestAnimationFrame = function (fn) { setTimeout(fn, 16); return 1; };
+var at = function (x, y) { return {pointerId: 1, clientX: x, clientY: y, preventDefault: function () {}}; };
+setTimeout(function () {
+  var X = %r, Y = %r;
+  listeners["svg pointerdown"][0](at(X, Y)); listeners["svg pointermove"][0](at(X + 40, Y));
+  listeners["svg pointerup"][0](at(X + 40, Y));
+  listeners["svg pointerdown"][0](at(X, Y)); listeners["svg pointermove"][0](at(X + 3, Y));
+  listeners["svg pointerup"][0](at(X + 3, Y));
+  setTimeout(function () {
+    console.log(JSON.stringify({svg: svg.innerHTML, panel: panel.innerHTML, still: !!card.classes["globe-still"],
+                                hint: hint.textContent, how: how.textContent}));
+  }, 50);
+}, 50);""" % (x, y)
+        broken = re.sub(r'(<image id="[^"]+" [^>]*href=")[^"]+', r"\1data:image/png;base64,AAAA", page)
+
+        def recoloured(chunks):
+            return [(kind, b"\xff\x00\x00" + body[3:] if kind == b"PLTE" else body) for kind, body in chunks]
+
+        def filtered(chunks):
+            lines = bytearray(zlib.decompress(b"".join(body for kind, body in chunks if kind == b"IDAT")))
+            lines[0] = 1
+            return ([(kind, body) for kind, body in chunks if kind not in (b"IDAT", b"IEND")]
+                    + [(b"IDAT", zlib.compress(bytes(lines))), (b"IEND", b"")])
+
+        smaller = fields.global_map(_globe_state(step=4.0).spatial.sst_global)
+        for name, beside, inflate in (
+                ("no picture", "", True), ("one that will not decode", broken, True),
+                ("one in other colours", _repictured(page, recoloured), True),
+                ("one of another size", smaller, True),
+                ("one whose lines went through a filter", _repictured(page, filtered), True),
+                ("a browser that cannot inflate a picture's lines", page, False)):
+            with self.subTest(name):
+                got = self.run_globe(html, act, beside, inflate=inflate)
+                self.assertEqual(got["svg"], "")
+                self.assertIn(f"<h3>{place}</h3>", got["panel"])
+                self.assertIn("could not read", got["panel"])
+                for region in covering:
+                    self.assertIn(region.replace("&", "&amp;").replace("<", "&lt;")
+                                  .replace(">", "&gt;").replace('"', "&quot;"), got["panel"])
+                self.assertTrue(got["still"])
+                self.assertNotIn("data-globe-centre", got["panel"])
+                self.assertEqual(got["hint"], "This browser keeps the globe still \u00b7 click it to inspect a place")
+                self.assertEqual(got["how"], "Click anywhere to open that location.")
+
+    def test_a_click_made_before_the_read_lands_where_the_globe_was_drawn(self):
+        # A drag and a click in the moment before the picture is read: nothing
+        # has been drawn but the server's globe, so the click lands on the
+        # server's globe, whether the read then succeeds and the globe turns as
+        # the drag asked, or fails and the globe stays as served.
+        state = _globe_state()
+        html, page = globe.card(state), fields.global_map(state.spatial.sst_global)
+        radius = centre = 640 / 2.0
+        radius -= 24.0
+        x, y = centre - 100.0, centre + 60.0
+        lon, lat = globe.unproject((x + 3 - centre) / radius, (centre - y) / radius, *globe.HOME)
+        place = (f"<h3>{abs(lat):.1f}{'N' if lat > 0 else 'S'}, "
+                 f"{abs(lon):.1f}{'E' if lon > 0 else 'W'}</h3>")
+        act = r"""
+var at = function (x, y) { return {pointerId: 1, clientX: x, clientY: y, preventDefault: function () {}}; };
+var X = %r, Y = %r;
+listeners["svg pointerdown"][0](at(X, Y)); listeners["svg pointermove"][0](at(X + 40, Y));
+listeners["svg pointerup"][0](at(X + 40, Y));
+listeners["svg pointerdown"][0](at(X, Y)); listeners["svg pointermove"][0](at(X + 3, Y));
+listeners["svg pointerup"][0](at(X + 3, Y));
+until(function () {
+  return panel.innerHTML.indexOf("<h3>") >= 0 && (svg.innerHTML !== "" || card.classes["globe-still"]);
+}, function () { console.log(JSON.stringify({svg: svg.innerHTML, panel: panel.innerHTML})); });""" % (x, y)
+        broken = re.sub(r'(<image id="[^"]+" [^>]*href=")[^"]+', r"\1data:image/png;base64,AAAA", page)
+        for name, beside, turned in (("read", page, True), ("not read", broken, False)):
+            with self.subTest(name):
+                got = self.run_globe(html, act, beside)
+                self.assertIn(place, got["panel"])
+                self.assertEqual(got["svg"] != "", turned)
+
+    def test_a_globe_left_still_sets_its_controls_aside(self):
+        # The controls that turn, zoom or redraw the globe sit in rows of their
+        # own, and the page sets them aside, with Tracks and centring on a
+        # pick, where the globe's field could not be read; the caption's
+        # instructions are where the script can say a click still inspects.
+        html = globe.card(_globe_state())
+        self.assertIn('<div class="grow gview">', html)
+        self.assertIn('<div class="grow gpol">', html)
+        self.assertIn('<strong class="gdo">', html)
+        self.assertRegex(globe.CSS, r"\.globe-still \.gview, \.globe-still \.gpol,\s*"
+                                    r"\.globe-still \[data-globe-tc\], \.globe-still \[data-globe-centre\] "
+                                    r"\{ display: none; \}")
+
+    def test_the_script_writes_a_path_as_the_server_does(self):
+        lines = [[(10.04, 20.06), (10.06, 20.04), (11.27, 19.93), (9.0, 21.0)],
+                 [(400.0, 0.0), (399.96, 0.04), (0.0, 300.0)], [(1.0, 1.0)],
+                 [(0.0, 0.0), (0.5, -0.5), (12.0, 0.0), (-1.2, 3.4), (-1.2, 13.4)]]
+        names = ("shortNum", "joinNums", "relD")
+        script = "\n".join(_js_function(globe.GLOBE_JS, name) for name in names)
+        self.assertTrue(all(_js_function(globe.GLOBE_JS, name) for name in names))
+        got = _node_json(self, script + f"\nconsole.log(JSON.stringify(relD({json.dumps(lines)})));")
+        self.assertEqual(got, svg.relative_d(lines))
 
 
 def _fix(stamp="2026092312", tau=0, lat=15.2, lon=-101.5, wind=130,
@@ -9844,11 +10691,13 @@ class TestEndToEnd(unittest.TestCase):
         raw = html.split("data-globe='", 1)[1].split("'>", 1)[0]
         payload = json.loads(unescape(raw))
         self.assertEqual(len(payload["links"]), len(impacts.CATALOGUE))
-        self.assertEqual(len(payload["grid"]["data"]),
-                         payload["grid"]["rows"] * payload["grid"]["cols"])
+        # The field it redraws from: on a live run, the global map's picture.
+        self.assertEqual(payload["grid"]["picture"], fields.GLOBAL_PICTURE)
+        self.assertIn(f'<image id="{fields.GLOBAL_PICTURE}" ', html)
         script = _with_assets(html)
         self.assertIn("var GLOBE_COAST=", script)
         self.assertIn("function unproject", script)
+        self.assertIn("function readField", script)
 
     def test_the_globe_scores_the_catalogue_at_today_as_well_as_at_the_peak(self):
         """The report only ever quotes the peak; the globe has to do both."""
@@ -10029,8 +10878,8 @@ class TestEndToEnd(unittest.TestCase):
             runs = [tuple(map(float, run)) for run in re.findall(
                 r"M([-\d.]+) ([-\d.]+)h([-\d.]+)v([-\d.]+)h-[-\d.]+z",
                 found.group(0))]
-            pictures = re.findall(r'<image class="cellimg (light|dark)(?: smooth)?" x="([-\d.]+)" '
-                                  r'y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)"',
+            pictures = re.findall(r'<image(?: id="[^"]+")? class="cellimg ramp-([dqp])(?: smooth)?" '
+                                  r'x="([-\d.]+)" y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)"',
                                   found.group(0))
             if pictures:
                 drawn.add("picture")
@@ -10039,8 +10888,8 @@ class TestEndToEnd(unittest.TestCase):
                     r'width="([-\d.]+)" height="([-\d.]+)"/>', found.group(0)).groups()))
                 with self.subTest(map=title, axis="picture"):
                     self.assertFalse(runs)
-                    self.assertEqual(sorted(theme for theme, *_ in pictures), ["dark", "light"])
-                    for _theme, *box in pictures:
+                    self.assertEqual(len(pictures), 1)
+                    for _ramp, *box in pictures:
                         x, y, width, height = map(float, box)
                         self.assertLessEqual(x, frame[0] + 0.05)
                         self.assertLessEqual(y, frame[1] + 0.05)
@@ -10068,6 +10917,49 @@ class TestEndToEnd(unittest.TestCase):
         # The offline run draws both ways: the sea surface height map as
         # shapes, the SST maps as pictures.
         self.assertEqual(drawn, {"picture", "shapes"})
+
+    def test_the_globe_reads_the_global_map_s_picture(self):
+        # The globe and the global map are one field in one ramp: the globe
+        # ships the name of the map's picture instead of a copy of the field,
+        # and the map's picture, alone on the page, carries that name, a pixel
+        # a cell of the globe's grid.
+        html = dashboard.render(self.state)
+        grid = _globe_payload(html)["grid"]
+        self.assertEqual(grid["picture"], fields.GLOBAL_PICTURE)
+        self.assertEqual(grid["levels"], len(fields.DIVERGING_LIGHT))
+        self.assertNotIn("data", grid)
+        self.assertEqual(html.count("<image id="), 1)
+        section = re.search(r'<section class="card" id="global-map">.*?</section>', html, re.S).group(0)
+        found = re.search(r'<image id="%s" class="cellimg ramp-d(?: smooth)?" [^>]*'
+                          r'href="data:image/png;base64,([^"]+)"/>' % fields.GLOBAL_PICTURE, section)
+        picture = base64.b64decode(found.group(1))
+        self.assertEqual((int.from_bytes(picture[16:20], "big"), int.from_bytes(picture[20:24], "big")),
+                         (grid["cols"], grid["rows"]))
+
+    def test_the_pictures_filters_are_on_the_page_once(self):
+        # A picture is greys until its filter colours it: each ramp's two
+        # filters are defined in the page's hidden drawing, and only there.
+        html = dashboard.render(self.state)
+        ramps = set(re.findall(r'<image class="cellimg ramp-([dqp])', html))
+        self.assertIn("d", ramps)
+        for prefix in fields.PALETTES:
+            for theme in ("light", "dark"):
+                with self.subTest(f"ramp-{prefix}-{theme}"):
+                    self.assertEqual(html.count(f'<filter id="ramp-{prefix}-{theme}"'), 1)
+        hidden = re.search(r'<svg width="0" height="0" aria-hidden="true"[^>]*><defs>(.*?)</defs></svg>',
+                           html, re.S).group(1)
+        self.assertEqual(hidden.count("<filter "), 2 * len(fields.PALETTES))
+
+    def test_each_field_chart_hovers_through_one_grid(self):
+        # The field charts' hover blocks were a rectangle each, eight thousand
+        # of them on the page. Each chart's are one grid now, which the page's
+        # tooltip reads where the pointer is.
+        html = dashboard.render(self.state)
+        charts = re.findall(r'<g class="cellfill"[^>]*>(.*?)</g>', html, re.S)
+        self.assertEqual(len(charts), 8)
+        for chart in charts:
+            self.assertEqual(re.findall(r'class="hit[^"]*"', chart), ['class="hit hitgrid"'])
+        self.assertIn("function gridHit(", _with_assets(html))
 
     def test_no_card_is_only_a_caption_and_a_folded_table(self):
         # A table behind a disclosure is the twin of a chart. "Momentum and

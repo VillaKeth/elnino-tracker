@@ -26,9 +26,13 @@ Server-rendered SVG for the default view, so the panel is complete in a print, a
 screenshot and with JavaScript off, plus an inline script that re-projects on
 drag. Same dual-render contract as the 3-D scenes.
 
-The anomaly field ships to the script as one character per cell rather than as
-numbers. A 53x144 grid is 7,632 values; as JSON that is about forty kilobytes of
-text, as a string of ramp indices it is seven and a half. Nothing is lost,
+The script redraws from the field's colour classes, and the page already
+carries them: the global map draws the same field in the same ramp
+(``fields.global_ramp``) as a picture, a grey a class, and the script reads the
+classes out of it through a canvas rather than shipping a copy of its own. A
+field too small to be drawn as a picture ships as one character per cell, a
+string of ramp indices rather than numbers: as JSON a 53x144 grid is about forty
+kilobytes of text, as characters seven and a half. Nothing is lost either way,
 because the cells were already quantised to eleven colour classes before they
 were drawn.
 
@@ -52,11 +56,11 @@ from __future__ import annotations
 import json
 import math
 
-from . import coastline, cyclones, geo
+from . import coastline, cyclones, fields, geo
 from .grids import Field
 from .impacts import CATALOGUE, evaluate, flavour_of, flavour_penalty
 from .storms import NEUTRAL, STORM_HUES
-from .svg import esc
+from .svg import esc, relative_d
 
 # Near hemisphere only. A point within this of the limb is dropped: right at the
 # edge a quad projects almost edge-on and becomes a sliver of noise on the rim.
@@ -136,24 +140,15 @@ def unproject(x: float, y: float, lon0: float, lat0: float):
 
 
 # --- the field, quantised ---------------------------------------------------
-def ramp_index(value: float, limit: float) -> int:
-    """Which of the eleven diverging steps a value falls in."""
-    return max(0, min(STEPS - 1, int((value / limit + 1.0) / 2.0 * STEPS)))
-
-
-def step_value(index: int, limit: float) -> float:
-    """The middle of a step, for reading a quantised cell back out."""
-    return ((index + 0.5) / STEPS * 2.0 - 1.0) * limit
-
-
-def encode(grid: Field, limit: float) -> str:
-    """The whole field as one character per cell, row-major from the south."""
+def encode(grid: Field, ramp: fields.Ramp) -> str:
+    """The whole field as one character per cell, its class in ``ramp``,
+    row-major from the south."""
     out = []
     for row in range(grid.rows):
         for col in range(grid.cols):
             value = grid.values[row][col]
             out.append(EMPTY_CHAR if value is None
-                       else RAMP_CHARS[ramp_index(value, limit)])
+                       else RAMP_CHARS[ramp.index(value)])
     return "".join(out)
 
 
@@ -175,22 +170,35 @@ def _pt(point, radius: float, cx: float, cy: float) -> str:
     return f"{cx + point[0] * radius:.1f},{cy - point[1] * radius:.1f}"
 
 
+def _lines(points, radius: float, cx: float, cy: float) -> list[list[tuple[float, float]]]:
+    """The visible stretches of a line that goes over the limb and may come
+    back, each as its points on the page."""
+    out: list[list[tuple[float, float]]] = []
+    run: list[tuple[float, float]] = []
+    for point in points:
+        if point is None:
+            if len(run) > 1:
+                out.append(run)
+            run = []
+        else:
+            run.append((cx + point[0] * radius, cy - point[1] * radius))
+    if len(run) > 1:
+        out.append(run)
+    return out
+
+
 def _runs(points, radius: float, cx: float, cy: float,
           attrs: str = "") -> list[str]:
     """Polylines for a path that goes over the limb and may come back."""
     head = f"<polyline {attrs} " if attrs else "<polyline "
-    out: list[str] = []
-    run: list[str] = []
-    for point in points:
-        if point is None:
-            if len(run) > 1:
-                out.append(f'{head}points="{" ".join(run)}"/>')
-            run = []
-        else:
-            run.append(_pt(point, radius, cx, cy))
-    if len(run) > 1:
-        out.append(f'{head}points="{" ".join(run)}"/>')
-    return out
+    return [f'{head}points="{" ".join(f"{x:.1f},{y:.1f}" for x, y in run)}"/>'
+            for run in _lines(points, radius, cx, cy)]
+
+
+def _path(lines) -> list[str]:
+    """Lines as one path, or nothing where none of them shows."""
+    d = relative_d(lines)
+    return [f'<path d="{d}"/>'] if d else []
 
 
 def _edge(lon_a, lat_a, lon_b, lat_b, lon0, lat0, steps: int = 6):
@@ -230,6 +238,14 @@ CELL_BUDGET = 65000
 # span enough longitude for the chord to leave the sphere. Six degrees is a
 # dozen cells at half-degree spacing and under a pixel of sag at full zoom.
 MAX_RUN_DEG = 6.0
+
+# The most quads one path of cells carries. However many quads a path has, it
+# is one shape for the browser to fill, and how long a fill takes is the
+# renderer's affair: Chrome's GPU raster, given the commonest class as one
+# path with crisp edges, spent half a minute triangulating it. The cells are
+# smoothed now, which that triangulator never sees, and sixty-four quads,
+# neighbours in the order drawn, bound whatever work a renderer does for one.
+QUADS_A_PATH = 64
 
 
 def visible_radius(radius: float, size: float, zoom: float = 1.0) -> float:
@@ -303,7 +319,7 @@ def _coast_bounds(level: int):
     return hit
 
 
-def _cells(grid: Field, limit: float, lon0: float, lat0: float,
+def _cells(grid: Field, ramp: fields.Ramp, lon0: float, lat0: float,
            radius: float, cx: float, cy: float, theta: float = 90.0,
            stride: int = 1) -> list[str]:
     """The anomaly field as spherical quads over the visible cap.
@@ -311,20 +327,25 @@ def _cells(grid: Field, limit: float, lon0: float, lat0: float,
     Runs of equal colour along a parallel are merged into one quad. The ramp
     has eleven steps and the ocean is smooth at this spacing, so a row of two
     hundred cells is typically a few dozen runs: the merge costs one comparison
-    per cell and saves most of the markup.
+    per cell and saves most of the markup. A colour class is a group, its fill
+    and its stroke the class's colour, of paths of QUADS_A_PATH quads in the
+    order drawn, each quad a shape of its own in its path: dozens of elements
+    for the browser to lay out where there were thousands of polygons.
     """
     dlat = grid.y[1] - grid.y[0]
     dlon = grid.x[1] - grid.x[0]
     half_lat = dlat / 2.0
     half_lon = dlon / 2.0
     run_cap = max(1, int(MAX_RUN_DEG / abs(dlon) / stride))
-    out: list[str] = []
+    quads: dict[int, list] = {}
 
-    centre_row = int(round((lat0 - grid.y[0]) / dlat))
+    # Rounded half up, as the script's Math.round rounds: a centre on a half
+    # cell cut the runs a cell apart, and a redraw was not the first view.
+    centre_row = math.floor((lat0 - grid.y[0]) / dlat + 0.5)
     span_rows = int(theta / abs(dlat)) + 2
     row_lo = max(0, ((centre_row - span_rows) // stride) * stride)
     row_hi = min(grid.rows, centre_row + span_rows + 1)
-    centre_col = int(round(((lon0 - grid.x[0]) % 360.0) / dlon))
+    centre_col = math.floor(((lon0 - grid.x[0]) % 360.0) / dlon + 0.5)
 
     for row in range(row_lo, row_hi, stride):
         south = grid.y[row] - half_lat
@@ -345,20 +366,26 @@ def _cells(grid: Field, limit: float, lon0: float, lat0: float,
                        project(west, north, lon0, lat0))
             if any(corner is None for corner in corners):
                 return
-            path = " ".join(_pt(corner, radius, cx, cy) for corner in corners)
-            out.append(f'<polygon points="{path}" '
-                       f'fill="var(--d{run_index})"/>')
+            quads.setdefault(run_index, []).append(
+                [(cx + x * radius, cy - y * radius) for x, y in corners])
 
         for step in range(start, stop + stride, stride):
             index = None
             if step < stop:
                 value = grid.values[row][step % grid.cols]
                 if value is not None:
-                    index = ramp_index(value, limit)
+                    index = ramp.index(value)
             if index != run_index or run_len >= run_cap:
                 flush(step)
                 run_lo, run_index, run_len = step, index, 0
             run_len += 1
+    out: list[str] = []
+    for index in sorted(quads):
+        runs = quads[index]
+        paths = "".join(path for start in range(0, len(runs), QUADS_A_PATH)
+                        for path in _path(runs[start:start + QUADS_A_PATH]))
+        if paths:
+            out.append(f'<g fill="var(--d{index})" stroke="var(--d{index})">{paths}</g>')
     return out
 
 
@@ -376,21 +403,21 @@ def _coast(lon0: float, lat0: float, radius: float, cx: float,
     for box, line in zip(_coast_bounds(level), lines):
         if not _near(box, lon0, lat0, theta):
             continue
-        out.extend(_runs([project(lon, lat, lon0, lat0) for lon, lat in line],
-                         radius, cx, cy))
-    return out
+        out.extend(_lines([project(lon, lat, lon0, lat0) for lon, lat in line],
+                          radius, cx, cy))
+    return _path(out)
 
 
 def _graticule(lon0: float, lat0: float, radius: float, cx: float,
                cy: float) -> list[str]:
     out = []
     for lat in range(-60, 61, 30):
-        out.extend(_runs([project(lon - 180.0, float(lat), lon0, lat0)
-                          for lon in range(0, 361, 3)], radius, cx, cy))
+        out.extend(_lines([project(lon - 180.0, float(lat), lon0, lat0)
+                           for lon in range(0, 361, 3)], radius, cx, cy))
     for lon in range(-180, 180, 30):
-        out.extend(_runs([project(float(lon), float(lat), lon0, lat0)
-                          for lat in range(-90, 91, 3)], radius, cx, cy))
-    return out
+        out.extend(_lines([project(float(lon), float(lat), lon0, lat0)
+                           for lat in range(-90, 91, 3)], radius, cx, cy))
+    return _path(out)
 
 
 def _zones(links: list[dict], lon0: float, lat0: float, radius: float,
@@ -645,8 +672,8 @@ def card(state, size: int = 640) -> str:
     if grid is None or grid.rows < 2 or grid.cols < 2:
         return ""
 
-    low, high = grid.robust_span()
-    limit = max(abs(low), abs(high), 0.5)
+    ramp = fields.global_ramp(grid)
+    limit = ramp.high
     radius = size / 2.0 - 24.0
     cx = cy = size / 2.0
     lon0, lat0 = HOME
@@ -668,14 +695,20 @@ def card(state, size: int = 640) -> str:
     links = dossier(peak_index, current_index, flavour_index, peak_label)
     layer = storm_layer(state)
 
+    field = {
+        "lat0": grid.y[0], "lon0": geo.wrap180(grid.x[0]),
+        "dlat": grid.y[1] - grid.y[0], "dlon": grid.x[1] - grid.x[0],
+        "rows": grid.rows, "cols": grid.cols,
+        "limit": round(limit, 3), "steps": STEPS,
+    }
+    if fields.as_picture(grid):
+        # The global map draws this field as a picture, a grey a class: the
+        # script reads the classes from it, so the page carries them once.
+        field.update(picture=fields.GLOBAL_PICTURE, levels=len(fields.PALETTES[ramp.prefix][0]))
+    else:
+        field["data"] = encode(grid, ramp)
     payload = {
-        "grid": {
-            "lat0": grid.y[0], "lon0": geo.wrap180(grid.x[0]),
-            "dlat": grid.y[1] - grid.y[0], "dlon": grid.x[1] - grid.x[0],
-            "rows": grid.rows, "cols": grid.cols,
-            "limit": round(limit, 3), "steps": STEPS,
-            "data": encode(grid, limit),
-        },
+        "grid": field,
         "view": {"lon": lon0, "lat": lat0, "r": radius, "cx": cx, "cy": cy},
         "links": links,
         "storms": layer,
@@ -690,7 +723,7 @@ def card(state, size: int = 640) -> str:
         DEFS,
         f'<circle cx="{cx:.0f}" cy="{cy:.0f}" r="{radius:.1f}" class="ocean"/>',
         '<g class="cells">',
-        *_cells(grid, limit, lon0, lat0, radius, cx, cy, theta, stride),
+        *_cells(grid, ramp, lon0, lat0, radius, cx, cy, theta, stride),
         '</g><g class="grat">', *_graticule(lon0, lat0, radius, cx, cy),
         '</g><g class="coast">',
         *_coast(lon0, lat0, radius, cx, cy, level, theta),
@@ -700,8 +733,8 @@ def card(state, size: int = 640) -> str:
         f'<circle cx="{cx:.0f}" cy="{cy:.0f}" r="{radius:.1f}" class="limb"/>',
     ]
 
-    ramp = "".join(f'<span class="rampcell" style="background:var(--d{i})"></span>'
-                   for i in range(STEPS))
+    strip = "".join(f'<span class="rampcell" style="background:var(--d{i})"></span>'
+                    for i in range(STEPS))
     views = "".join(
         f'<button type="button" class="gbtn" data-globe-view="{lon},{lat}">'
         f"{esc(name)}</button>" for name, lon, lat in VIEWS)
@@ -739,24 +772,24 @@ def card(state, size: int = 640) -> str:
   <h2>The planet, and what this event does to it</h2>
   <p class="caption">Sea surface temperature anomaly for {esc(grid.as_of)} painted
   on the sphere, with the {len(links)} catalogued teleconnection regions outlined.
-  <strong>Drag to spin, pinch or use &minus;/+ (or ctrl and the wheel) to
+  <strong class="gdo">Drag to spin, pinch or use &minus;/+ (or ctrl and the wheel) to
   zoom, click anywhere to open that location.</strong> The panel reports every relationship covering the point
   you pick, scored at today&rsquo;s {esc(index_name)} of {current_index:+.2f}{peak_phrase}.{storm_phrase}</p>
   <div class="ramp">
     <div class="ramplabel">SST anomaly <span class="rampunits">°C</span></div>
-    <div class="rampstrip">{ramp}</div>
+    <div class="rampstrip">{strip}</div>
     <div class="rampticks"><span class="ramptick">&minus;{limit:.1f}</span>
       <span class="ramptick">0</span>
       <span class="ramptick">+{limit:.1f}</span></div>
   </div>
   <div class="gcontrols">
-    <div class="grow"><span class="glabel">View</span>{views}
+    <div class="grow gview"><span class="glabel">View</span>{views}
       <button type="button" class="gbtn" data-globe-zoom="-1"
         aria-label="Zoom out">&minus;</button>
       <button type="button" class="gbtn" data-globe-zoom="1"
         aria-label="Zoom in">+</button>
       <button type="button" class="gbtn" data-globe-zoom="0">Reset</button></div>
-    <div class="grow"><span class="glabel">Highlight</span>
+    <div class="grow gpol"><span class="glabel">Highlight</span>
       <button type="button" class="gchip on" data-globe-pol="">All regions</button>
       {polarities}</div>
     {storm_row}
@@ -813,6 +846,12 @@ CSS = """
     var(--axis) 3px 4px); }
 .globe { cursor: grab; touch-action: pan-y; position: relative; }
 .globe.grabbing { cursor: grabbing; }
+/* A globe whose field could not be read stays as the server drew it: the
+   controls that would turn, zoom or redraw it are set aside, and so is
+   centring on a pick (the script's still). */
+.globe-still .gview, .globe-still .gpol,
+.globe-still [data-globe-tc], .globe-still [data-globe-centre] { display: none; }
+.globe-still .globe { cursor: pointer; }
 /* At rest the frame is the limb, so the panel is a sphere rather than a
    picture of one. Zoomed in the sphere is larger than the frame, and a round
    clip would then crop the data to a porthole for no reason. */
@@ -828,10 +867,19 @@ CSS = """
    cell the sensor missed reads as "no reading" rather than as zero anomaly. */
 .ocean { fill: url(#gnodata); }
 .limb { fill: none; stroke: var(--axis); stroke-width: 1.2; }
-.cells polygon { shape-rendering: crispEdges; }
-.grat polyline { fill: none; stroke: var(--axis); stroke-width: 0.6;
+/* A colour class is a group whose fill and stroke are its colour, and the
+   cells are smoothed: drawn with crisp edges, every path went to Chrome's GPU
+   raster to be triangulated on the CPU, up to half a minute a frame.
+   Smoothed, two paths meet in a seam the ocean shows through, as a merged
+   run's chord, sagging off its parallel, leaves a sliver against the next
+   row. A quad is a line from its south-west corner round to its north-west,
+   so its stroke runs half a unit beyond its south, east and north edges:
+   every seam between two cells lies under one of their strokes, a cell's
+   west edge under its western neighbour's east. */
+.cells { stroke-width: 1; stroke-linejoin: round; }
+.grat path { fill: none; stroke: var(--axis); stroke-width: 0.6;
   opacity: 0.5; }
-.coast polyline { fill: none; stroke: var(--ink); stroke-width: 0.9;
+.coast path { fill: none; stroke: var(--ink); stroke-width: 0.9;
   opacity: 0.62; stroke-linejoin: round; }
 
 /* Footprints are outlines, not fills: a fill would hide the anomaly under it,
@@ -996,6 +1044,43 @@ GLOBE_JS = r"""
       y * Math.sin(c) * Math.sin(p0)) * 180 / Math.PI;
     return [wrap(lon), lat];
   }
+  // A path's d for lines of [x, y] points on the page, each vertex the step
+  // from the last at a tenth of a unit, as the server writes one
+  // (svg.relative_d): a dozen elements a frame where there were thousands.
+  function shortNum(t) {
+    var a = Math.abs(t), w = Math.floor(a / 10), f = a % 10;
+    var s = !f ? String(w) : !w ? "." + f : w + "." + f;
+    return t < 0 ? "-" + s : s;
+  }
+  function joinNums(list) {
+    var out = "", pointed = false;
+    for (var i = 0; i < list.length; i++) {
+      var s = list[i], c = s.charAt(0);
+      out += !out || c === "-" || (pointed && c === ".") ? s : " " + s;
+      pointed = s.indexOf(".") >= 0;
+    }
+    return out;
+  }
+  function relD(lines) {
+    var out = [];
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i], steps = [], j, x, y;
+      if (line.length < 2) { continue; }
+      var px = Math.round(line[0][0] * 10), py = Math.round(line[0][1] * 10);
+      var x0 = px, y0 = py;
+      for (j = 1; j < line.length; j++) {
+        x = Math.round(line[j][0] * 10); y = Math.round(line[j][1] * 10);
+        if (x !== px || y !== py) {
+          steps.push(shortNum(x - px), shortNum(y - py));
+          px = x; py = y;
+        }
+      }
+      if (steps.length) {
+        out.push("M" + joinNums([shortNum(x0), shortNum(y0)]) + "l" + joinNums(steps));
+      }
+    }
+    return out.join("");
+  }
   function esc(s) {
     return String(s).replace(/[&<>"]/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
@@ -1013,6 +1098,97 @@ GLOBE_JS = r"""
     return Math.abs(v) < 0.05 ? "0 (equator)"
       : Math.abs(v).toFixed(1) + (v > 0 ? "N" : "S");
   }
+  // The field's colour classes, out of the global map's picture where the
+  // page draws the field as one (fields._draw_picture): an indexed PNG as
+  // png.indexed writes it, north up and west to the left, a pixel a cell,
+  // each entry of its palette the grey of a class - class k of n the middle
+  // of the k-th n-th of 0-255 - or seen through where there is no reading.
+  // Its lines are inflated and their indices read into g.cells, in the
+  // payload's own rows and columns, 255 where there is no reading; done says
+  // whether they could be. No canvas is asked for the pixels, so none can
+  // refuse them or hand them back changed, as a browser guarding against
+  // fingerprinting does with a canvas's; a picture that is not one the
+  // server writes, or a browser that cannot inflate it, is not read.
+  function readField(g, done) {
+    var source = document.getElementById(g.picture);
+    var href = source && source.getAttribute("href");
+    if (!href || typeof DecompressionStream !== "function") { done(false); return; }
+    var rows = g.rows, cols = g.cols, n = g.levels, png;
+    fetch(href).then(function (answer) { return answer.arrayBuffer(); })
+      .then(function (bytes) {
+        png = chunks(new Uint8Array(bytes));
+        var lines = new Blob(png.idat).stream().pipeThrough(new DecompressionStream("deflate"));
+        return new Response(lines).arrayBuffer();
+      })
+      .then(function (raw) { walk(new Uint8Array(raw)); }, function () { done(false); });
+    // The picture's chunks, or an error for one the server does not write: its
+    // size the field's, indexed, unfiltered and in order, and each entry of
+    // its palette a class's grey or the one seen through.
+    function chunks(b) {
+      var SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10], at = 8;
+      var head = null, palette = null, clear = [], idat = [], i;
+      for (i = 0; i < 8; i++) {
+        if (b[i] !== SIGNATURE[i]) { throw new Error("not a PNG"); }
+      }
+      while (at + 8 <= b.length) {
+        var size = ((b[at] << 24) | (b[at + 1] << 16) | (b[at + 2] << 8) | b[at + 3]) >>> 0;
+        var kind = String.fromCharCode(b[at + 4], b[at + 5], b[at + 6], b[at + 7]);
+        var body = b.subarray(at + 8, at + 8 + size);
+        if (kind === "IHDR") { head = body; }
+        else if (kind === "PLTE") { palette = body; }
+        else if (kind === "tRNS") { clear = body; }
+        else if (kind === "IDAT") { idat.push(body); }
+        at += 12 + size;
+      }
+      function word(o) {
+        return ((head[o] << 24) | (head[o + 1] << 16) | (head[o + 2] << 8) | head[o + 3]) >>> 0;
+      }
+      if (!head || !palette || !idat.length || word(0) !== cols || word(4) !== rows ||
+          [1, 2, 4, 8].indexOf(head[8]) < 0 || head[9] !== 3 || head[10] || head[11] || head[12]) {
+        throw new Error("not a picture the server writes");
+      }
+      var classOf = new Int16Array(256).fill(-1);
+      for (i = 0; i < palette.length / 3; i++) {
+        var grey = palette[3 * i], k = Math.min(n - 1, Math.floor(grey * n / 255));
+        var alpha = i < clear.length ? clear[i] : 255;
+        if (alpha === 0) { classOf[i] = 255; continue; }
+        if (alpha !== 255 || palette[3 * i + 1] !== grey || palette[3 * i + 2] !== grey ||
+            Math.abs(grey - (k + 0.5) * 255 / n) > 0.5) {
+          throw new Error("a colour that is not a class's grey");
+        }
+        classOf[i] = k;
+      }
+      return { depth: head[8], classOf: classOf, idat: idat };
+    }
+    // The rows a few milliseconds at a time, the page's own work let run
+    // between them: walked in one go, the day's field held a phone's
+    // processor some 30 ms on end as the page loaded.
+    function walk(raw) {
+      var depth = png.depth, classOf = png.classOf, mask = (1 << depth) - 1;
+      var stride = Math.ceil(cols * depth / 8) + 1, cells = new Uint8Array(rows * cols);
+      var read = 0, row = 0, line;
+      if (raw.length !== rows * stride) { done(false); return; }
+      for (line = 0; line < raw.length; line += stride) {
+        if (raw[line] !== 0) { done(false); return; }
+      }
+      (function slice() {
+        for (var stop = performance.now() + 8; row < rows && performance.now() < stop; row++) {
+          var at = (g.dlat > 0 ? rows - 1 - row : row) * stride + 1;
+          for (var col = 0; col < cols; col++) {
+            var bit = (g.dlon > 0 ? col : cols - 1 - col) * depth;
+            var k = classOf[(raw[at + (bit >> 3)] >> (8 - depth - (bit & 7))) & mask];
+            if (k < 0) { done(false); return; }
+            cells[row * cols + col] = k;
+            if (k !== 255) { read++; }
+          }
+        }
+        if (row < rows) { setTimeout(slice, 0); return; }
+        if (!read) { done(false); return; }
+        g.cells = cells;
+        done(true);
+      })();
+    }
+  }
 
   document.querySelectorAll(".globe").forEach(function (host) {
     var data;
@@ -1023,11 +1199,46 @@ GLOBE_JS = r"""
     var panel = card.querySelector(".dossier");
     var view = data.view, g = data.grid;
     var lon0 = view.lon, lat0 = view.lat, zoom = 1;
+    // The view last drawn, the server's until the script draws one: a click
+    // lands on the globe on the screen, not on a view a drag asked for in
+    // the moment before the field was read.
+    var shown = { lon: view.lon, lat: view.lat, zoom: 1 };
     var pin = null, filter = "", coarse = false, frame = null;
     var STORMS = data.storms || [], showStorms = true;
+    // Where the page draws the field as a picture its classes are read from
+    // it (readField, last below): a redraw or a report asked for before then
+    // waits for them, and a field that cannot be read leaves the globe as the
+    // server drew it.
+    var field = g.picture ? "reading" : "read", waiting = [];
+    function whenRead(fn) {
+      if (field !== "reading") { return false; }
+      if (waiting.indexOf(fn) < 0) { waiting.push(fn); }
+      return true;
+    }
+    // A globe whose field could not be read stays as served: whatever a
+    // gesture did to the view is undone before anything is drawn or picked.
+    function settle() {
+      if (field === "none") { lon0 = view.lon; lat0 = view.lat; zoom = 1; }
+    }
+    // And says so: the controls that would turn, zoom or redraw it are set
+    // aside (.globe-still), with centring on a pick, and its hint and the
+    // caption's instructions say a click still inspects a place.
+    function still() {
+      if (card.classList) { card.classList.add("globe-still"); }
+      var hint = host.querySelector(".ghint"), how = card.querySelector(".gdo");
+      if (hint) { hint.textContent = "This browser keeps the globe still \u00b7 click it to inspect a place"; }
+      if (how) { how.textContent = "Click anywhere to open that location."; }
+    }
+    // Centring on a pick turns the globe, which a globe left still does not.
+    function centreButton() {
+      return field === "none" ? "" :
+        '<button type="button" class="gbtn" data-globe-centre="1">Centre here</button>';
+    }
 
     function sample(row, col) {
-      var i = CHARS.indexOf(g.data.charAt(row * g.cols + col));
+      var at = row * g.cols + col;
+      if (g.cells) { return g.cells[at] === 255 ? null : g.cells[at]; }
+      var i = CHARS.indexOf(g.data.charAt(at));
       return i < 0 ? null : i;
     }
     function pt(p, r) {
@@ -1046,6 +1257,30 @@ GLOBE_JS = r"""
         } else { run.push(pt(points[i], r)); }
       }
       if (run.length > 1) { out.push(head + 'points="' + run.join(" ") + '"/>'); }
+    }
+    // The visible stretches of a line over the limb, as points on the page.
+    function lineRuns(points, r) {
+      var out = [], run = [];
+      for (var i = 0; i < points.length; i++) {
+        if (!points[i]) {
+          if (run.length > 1) { out.push(run); }
+          run = [];
+        } else { run.push([view.cx + points[i][0] * r, view.cy - points[i][1] * r]); }
+      }
+      if (run.length > 1) { out.push(run); }
+      return out;
+    }
+    function corners(points, r) {
+      var out = [];
+      for (var i = 0; i < points.length; i++) {
+        if (!points[i]) { return null; }
+        out.push([view.cx + points[i][0] * r, view.cy - points[i][1] * r]);
+      }
+      return out;
+    }
+    function pathOf(lines, attrs) {
+      var d = relD(lines);
+      return d ? '<path d="' + d + '"' + (attrs || "") + '/>' : "";
     }
     function ring(points, r) {
       var out = [];
@@ -1121,7 +1356,7 @@ GLOBE_JS = r"""
     function pickStorm(sx, sy, r) {
       if (!showStorms) { return null; }
       for (var i = 0; i < STORMS.length; i++) {
-        var p = project(STORMS[i].lon, STORMS[i].lat, lon0, lat0);
+        var p = project(STORMS[i].lon, STORMS[i].lat, shown.lon, shown.lat);
         if (!p) { continue; }
         var dx = view.cx + p[0] * r - sx, dy = view.cy - p[1] * r - sy;
         // A generous target: the eye of a hurricane is a few pixels wide here
@@ -1145,9 +1380,7 @@ GLOBE_JS = r"""
     function reportStorm(S) {
       var h = hue(S.hue), i, rows;
       var out = ['<div class="dhead"><h3><span class="tckey" style="background:' +
-        h + '"></span>' + esc(S.name) + '</h3>' +
-        '<button type="button" class="gbtn" data-globe-centre="1">' +
-        'Centre here</button></div>'];
+        h + '"></span>' + esc(S.name) + '</h3>' + centreButton() + '</div>'];
       out.push('<p class="localsst"><strong>' + S.wind + ' kt</strong> ' +
         esc(S.short) + (S.pressure ? ' &middot; ' + S.pressure + ' mb' : "") +
         '</p>');
@@ -1215,6 +1448,8 @@ GLOBE_JS = r"""
     // the cost of a frame does not change when the reader zooms - only the
     // detail does.
     var CELL_BUDGET = 65000, MAX_RUN_DEG = 6, DEG = 180 / Math.PI;
+    // The most quads one path of cells carries, as on the server.
+    var QUADS_A_PATH = 64;
     // The field is a quarter degree, so the zoom is allowed to run far
     // enough in to actually reach it: ten times is about 0.02 degrees to
     // a pixel, which is one cell to twelve and the finest coastline.
@@ -1281,6 +1516,9 @@ GLOBE_JS = r"""
     }
 
     function draw() {
+      settle();
+      if (field !== "read") { whenRead(draw); return; }
+      shown = { lon: lon0, lat: lat0, zoom: zoom };
       var r = view.r * zoom;
       host.classList.toggle("zoomed", zoom > 1.001);
       var theta = visibleRadius(r);
@@ -1289,7 +1527,7 @@ GLOBE_JS = r"""
       var step = cellStride(theta) * (coarse ? 2 : 1);
       var hlat = g.dlat / 2, hlon = g.dlon / 2;
       var runCap = Math.max(1, Math.floor(MAX_RUN_DEG / Math.abs(g.dlon) / step));
-      var cells = [], row, col, i, pts, s;
+      var quads = {}, cells = [], row, col, i, pts, s;
       var midRow = Math.round((lat0 - g.lat0) / g.dlat);
       var spanRow = Math.floor(theta / Math.abs(g.dlat)) + 2;
       var rowLo = Math.max(0, Math.floor((midRow - spanRow) / step) * step);
@@ -1303,36 +1541,44 @@ GLOBE_JS = r"""
         var start = Math.floor((midCol - spanCol) / step) * step;
         var stop = midCol + spanCol + 1;
         var runLo = null, runIx = null, runLen = 0;
-        for (col = start; col <= stop; col += step) {
+        // On to the first step past the window, as the server goes, so the
+        // row's last run is closed and drawn whatever the stride.
+        for (col = start; col < stop + step; col += step) {
           var v = col < stop ? sample(row, mod(col, g.cols)) : null;
           if (v !== runIx || runLen >= runCap) {
             if (runLo !== null && runIx !== null) {
               var west = g.lon0 + runLo * g.dlon - hlon;
               var east = g.lon0 + (col - step) * g.dlon - hlon + g.dlon * step;
-              var quad = ring([project(west, south, lon0, lat0),
-                               project(east, south, lon0, lat0),
-                               project(east, north, lon0, lat0),
-                               project(west, north, lon0, lat0)], r);
-              if (quad) {
-                cells.push('<polygon points="' + quad +
-                           '" fill="var(--d' + runIx + ')"/>');
-              }
+              var quad = corners([project(west, south, lon0, lat0),
+                                  project(east, south, lon0, lat0),
+                                  project(east, north, lon0, lat0),
+                                  project(west, north, lon0, lat0)], r);
+              if (quad) { (quads[runIx] = quads[runIx] || []).push(quad); }
             }
             runLo = col; runIx = v; runLen = 0;
           }
           runLen++;
         }
       }
+      for (var k = 0; k < g.steps; k++) {
+        var list = quads[k] || [], group = "";
+        for (var q = 0; q < list.length; q += QUADS_A_PATH) {
+          group += pathOf(list.slice(q, q + QUADS_A_PATH));
+        }
+        if (group) {
+          cells.push('<g fill="var(--d' + k + ')" stroke="var(--d' + k + ')">' + group + '</g>');
+        }
+      }
       var grat = [];
       for (var la = -60; la <= 60; la += 30) {
         pts = [];
         for (s = 0; s <= 360; s += 3) { pts.push(project(s - 180, la, lon0, lat0)); }
-        runs(pts, r, grat);
+        grat = grat.concat(lineRuns(pts, r));
       }
       for (var lo2 = -180; lo2 < 180; lo2 += 30) {
         pts = [];
         for (s = -90; s <= 90; s += 3) { pts.push(project(lo2, s, lon0, lat0)); }
-        runs(pts, r, grat);
+        grat = grat.concat(lineRuns(pts, r));
       }
       // A level finer than the display is invisible and a level coarser is
       // the polygon the reader complains about, so it follows the zoom - and
@@ -1348,10 +1594,10 @@ GLOBE_JS = r"""
         for (var j = 0; j < flat.length; j += 2) {
           pts.push(project(flat[j], flat[j + 1], lon0, lat0));
         }
-        runs(pts, r, coast);
+        coast = coast.concat(lineRuns(pts, r));
       }
       var zones = [], hot = [];
-      for (var k = 0; k < data.links.length; k++) {
+      for (k = 0; k < data.links.length; k++) {
         var L = data.links[k];
         if (L.scope === "global") { continue; }
         var live = pinned(L) || (filter !== "" && L.polarity === filter);
@@ -1377,8 +1623,8 @@ GLOBE_JS = r"""
         '<circle cx="' + view.cx + '" cy="' + view.cy + '" r="' + r.toFixed(1) +
         '" class="ocean"/>' +
         '<g class="cells">' + cells.join("") + '</g>' +
-        '<g class="grat">' + grat.join("") + '</g>' +
-        '<g class="coast">' + coast.join("") + '</g>' +
+        '<g class="grat">' + pathOf(grat) + '</g>' +
+        '<g class="coast">' + pathOf(coast) + '</g>' +
         '<g class="zones">' + zones.join("") + hot.join("") + '</g>' +
         stormArt(r) + mark +
         '<circle cx="' + view.cx + '" cy="' + view.cy + '" r="' + r.toFixed(1) +
@@ -1398,6 +1644,7 @@ GLOBE_JS = r"""
     }
 
     function report(lon, lat) {
+      if (whenRead(function () { report(lon, lat); })) { return; }
       var hits = [], i, b, L;
       for (i = 0; i < data.links.length; i++) {
         L = data.links[i];
@@ -1418,7 +1665,10 @@ GLOBE_JS = r"""
       var col = Math.round(wrap(lon - g.lon0) / g.dlon);
       col = ((col % g.cols) + g.cols) % g.cols;
       var local = '<p class="localsst hint">Outside the gridded field.</p>';
-      if (row >= 0 && row < g.rows) {
+      if (field === "none") {
+        local = '<p class="localsst hint">This browser could not read the sea ' +
+                'surface field, so the anomaly here is not shown.</p>';
+      } else if (row >= 0 && row < g.rows) {
         var v = sample(row, col);
         if (v === null) {
           local = '<p class="localsst hint">Land, or no sea surface reading in ' +
@@ -1431,8 +1681,7 @@ GLOBE_JS = r"""
         }
       }
       var head = '<div class="dhead"><h3>' + latName(lat) + ", " + lonName(lon) +
-        '</h3><button type="button" class="gbtn" data-globe-centre="1">' +
-        'Centre here</button></div>' + local;
+        '</h3>' + centreButton() + '</div>' + local;
 
       if (!hits.length) {
         panel.innerHTML = head + '<p class="hint">No catalogued teleconnection ' +
@@ -1526,10 +1775,11 @@ GLOBE_JS = r"""
       if (pointers.size) { return; }
       coarse = false; host.classList.remove("grabbing");
       if (travelled < 5) {
+        settle();
         var rect = svg.getBoundingClientRect();
         var sx = (e.clientX - rect.left) / rect.width * view.cx * 2;
         var sy = (e.clientY - rect.top) / rect.height * view.cy * 2;
-        var r = view.r * zoom;
+        var r = view.r * shown.zoom;
         // A storm wins the click over the ocean under it: a reader aiming at a
         // hurricane wants the hurricane, not the cell it happens to sit on.
         var hit = pickStorm(sx, sy, r);
@@ -1537,7 +1787,7 @@ GLOBE_JS = r"""
           pin = [hit.lon, hit.lat];
           reportStorm(hit);
         } else {
-          var ll = unproject((sx - view.cx) / r, (view.cy - sy) / r, lon0, lat0);
+          var ll = unproject((sx - view.cx) / r, (view.cy - sy) / r, shown.lon, shown.lat);
           if (ll) { pin = ll; report(ll[0], ll[1]); }
         }
       }
@@ -1625,11 +1875,21 @@ GLOBE_JS = r"""
         draw();
       } else if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        pin = [wrap(lon0), lat0];
+        pin = [wrap(shown.lon), shown.lat];
         report(pin[0], pin[1]);
         draw();
       }
     });
+
+    if (g.picture) {
+      readField(g, function (ok) {
+        field = ok ? "read" : "none";
+        if (!ok) { still(); }
+        var later = waiting;
+        waiting = [];
+        later.forEach(function (fn) { fn(); });
+      });
+    }
   });
 })();
 """

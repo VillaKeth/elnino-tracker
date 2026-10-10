@@ -258,16 +258,56 @@ the power index, the forecast or the alerts, so a spatial feed that fails costs 
 picture and nothing else — the run continues and says which view is missing.
 
 A map of more than 2,000 cells on a regular grid — the Pacific and global SST
-maps and both Hovmöllers — is drawn as two indexed PNGs, a pixel a cell, one in
-each theme's colours, of which the page shows the one for its theme, its pixels
-kept square, unless a cell is finer than a unit of the plot: the global map's
-1,440 columns in some 830 units are left to the browser's smoothing, since
-nearest-neighbour would drop whole columns of cells. The hover blocks over a
-picture stay shapes. As runs of SVG paths the
-global map's 911,520 cells were 2.4 MB; as pictures they are two PNGs of some
-75 KB each, and the dashboard went from 1.13 MB to 869 KB gzip. A smaller field,
-or one whose cells differ in size, stays shapes: the sea-level map (1,449 cells),
-the depth sections and the isotherm Hovmöller.
+maps and both Hovmöllers — is drawn as an indexed PNG, a pixel a cell, its
+pixels kept square, unless a cell is finer than a unit of the plot: the global
+map's 1,440 columns in some 830 units are left to the browser's smoothing, since
+nearest-neighbour would drop whole columns of cells. As runs of SVG paths the
+global map's 911,520 cells were 2.4 MB; as pictures they were two PNGs of some
+75 KB each, one in each theme's colours, and the dashboard went from 1.13 MB to
+869 KB gzip. A smaller field, or one whose cells differ in size, stays shapes:
+the sea-level map (1,449 cells), the depth sections and the isotherm Hovmöller.
+
+A picture is drawn once for both themes. Each cell is the grey of its colour
+class — class i of n at `round((i + 0.5) × 255 / n)` — and the page colours the
+greys through an SVG filter, a discrete `feComponentTransfer` whose tables are
+the theme's steps, chosen by the theme the way the ramp's custom properties are;
+the six filters, each ramp's light and dark, are defined once in the page. A
+square picture comes out the colours its two pictures had, at one and two
+device pixels a unit (and three in WebKit), under the system's light and dark
+and either chosen: to within a level in Firefox; in Chrome but for fewer than
+one pixel in a thousand, at class edges and under overlays, which its GPU
+raster leaves up to 11 levels off; and in WebKit, Safari's engine, but for at
+most about one in a thousand, along class and coast edges it places a device
+pixel off. A smoothed one now settles each screen pixel
+on a class where it used to mix two classes' colours, so the global map's class
+edges are steps in the colour bar's own colours: some 10 to 17 per cent of its
+pixels change, almost all by less than one step between classes. The dashboard
+is 74 KB lighter for it (724 KB to 650 gzip), and bringing the pictures into
+view, switching the theme and scrolling cost what they did.
+
+A field chart's hover blocks — its cells pooled to at least 11 pixels a side,
+each saying the range under it — are one transparent rectangle over the field
+rather than a rectangle a block. Its data are the blocks' edges across and down
+in the chart's own units, the labels of their columns and rows, and each block's
+range, or null where it has nothing in it. The page's tooltip takes the pointer
+into the chart's units through the transform from the screen, so a chart shrunk
+to a phone's width is read where it is drawn, and finds the block among the
+edges. The eight field charts' 8,292 blocks, each hovered on the page before and
+after in Chrome and in Firefox, at a desktop's width and a phone's, say the
+same, and over a block with nothing in it nothing shows, as before. That took
+8,284 elements and 59 KB gzipped off the dashboard (576 KB to 517), 1.1 MB as
+written.
+
+A map's coastline is one path with each vertex written as its step from the
+one before, at the tenth of a unit it was always drawn at: `-.3.5` where it
+was `L176.4 347.1`, the second point starting a number of its own, since a
+number holds one point at most. The browser's running sum lands on the same
+points, and the five maps' coasts are about half the bytes they were.
+
+The gzipped sizes in this section are at gzip's highest level, 9, and those
+measured on a phone's line (*The live site*) at level 6. GitHub Pages sends
+level 5, at which the dashboard is 529 KB where it was 894 KB before its coasts
+were written as steps.
 
 The three interactive panels — the globe, the thermocline surface and the phase
 spiral — are rendered twice: once server-side as real SVG, so the page is
@@ -310,10 +350,30 @@ Seven preset views (Pacific, Americas, Africa, Asia-Pacific, Atlantic, and each
 pole) exist so the reader can get to a hemisphere without learning to drive.
 
 The field behind the globe is OISST at its own quarter-degree resolution —
-1,440 × 632 cells — and the coastline is Natural Earth 10m, 130,010 vertices.
-Neither is drawn in full, ever. The payload is one character per cell against an
-11-step ramp rather than JSON numbers, which is the difference between a 0.9 MB
-attribute and a 5 MB one.
+1,440 × 633 cells — and the coastline is Natural Earth 10m, 130,010 vertices.
+Neither is drawn in full, ever. Nor does the globe carry a copy of the field:
+the global map further down the page draws the same field in the same eleven
+classes as a picture, a grey a class, and the globe's script reads the classes
+out of the picture's own bytes. The picture is an indexed PNG whose palette
+index is the cell's class, its lines unfiltered (`png.indexed`), so the script
+inflates them with the browser's `DecompressionStream` and reads each pixel's
+index: cell for cell the classes the server draws, in Chrome, Firefox and
+WebKit alike, with no canvas asked for its pixels, which a browser guarding
+against fingerprinting can hand back changed. The read takes 5 to 6 ms in
+Firefox and 7 to 22 in Chrome; on a
+phone's processor (Chrome slowed four times) it takes 14 to 50 ms where
+reading the picture back from a canvas took 41 to 103, its rows walked eight
+milliseconds at a time with the page's own work let run between. That took the
+911,520 characters the globe used to ship off the page, 74 KB gzipped (650 KB
+to 576). A field too small to be drawn as a picture still ships as one
+character per cell against the 11-step ramp. A gesture made before the picture
+is read waits for it, and a click made then lands where the globe was drawn,
+not where a drag was taking it. A picture missing or not one the server
+writes, or a browser without `DecompressionStream` (Chrome before 80, Firefox
+before 113, Safari before 16.4), keeps the globe as the server drew it and
+says so: the controls that would turn, zoom or redraw it are set aside, its
+hint says the browser keeps the globe still, and a click on it still names the
+place and what covers it.
 
 #### Level of detail
 
@@ -348,9 +408,29 @@ frame, server-side for the first paint and in the browser after that:
 | 3 | 0.015° | 130,010 | a landfall, at full zoom |
 
 Adjacent cells of the same colour along a parallel merge into one quad, capped at
-6° of span so a merged quad's chord cannot leave the sphere. The result is 7,700
-polygons unzoomed at an effective 1.0°, falling to a few hundred at native 0.25°
-when zoomed, and seven zoom redraws measured at 186 ms total.
+6° of span so a merged quad's chord cannot leave the sphere. The result is some
+7,900 quads unzoomed at an effective 1.0°, falling to a few hundred at native
+0.25° when zoomed — but not 7,900 elements. A colour class is one group, its fill
+and its stroke the class's colour, of paths of sixty-four quads, each vertex
+written as its step from the one before at a tenth of a unit, as the maps'
+coasts are; the coast and the graticule are a path each. The first view's cells
+are 140 elements where they were 7,870 polygons, and the globe's markup is
+373 KB where it was 853 (134 KB gzipped, from 173). The script draws every
+frame after it the same way, to the vertex, and seven zoom presses take some
+75 ms of script where the polygons took 130 (headless Chrome, warm).
+
+The cells are smoothed, not drawn with crisp edges. Crisp, a path went to
+Chrome's GPU raster to be triangulated on the CPU before it was filled: the
+commonest class as one path — two thousand quads — took 28 seconds to reach
+the screen, and a path of sixty-four a third of a second at one step of a drag.
+Smoothed, two paths meet in a seam the ocean shows through, as a merged run's
+chord, sagging off its parallel, leaves a sliver against the next row: the
+specks of no-data hatching the crisp polygons always showed. A one-unit stroke
+of each class's own colour covers both. A quad is drawn from its south-west
+corner round to its north-west, so its stroke runs half a unit beyond its
+south, east and north edges, and every seam between two cells lies under one
+of their strokes. The slowest step of a sweep through every preset view, every
+zoom and a drag is 73 ms where it was 98.
 
 ## 5. Forecast
 
@@ -1760,7 +1840,7 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1379 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1406 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -1934,9 +2014,12 @@ much more than an hour, plus GitHub's queue, behind the feeds
   0.7 s where it took 4.2, the atlas in 0.8 s where it took 14.9, and the
   dashboard in 5.8 s where it took 8.4, fetching the page alone, 81 KB (the map
   and the desk each), 17 KB and 883 KB. Without the worker each took as long as
-  a first visit, 4.8, 4.1, 14.4 and 7.4 s, every asset fetched again. A run
-  writes the assets its pages name before the pages, and lets go of those no
-  page names any more before it writes `run.json`.
+  a first visit, 4.8, 4.1, 14.4 and 7.4 s, every asset fetched again. Made
+  lighter since (*4b. Space*), the dashboard loads in 3.2 s, its page 517 KB,
+  and in 4.6 s without the worker, where the same visits on the same day took
+  5.0 and 6.6 s before. A run writes the assets its pages name before the
+  pages, and lets go of those no page names any more before it writes
+  `run.json`.
 - **Pages that follow it.** Every page names its run, and the code that wrote
   it, in its head and asks the site for `run.json` each minute, and at once when
   it is shown again or the browser is back online. The storm desk and the map
@@ -1994,7 +2077,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1379 tests, no network required. They cover:
+1406 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2034,6 +2117,16 @@ python -m unittest discover -s tests -v
   clipped to the frame, two plots on one page get two clip ids, a diverging ramp
   is symmetric about zero, and the colour-bar precision follows the span — so
   sea-level height does not print "-0.1, -0.1, +0.0";
+- **the hover grids**: every block a field chart drew as a rectangle of its own
+  found in the chart's one grid with the label and the range it said, and no
+  other, a block with nothing in it null — on a map of a field listed from the
+  north, a Hovmöller with its first row at the top and its last rows unnamed,
+  and a field with no labels; a field with nothing in it drawing no grid; one
+  grid to each of the page's field charts; and the page's own script, run under
+  node through a screen transform scaled differently across and down, finding
+  each block's words under the pointer and nothing off the grid or over an
+  empty block, where the tooltip hides rather than leave the last block's words
+  showing, the page's other hover areas as they were;
 - **the projection**: it is orthographic, with no perspective divide, so two
   equal anomalies measure the same wherever they sit; the fit keeps the whole
   cloud inside the frame at every tested angle while still filling it; and the
@@ -2048,8 +2141,8 @@ python -m unittest discover -s tests -v
   rather than something vague;
 - **the globe**: four thousand points survive the trip through the inverse
   projection, the far side is culled, a click that misses the disc is not a
-  location, the quantised field is exactly one character per cell and reads back
-  within half a step, the catalogue is scored at today as well as at the peak
+  location, the quantised field is exactly one character per cell, the
+  catalogue is scored at today as well as at the peak
   using the *same* gating rules the report uses, and the embedded payload
   survives being an HTML attribute — one catalogue entry contains an apostrophe,
   and unescaped it silently turns the whole panel inert;
@@ -2343,10 +2436,38 @@ python -m unittest discover -s tests -v
   address or refused a worker going on without;
 - **the pictures**: an indexed PNG reading back as the indices it was given, at
   the fewest bits, only its clear index seen through; a large regular field
-  drawn as two pictures a pixel a cell, the right way up and edge to edge, each
-  theme showing its own, its cells square unless finer than a unit of the plot;
-  a small or irregular field still shapes; and the
-  global map's cells costing a fraction as pictures, with nothing else changed;
+  drawn as one picture a pixel a cell, each cell its class's grey, the right way
+  up and edge to edge, its cells square unless finer than a unit of the plot;
+  each ramp's two filters turning every grey into its class's colour in their
+  theme, whether the browser rounds its levels or truncates them, alpha left
+  alone, chosen by the theme as the steps are and on the page once; a small or
+  irregular field still shapes; and the global map's cells costing a fraction
+  as pictures, with nothing else changed;
+- **the globe's field**: a field the size of a picture shipping the name of the
+  global map's picture and no characters, a smaller one its characters; the
+  globe in the global map's classes, a calm ocean's included; the script, run
+  under node, whose fetch, `Blob`, `Response` and `DecompressionStream` are a
+  browser's, reading the server's own picture into the classes the server would
+  have written, cell for cell, whichever way the field lists its rows and
+  columns, fetching it once and giving way to the page's own work as it reads;
+  a redraw asked for before the read waiting for it, a click made before it
+  landing where the globe was drawn, and a click quoting its class's middle
+  within half a step; and a picture missing, undecodable, in other colours, of
+  another size or with its lines through a filter, or a browser without
+  `DecompressionStream`, leaving the globe as served and saying so, its turning
+  controls set aside, a drag not turning it and a click naming where it landed
+  and what covers it;
+- **the globe's paths**: the first view a group a colour class, its fill and
+  stroke the class's colour, of paths of at most sixty-four quads, the cells
+  smoothed and stroked, the coast and graticule a path each; and the script's
+  redraw, run under node on the server's own payload, the server's drawing class
+  for class and vertex for vertex within a tenth — where the server drew, at two
+  degrees and at half a degree, and zoomed in, where the server never draws,
+  every row's last run closed;
+- **the paths**: a line written as steps reading back to its vertices at a tenth
+  of a unit, each number as short as a browser reads it and run against the one
+  before wherever a browser can tell them apart, a line that never moves not
+  drawn, and the global and track maps' coasts the very vertices they were;
 - **a full offline run** end to end, then every report section, the 78-column and
   ASCII-only guarantees, dashboard self-containment, a table view for every
   chart, all eight spatial panels and both cyclone cards reaching the page, the
@@ -2437,16 +2558,22 @@ Nine decisions worth stating because they look like omissions:
   resolution; hit areas are pooled to at least 11 pixels and each one reports the
   *range* of the cells under it, so the tooltip says "-0.3 to +0.1" where the
   field is not uniform and a single number where it is. Claiming one cell's value
-  for an area the reader cannot actually point at would be the lie.
+  for an area the reader cannot actually point at would be the lie. However
+  many blocks a chart pools its cells into, they are one element: a rectangle
+  carrying every block's edges, labels and range, which the tooltip reads where
+  the pointer is.
 - **Detail is chosen per frame, not shipped per zoom.** The alternative to the
   level-of-detail machinery above was four copies of the coastline and a fixed
   grid stride. Four copies is three megabytes of duplicated world; a fixed stride
   is either a polygon at 10× or a stalled browser at 1×. Because Douglas-Peucker
   is hierarchical, one array with a level digit per point *is* the four copies,
   and because an orthographic window is computable, the stride can follow the
-  zoom instead of being guessed. The page is 7.4 MB and still a single file with
-  no network dependency — that is the cost, and it buys a coastline that resolves
-  individual Hawaiian islands at full zoom rather than a four-point blob.
+  zoom instead of being guessed. The page is 1.8 MB as written, and its
+  scripts, the globe's coastline among them, are two files beside it, 0.97 MB,
+  that the site's service worker keeps from one visit to the next; nothing is
+  fetched from anywhere else. That is the cost, and it buys a coastline that
+  resolves individual Hawaiian islands at full zoom rather than a four-point
+  blob.
 
 ---
 

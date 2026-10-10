@@ -29,13 +29,14 @@ hues but swap which end is light, so extremes stay luminous against a dark
 surface and the neutral midpoint recedes into it. The steps are emitted as CSS
 custom properties, so a cell is filled with ``var(--d7)`` and the whole page
 re-themes without re-rendering a single rectangle. A large field drawn as a
-picture instead carries one in each theme's colours, and the page shows the
-one for its theme (``draw_cells``).
+picture is greys instead, a grey a colour class, which a filter colours in the
+page's theme (``draw_cells``).
 """
 
 from __future__ import annotations
 
 import base64
+import json
 import math
 
 from . import grids, png
@@ -43,7 +44,7 @@ from itertools import count
 
 from .coastline import segments
 from .grids import Field, lat_name, lon_name
-from .svg import Plot, esc, map_plot, table
+from .svg import Plot, esc, map_plot, relative_d, table
 
 # --- ramps ------------------------------------------------------------------
 # Diverging, 11 classes, index 5 is neutral. Generated in Oklab.
@@ -87,11 +88,46 @@ PALETTES = {"d": (DIVERGING_LIGHT, DIVERGING_DARK), "q": (SEQ_LIGHT, SEQ_DARK),
 _CLIP = count()
 
 
+def grey(index: int, steps: int) -> int:
+    """The grey a picture paints a cell of colour class ``index`` of a ramp of
+    so many steps: the middle of the class's share of 0-255, which the ramp's
+    filters (``ramp_defs``) read back as the class."""
+    return round((index + 0.5) * 255 / steps)
+
+
+def ramp_defs() -> str:
+    """Each ramp's two filters, its light steps and its dark, that colour a
+    picture's greys (``_draw_picture``): defined once in a page, in a hidden
+    drawing, for every picture in it to use.
+
+    A discrete transfer splits 0-1 into as many equal parts as it has values
+    and gives every value in a part that part's: a ramp's steps, each grey the
+    middle of its class's part. A table holds each colour a quarter of a level
+    high, (c + 0.25) / 255, which comes back as c whether the browser rounds
+    its eight bits or truncates them. The filter works in sRGB, the colours'
+    own space, over the picture's box, and leaves alpha alone, so a missing
+    cell stays seen through."""
+
+    def table(colours: tuple[str, ...], channel: int) -> str:
+        return " ".join(f"{(int(c[1 + 2 * channel:3 + 2 * channel], 16) + 0.25) / 255:.5f}"
+                        for c in colours)
+
+    out = []
+    for prefix, themes in PALETTES.items():
+        for theme, colours in zip(("light", "dark"), themes):
+            funcs = "".join(f'<feFunc{name} type="discrete" tableValues="{table(colours, k)}"/>'
+                            for k, name in enumerate("RGB"))
+            out.append(f'<filter id="ramp-{prefix}-{theme}" x="0" y="0" width="1" height="1" '
+                       f'color-interpolation-filters="sRGB"><feComponentTransfer>{funcs}'
+                       f'</feComponentTransfer></filter>')
+    return "".join(out)
+
+
 def ramp_css() -> str:
     """The ramp steps as custom properties, light values with a dark override;
-    and of a field drawn as two pictures, the one in the page's theme, chosen
-    as the steps are, its pixels kept square, or smoothed where a cell is
-    finer than a unit of the plot (``_draw_picture``)."""
+    and for a field drawn as a picture, its ramp's filter in the page's theme,
+    chosen as the steps are, its pixels kept square, or smoothed where a cell
+    is finer than a unit of the plot (``_draw_picture``)."""
 
     def block(prefix: str, colours: tuple[str, ...]) -> str:
         return " ".join(f"--{prefix}{i}: {c};" for i, c in enumerate(colours))
@@ -102,6 +138,12 @@ def ramp_css() -> str:
     dark = " ".join((
         block("d", DIVERGING_DARK), block("q", SEQ_DARK), block("p", DEPTH_DARK),
     ))
+
+    def filters(theme: str, scope: str = "") -> str:
+        return " ".join(f"{scope}.cellimg.ramp-{p} {{ filter: url(#ramp-{p}-{theme}); }}"
+                        for p in PALETTES)
+
+    os_dark, chosen_dark = ':root:not([data-theme="light"]) ', ':root[data-theme="dark"] '
     return (
         f":root {{ {light} }}\n"
         f'@media (prefers-color-scheme: dark) {{ :root:not([data-theme="light"]) '
@@ -109,11 +151,9 @@ def ramp_css() -> str:
         f':root[data-theme="dark"] {{ {dark} }}\n'
         ".cellimg { image-rendering: crisp-edges; image-rendering: pixelated; }\n"
         ".cellimg.smooth { image-rendering: auto; }\n"
-        ".cellimg.dark { display: none; }\n"
-        '@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cellimg.light '
-        '{ display: none; } :root:not([data-theme="light"]) .cellimg.dark { display: inline; } }\n'
-        ':root[data-theme="dark"] .cellimg.light { display: none; }\n'
-        ':root[data-theme="dark"] .cellimg.dark { display: inline; }\n'
+        f"{filters('light')}\n"
+        f"@media (prefers-color-scheme: dark) {{ {filters('dark', os_dark)} }}\n"
+        f"{filters('dark', chosen_dark)}\n"
     )
 
 
@@ -243,6 +283,16 @@ SEAM = 0.2
 # stays shapes.
 PICTURE_CELLS = 2000
 
+# The name of the global map's picture in the page: the globe reads its classes
+# from it rather than carrying a copy of the field (globe.card).
+GLOBAL_PICTURE = "global-sst"
+
+
+def as_picture(grid: Field) -> bool:
+    """Whether the field is drawn as a picture: more than ``PICTURE_CELLS``
+    cells, evenly spaced both ways, so that a pixel can be a cell."""
+    return grid.rows * grid.cols > PICTURE_CELLS and _regular(grid.x) and _regular(grid.y)
+
 
 def draw_cells(
     plot: Plot,
@@ -252,6 +302,7 @@ def draw_cells(
     row_label=None,
     col_label=None,
     hover: bool = True,
+    picture_id: str | None = None,
 ) -> int:
     """Fill the plot with the field, merging equal-coloured neighbours.
 
@@ -270,9 +321,10 @@ def draw_cells(
     rather than decimating it to something the page can carry.
 
     A regular field of more than ``PICTURE_CELLS`` cells is drawn instead as
-    two indexed PNGs, a pixel a cell, one in each theme's colours, of which the
-    page shows the one for its theme (``ramp_css``): some kilobytes where its
-    runs were hundreds.
+    an indexed PNG, a pixel a cell, each cell the grey of its colour class,
+    which the page colours through its ramp's filter for its theme
+    (``ramp_defs``): some kilobytes where its runs were hundreds. The picture
+    takes ``picture_id`` as its id, for a script to find it by.
 
     Hover is a second, much coarser pass - see ``HIT_MIN_PX``.
 
@@ -285,8 +337,8 @@ def draw_cells(
     # Edge cells are half a cell wider than the outermost centre, so the run
     # rectangles overhang the frame by design; the clip trims them to it.
     plot.add(f'<g class="cellfill" clip-path="url(#{clip_area(plot)})">')
-    if grid.rows * grid.cols > PICTURE_CELLS and _regular(grid.x) and _regular(grid.y):
-        _draw_picture(plot, grid, ramp, x_edges, y_edges)
+    if as_picture(grid):
+        _draw_picture(plot, grid, ramp, x_edges, y_edges, picture_id)
         drawn = 0
     else:
         drawn = _draw_runs(plot, grid, ramp, x_edges, y_edges)
@@ -306,18 +358,24 @@ def _regular(centres) -> bool:
                              for a, b in zip(centres, centres[1:]))
 
 
-def _draw_picture(plot: Plot, grid: Field, ramp: Ramp, x_edges, y_edges) -> None:
-    """The field as two pictures over the cells' whole extent, a pixel a cell,
-    one in each theme's colours, a missing cell seen through. The rows go in
-    the order the plot stacks them: north up on a map, whichever way the field
-    lists its rows, and the first week at the top of a Hovmoller.
+def _draw_picture(plot: Plot, grid: Field, ramp: Ramp, x_edges, y_edges,
+                  picture_id: str | None = None) -> None:
+    """The field as one picture over the cells' whole extent, a pixel a cell,
+    each cell the grey of its colour class (``grey``) and a missing cell seen
+    through, for the ramp's filter to colour in the page's theme. The rows go
+    in the order the plot stacks them: north up on a map, whichever way the
+    field lists its rows, and the first week at the top of a Hovmoller.
 
     Cells finer than a unit of the plot, across or down, are left to the
     browser's smoothing (class ``smooth``): the global map's quarter-degree
     cells are 1,440 across some 830 units, and nearest-neighbour, shown a
-    pixel a unit, drops whole columns of them. Coarser cells stay square."""
-    light, dark = PALETTES[ramp.prefix]
-    clear = len(light)
+    pixel a unit, drops whole columns of them. Coarser cells stay square. The
+    browser smooths the greys, before the filter colours them, so a smoothed
+    pixel takes the class its grey falls in: the ramp's own colours to the
+    edge, not a mix of two."""
+    steps = len(PALETTES[ramp.prefix][0])
+    greys = tuple("#%02x%02x%02x" % ((grey(i, steps),) * 3) for i in range(steps))
+    clear = len(greys)
     rows = sorted(range(grid.rows), key=lambda r: plot.sy(grid.y[r]))
     cols = sorted(range(grid.cols), key=lambda c: plot.sx(grid.x[c]))
     pixels = [[clear if grid.values[r][c] is None else ramp.index(grid.values[r][c]) for c in cols]
@@ -327,10 +385,10 @@ def _draw_picture(plot: Plot, grid: Field, ramp: Ramp, x_edges, y_edges) -> None
     width, height = max(xs) - min(xs), max(ys) - min(ys)
     box = f'x="{min(xs):.1f}" y="{min(ys):.1f}" width="{width:.1f}" height="{height:.1f}"'
     smooth = " smooth" if width < grid.cols or height < grid.rows else ""
-    for theme, colours in (("light", light), ("dark", dark)):
-        picture = png.indexed(grid.cols, grid.rows, pixels, (*colours, "#000000"), transparent=clear)
-        plot.add(f'<image class="cellimg {theme}{smooth}" {box} preserveAspectRatio="none" '
-                 f'href="data:image/png;base64,{base64.b64encode(picture).decode("ascii")}"/>')
+    picture = png.indexed(grid.cols, grid.rows, pixels, (*greys, "#000000"), transparent=clear)
+    name = f'id="{picture_id}" ' if picture_id else ""
+    plot.add(f'<image {name}class="cellimg ramp-{ramp.prefix}{smooth}" {box} preserveAspectRatio="none" '
+             f'href="data:image/png;base64,{base64.b64encode(picture).decode("ascii")}"/>')
 
 
 def _draw_runs(plot: Plot, grid: Field, ramp: Ramp, x_edges, y_edges) -> int:
@@ -381,43 +439,61 @@ def _draw_hits(plot: Plot, grid: Field, x_edges, y_edges, fmt,
     A block reports the range of the cells under it rather than one cell's
     value, which is the honest reading of an area: the tooltip says "-0.3 to
     +0.1" where the field is not uniform, and a single number where it is.
+
+    The blocks are one rectangle over the field, whose data are their edges
+    across and down, ascending in plot units; the labels of their columns and
+    of their rows; the range each covers, or null where a block has nothing in
+    it; and the field's units. The page's tooltip finds the block under the
+    pointer (``gridHit`` in the dashboard's script). A rectangle a block, the
+    blocks of the dashboard's eight field charts were 8,292 elements.
     """
     cell_w = abs(plot.sx(x_edges[0][1]) - plot.sx(x_edges[0][0])) or 1.0
     cell_h = abs(plot.sy(y_edges[0][1]) - plot.sy(y_edges[0][0])) or 1.0
-    block_x = max(1, math.ceil(HIT_MIN_PX / cell_w))
-    block_y = max(1, math.ceil(HIT_MIN_PX / cell_h))
-    for row in range(0, grid.rows, block_y):
-        row_end = min(row + block_y, grid.rows) - 1
-        for col in range(0, grid.cols, block_x):
-            col_end = min(col + block_x, grid.cols) - 1
-            seen = [grid.values[r][c]
-                    for r in range(row, row_end + 1)
-                    for c in range(col, col_end + 1)
-                    if grid.values[r][c] is not None]
-            if not seen:
-                continue
-            low, high = min(seen), max(seen)
-            span = (fmt.format(low) if low == high
-                    else f"{fmt.format(low)} to {fmt.format(high)}")
-            where = []
-            if row_label:
-                where.append(_span_label(
-                    row_label(grid.y[row], row),
-                    row_label(grid.y[row_end], row_end)))
-            if col_label:
-                where.append(_span_label(col_label(grid.x[col]),
-                                         col_label(grid.x[col_end])))
-            y0 = plot.sy(y_edges[row][0])
-            y1 = plot.sy(y_edges[row_end][1])
-            x0 = plot.sx(x_edges[col][0])
-            x1 = plot.sx(x_edges[col_end][1])
-            plot.add(
-                f'<rect x="{min(x0, x1):.1f}" y="{min(y0, y1):.1f}" '
-                f'width="{max(abs(x1 - x0), 1.0):.1f}" '
-                f'height="{max(abs(y1 - y0), 1.0):.1f}" fill="transparent" '
-                f'class="hit" data-label="{esc(", ".join(where))}" '
-                f'data-value="{esc(span)} {esc(grid.units)}"/>'
-            )
+    cols, xs = _pooled(grid.cols, max(1, math.ceil(HIT_MIN_PX / cell_w)), x_edges, plot.sx)
+    rows, ys = _pooled(grid.rows, max(1, math.ceil(HIT_MIN_PX / cell_h)), y_edges, plot.sy)
+
+    def span(block_rows: range, block_cols: range) -> str | None:
+        seen = [grid.values[r][c] for r in block_rows for c in block_cols
+                if grid.values[r][c] is not None]
+        if not seen:
+            return None
+        low, high = min(seen), max(seen)
+        return fmt.format(low) if low == high else f"{fmt.format(low)} to {fmt.format(high)}"
+
+    spans = [[span(r, c) for c in cols] for r in rows]
+    if all(s is None for line in spans for s in line):
+        return
+    hits = {"x": xs, "y": ys}
+    if col_label:
+        hits["xl"] = [_span_label(col_label(grid.x[c[0]]), col_label(grid.x[c[-1]])) for c in cols]
+    if row_label:
+        hits["yl"] = [_span_label(row_label(grid.y[r[0]], r[0]), row_label(grid.y[r[-1]], r[-1]))
+                      for r in rows]
+    hits.update(v=spans, u=grid.units)
+    plot.add(f'<rect class="hit hitgrid" x="{xs[0]:.1f}" y="{ys[0]:.1f}" '
+             f'width="{xs[-1] - xs[0]:.1f}" height="{ys[-1] - ys[0]:.1f}" fill="transparent" '
+             f"data-hits='{_json_attr(hits)}'/>")
+
+
+def _pooled(count: int, size: int, edges, scale) -> tuple[list[range], list[float]]:
+    """An axis's cells pooled ``size`` at a time, in the order the plot draws
+    them: each block's cells, and the edges between the blocks, ascending in
+    plot units, to a tenth of a unit. The blocks abut as the cells do, a
+    cell's far edge being the next one's near edge (``_edges``)."""
+    blocks = [range(first, min(first + size, count)) for first in range(0, count, size)]
+    if scale(edges[-1][1]) < scale(edges[0][0]):
+        blocks.reverse()
+    ends = [sorted((scale(edges[b[0]][0]), scale(edges[b[-1]][1]))) for b in blocks]
+    return blocks, [round(near, 1) for near, _far in ends] + [round(ends[-1][1], 1)]
+
+
+def _json_attr(value) -> str:
+    """``value`` as JSON for a single-quoted attribute, escaping only what
+    would end the attribute or begin a character reference or a tag: the
+    JSON's own double quotes, two to a block, stay a byte each."""
+    text = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+    return (text.replace("&", "&amp;").replace("'", "&#39;")
+            .replace("<", "&lt;").replace(">", "&gt;"))
 
 
 def _span_label(first: str, last: str) -> str:
@@ -464,20 +540,15 @@ def draw_coast(plot: Plot, lon_min: float, lon_max: float,
                lat_min: float, lat_max: float) -> None:
     """Coastlines clipped to the window, so the field sits on a real map."""
     clip = clip_area(plot)
-    paths = []
-    for line in segments(lon_min, lon_max):
-        # A wide vertex margin, because the clip below does the real cutting and
-        # a tight margin here would drop the vertex that carries a line back in.
-        points = [
-            (plot.sx(lon), plot.sy(lat))
-            for lon, lat in line
-            if lon_min - 60 <= lon <= lon_max + 60 and lat_min - 40 <= lat <= lat_max + 40
-        ]
-        if len(points) > 1:
-            paths.append("M" + " L".join(f"{x:.1f} {y:.1f}" for x, y in points))
-    if paths:
+    # A wide vertex margin, because the clip below does the real cutting and a
+    # tight margin here would drop the vertex that carries a line back in.
+    d = relative_d(
+        [(plot.sx(lon), plot.sy(lat)) for lon, lat in line
+         if lon_min - 60 <= lon <= lon_max + 60 and lat_min - 40 <= lat <= lat_max + 40]
+        for line in segments(lon_min, lon_max))
+    if d:
         plot.add(
-            f'<path d="{" ".join(paths)}" fill="none" stroke="var(--ink)" '
+            f'<path d="{d}" fill="none" stroke="var(--ink)" '
             f'stroke-width="0.9" opacity="0.55" stroke-linejoin="round" '
             f'clip-path="url(#{clip})"/>'
         )
@@ -706,6 +777,14 @@ def sst_map(grid: Field, box_means: dict[str, float],
 </section>"""
 
 
+def global_ramp(grid: Field) -> Ramp:
+    """The global SST anomaly's ramp, the global map's and the globe's: one
+    field in the same eleven classes from the same robust span, so the globe
+    can read its classes from the map's picture."""
+    low, high = grid.robust_span()
+    return Ramp("d", 11, low, high, diverging=True)
+
+
 def global_map(grid: Field) -> str:
     """The rest of the world, because ENSO is not only a Pacific event."""
     lon_min, lon_max = grid.x[0], grid.x[-1]
@@ -713,9 +792,9 @@ def global_map(grid: Field) -> str:
     plot = map_plot(880, (10, 14, 26, 40), lon_max - lon_min, lat_max - lat_min)
     plot.domain(lon_min, lon_max, lat_min, lat_max)
 
-    low, high = grid.robust_span()
-    ramp = Ramp("d", 11, low, high, diverging=True)
-    draw_cells(plot, grid, ramp, row_label=lambda v, _i: lat_name(v), col_label=lon_name)
+    ramp = global_ramp(grid)
+    draw_cells(plot, grid, ramp, row_label=lambda v, _i: lat_name(v), col_label=lon_name,
+               picture_id=GLOBAL_PICTURE)
     draw_coast(plot, lon_min, lon_max, lat_min, lat_max)
     lon_axis(plot, lon_min, lon_max, 40.0)
     lat_axis(plot, lat_min, lat_max, 20.0)

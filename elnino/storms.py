@@ -33,7 +33,7 @@ from dataclasses import replace as dc_replace
 
 from . import alerts, cyclones, stormfury
 from .coastline import segments
-from .svg import Plot, _hit, _legend, esc, nice_ticks, table
+from .svg import Plot, _hit, _legend, esc, nice_ticks, relative_d, table
 from .svg import boxes_clear as _clear, label_box as _label_box
 
 # Fixed hue order, assigned to storms in ATCF order and never cycled. A fourth
@@ -216,16 +216,13 @@ def _pieces(points, taus) -> list[tuple[float, str]]:
 
 def _coast(plot: Plot, lon_min: float, lon_max: float,
            lat_min: float, lat_max: float) -> None:
-    paths = []
-    for line in segments(lon_min, lon_max):
-        points = [(plot.sx(lon), plot.sy(lat)) for lon, lat in line
-                  if lon_min - 30 <= lon <= lon_max + 30
-                  and lat_min - 20 <= lat <= lat_max + 20]
-        if len(points) > 1:
-            paths.append("M" + " L".join(f"{x:.1f} {y:.1f}" for x, y in points))
-    if paths:
+    d = relative_d(
+        [(plot.sx(lon), plot.sy(lat)) for lon, lat in line
+         if lon_min - 30 <= lon <= lon_max + 30 and lat_min - 20 <= lat <= lat_max + 20]
+        for line in segments(lon_min, lon_max))
+    if d:
         plot.add(
-            f'<path d="{" ".join(paths)}" fill="none" stroke="var(--ink)" '
+            f'<path d="{d}" fill="none" stroke="var(--ink)" '
             f'stroke-width="0.9" opacity="0.5" stroke-linejoin="round" '
             f'clip-path="url(#tcclip)"/>'
         )

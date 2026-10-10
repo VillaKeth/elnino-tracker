@@ -199,6 +199,55 @@ def map_plot(width: int, pad: tuple[int, int, int, int],
     return Plot(width, round(plot_w * lat_span / lon_span) + top + bottom, pad)
 
 
+# --- paths -------------------------------------------------------------------
+def _tenths(value: float) -> int:
+    """A coordinate in tenths of a unit, rounded as ``f"{value:.1f}"`` rounds it."""
+    return round(float(f"{value:.1f}") * 10)
+
+
+def _short(tenths: int) -> str:
+    """A number of tenths as briefly as a browser reads it: .5, -1.2, 0, 12."""
+    whole, tenth = divmod(abs(tenths), 10)
+    text = str(whole) if not tenth else f".{tenth}" if not whole else f"{whole}.{tenth}"
+    return "-" + text if tenths < 0 else text
+
+
+def _numbers(texts) -> str:
+    """Numbers run together as a path reads them: a space between two, none
+    before a minus, which starts a number of its own, nor before a point
+    after a number that has one, as a number holds one point at most:
+    "11.5.5" is 11.5 and then .5."""
+    out, pointed = "", False
+    for text in texts:
+        joined = not out or text.startswith("-") or (pointed and text.startswith("."))
+        out += text if joined else " " + text
+        pointed = "." in text
+    return out
+
+
+def relative_d(lines) -> str:
+    """One path's ``d`` for these polylines, each vertex the step from the last.
+
+    A coastline written vertex by vertex in full repeats the hundreds of every
+    coordinate: "L176.7 346.6 L176.4 347.1". Written as steps, "-.3.5", it is
+    about half the bytes. Every vertex is first rounded to the tenth of a unit
+    it would have been written at, and the steps are taken between those, so
+    the browser's running sum lands on exactly the points the absolute path
+    named. A step that rounds to nothing is left out, and a line left with no
+    step at all is not drawn: neither ever showed.
+    """
+    out = []
+    for line in lines:
+        points = [(_tenths(x), _tenths(y)) for x, y in line]
+        steps = []
+        for (ax, ay), (bx, by) in zip(points, points[1:]):
+            if (ax, ay) != (bx, by):
+                steps.extend((_short(bx - ax), _short(by - ay)))
+        if steps:
+            out.append(f"M{_numbers(map(_short, points[0]))}l{_numbers(steps)}")
+    return "".join(out)
+
+
 def nice_ticks(low: float, high: float, count: int = 6) -> list[float]:
     """Round tick values covering [low, high].
 

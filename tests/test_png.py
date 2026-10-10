@@ -114,20 +114,24 @@ def _map(grid: grids.Field, ramp: fields.Ramp):
     return plot, drawn, "".join(plot.parts)
 
 
-def _pictures(markup: str) -> dict:
-    """Each theme's picture in the markup: its place and its PNG, read back."""
-    out = {}
-    for m in re.finditer(r'<image class="cellimg (light|dark)(?: smooth)?" x="([\d.]+)" y="([\d.]+)" '
-                         r'width="([\d.]+)" height="([\d.]+)" preserveAspectRatio="none" '
-                         r'href="data:image/png;base64,([A-Za-z0-9+/=]+)"/>', markup):
-        out[m.group(1)] = {"box": tuple(float(m.group(i)) for i in range(2, 6)),
-                           **decode(base64.b64decode(m.group(6)))}
-    return out
+def _pictures(markup: str) -> list:
+    """Each picture in the markup: its ramp, its place and its PNG, read back."""
+    return [{"ramp": m.group(1), "box": tuple(float(m.group(i)) for i in range(2, 6)),
+             **decode(base64.b64decode(m.group(6)))}
+            for m in re.finditer(r'<image(?: id="[^"]+")? class="cellimg ramp-([dqp])(?: smooth)?" x="([\d.]+)" y="([\d.]+)" '
+                                 r'width="([\d.]+)" height="([\d.]+)" preserveAspectRatio="none" '
+                                 r'href="data:image/png;base64,([A-Za-z0-9+/=]+)"/>', markup)]
+
+
+def _greys(steps: int) -> list:
+    """A picture's palette for a ramp of so many steps: each class its grey."""
+    return ["#%02x%02x%02x" % ((fields.grey(i, steps),) * 3) for i in range(steps)]
 
 
 class TestFieldsAsPictures(unittest.TestCase):
     """A regular field of more than 2,000 cells is drawn as an indexed PNG, a
-    pixel a cell, one for each theme; its hover blocks stay vector."""
+    pixel a cell, each a grey that is its class, coloured in the page's theme
+    by a filter; its hover blocks stay vector."""
 
     RAMP = fields.Ramp("d", 11, -2.5, 2.5, diverging=True)
 
@@ -137,28 +141,27 @@ class TestFieldsAsPictures(unittest.TestCase):
         order = sorted(range(grid.rows), key=lambda r: -grid.y[r] if north_up else r)
         return [[11 if v is None else self.RAMP.index(v) for v in grid.values[r]] for r in order]
 
-    def test_a_large_regular_field_is_two_pictures_a_pixel_a_cell(self):
+    def test_a_large_regular_field_is_one_picture_a_pixel_a_cell(self):
         grid = _field(60, 40)
         _plot, drawn, markup = _map(grid, self.RAMP)
         pictures = _pictures(markup)
-        self.assertEqual(sorted(pictures), ["dark", "light"])
-        for theme, colours in (("light", fields.DIVERGING_LIGHT), ("dark", fields.DIVERGING_DARK)):
-            with self.subTest(theme):
-                got = pictures[theme]
-                self.assertEqual(got["size"], (60, 40))
-                self.assertEqual(got["rows"], self.classes(grid))
-                self.assertEqual(got["palette"][:11], list(colours))
-        # No cell is a shape any more; the hover blocks still are.
+        self.assertEqual(len(pictures), 1)
+        got = pictures[0]
+        self.assertEqual(got["ramp"], "d")
+        self.assertEqual(got["size"], (60, 40))
+        self.assertEqual(got["rows"], self.classes(grid))
+        self.assertEqual(got["palette"][:11], _greys(11))
+        # No cell is a shape any more, and the hover blocks are one grid.
         cells = markup[markup.index('<g class="cellfill"'):]
         self.assertNotIn("<path", cells)
-        self.assertIn('class="hit"', cells)
+        self.assertEqual(cells.count('class="hit hitgrid"'), 1)
         self.assertEqual(drawn, 0)
 
     def test_a_field_listed_from_the_north_lands_the_same_way_up(self):
         south, north = _field(60, 40), _field(60, 40, north_first=True)
-        self.assertEqual(_pictures(_map(north, self.RAMP)[2])["light"]["rows"],
-                         _pictures(_map(south, self.RAMP)[2])["light"]["rows"])
-        self.assertEqual(_pictures(_map(north, self.RAMP)[2])["light"]["rows"], self.classes(north))
+        self.assertEqual(_pictures(_map(north, self.RAMP)[2])[0]["rows"],
+                         _pictures(_map(south, self.RAMP)[2])[0]["rows"])
+        self.assertEqual(_pictures(_map(north, self.RAMP)[2])[0]["rows"], self.classes(north))
 
     def test_time_down_the_first_row_is_the_top_one(self):
         # A Hovmoller's rows are weeks, the first at the top.
@@ -169,39 +172,68 @@ class TestFieldsAsPictures(unittest.TestCase):
         plot = fields.Plot(560, 470, (14, 18, 28, 58))
         plot.domain(grid.x[0], grid.x[-1], float(grid.rows - 1) + 0.5, -0.5)
         fields.draw_cells(plot, grid, self.RAMP)
-        got = _pictures("".join(plot.parts))["light"]
+        got, = _pictures("".join(plot.parts))
         self.assertEqual(got["rows"], self.classes(grid, north_up=False))
 
     def test_a_missing_cell_is_seen_through(self):
         grid = _field(60, 40, gap=(3, 7))
-        got = _pictures(_map(grid, self.RAMP)[2])
-        for theme in ("light", "dark"):
-            with self.subTest(theme):
-                # Row 3 from the south is row 36 from the top.
-                self.assertEqual(got[theme]["rows"][36][7], 11)
-                self.assertEqual(got[theme]["alpha"], [255] * 11 + [0])
-                self.assertEqual(got[theme]["rows"], self.classes(grid))
+        got, = _pictures(_map(grid, self.RAMP)[2])
+        # Row 3 from the south is row 36 from the top.
+        self.assertEqual(got["rows"][36][7], 11)
+        self.assertEqual(got["alpha"], [255] * 11 + [0])
+        self.assertEqual(got["rows"], self.classes(grid))
 
     def test_the_picture_covers_the_cells_edge_to_edge(self):
         grid = _field(60, 40)
         plot, _drawn, markup = _map(grid, self.RAMP)
         left, right = plot.sx(grid.x[0] - 0.25), plot.sx(grid.x[-1] + 0.25)
         top, bottom = plot.sy(grid.y[-1] + 0.25), plot.sy(grid.y[0] - 0.25)
-        for theme, got in _pictures(markup).items():
-            with self.subTest(theme):
-                for have, want in zip(got["box"], (left, top, right - left, bottom - top)):
-                    self.assertAlmostEqual(have, want, delta=0.06)
+        got, = _pictures(markup)
+        for have, want in zip(got["box"], (left, top, right - left, bottom - top)):
+            self.assertAlmostEqual(have, want, delta=0.06)
 
-    def test_each_theme_shows_its_own_picture_its_cells_square(self):
+    def test_each_theme_colours_the_picture_through_its_own_filter(self):
+        # Light by default; dark where the reader's system is dark and they
+        # have not chosen light, and wherever they have chosen dark.
         css = fields.ramp_css()
         self.assertIn(".cellimg { image-rendering: crisp-edges; image-rendering: pixelated; }", css)
-        self.assertIn(".cellimg.dark { display: none; }", css)
-        hide, show = ".cellimg.light { display: none; }", ".cellimg.dark { display: inline; }"
         dark_os = " ".join(re.findall(r'@media \(prefers-color-scheme: dark\) \{ (.*) \}\n', css))
-        self.assertIn(f':root:not([data-theme="light"]) {hide}', dark_os)
-        self.assertIn(f':root:not([data-theme="light"]) {show}', dark_os)
-        self.assertIn(f':root[data-theme="dark"] {hide}', css)
-        self.assertIn(f':root[data-theme="dark"] {show}', css)
+        for prefix in fields.PALETTES:
+            with self.subTest(prefix):
+                self.assertIn(f".cellimg.ramp-{prefix} {{ filter: url(#ramp-{prefix}-light); }}", css)
+                self.assertIn(f':root:not([data-theme="light"]) .cellimg.ramp-{prefix} '
+                              f'{{ filter: url(#ramp-{prefix}-dark); }}', dark_os)
+                self.assertIn(f':root[data-theme="dark"] .cellimg.ramp-{prefix} '
+                              f'{{ filter: url(#ramp-{prefix}-dark); }}', css)
+        self.assertNotIn(".cellimg.light", css)
+        self.assertNotIn(".cellimg.dark", css)
+
+    def test_a_filter_turns_each_grey_into_its_class_s_colour(self):
+        # A discrete table splits 0-1 into as many equal parts as it has
+        # values, and a grey picks the part it falls in. A value a quarter of
+        # a level above the colour's lands on the colour whether the browser
+        # rounds its output or truncates it.
+        defs = fields.ramp_defs()
+        for prefix, themes in fields.PALETTES.items():
+            for theme, colours in zip(("light", "dark"), themes):
+                with self.subTest(f"ramp-{prefix}-{theme}"):
+                    found = re.search(r'<filter id="ramp-%s-%s" x="0" y="0" width="1" height="1" '
+                                      r'color-interpolation-filters="sRGB"><feComponentTransfer>(.*?)'
+                                      r'</feComponentTransfer></filter>' % (prefix, theme), defs)
+                    tables = dict(re.findall(r'<feFunc([RGBA]) type="discrete" tableValues="([^"]+)"/>',
+                                             found.group(1)))
+                    self.assertEqual(sorted(tables), ["B", "G", "R"])     # alpha untouched
+                    n = len(colours)
+                    for k, channel in enumerate("RGB"):
+                        values = tables[channel].split()
+                        self.assertEqual(len(values), n)
+                        self.assertTrue(all(re.fullmatch(r"\d\.\d{5}", v) for v in values))
+                        for i, colour in enumerate(colours):
+                            want = int(colour[1 + 2 * k:3 + 2 * k], 16)
+                            part = min(n - 1, math.floor(fields.grey(i, n) / 255 * n))
+                            self.assertEqual(part, i)
+                            level = float(values[part]) * 255
+                            self.assertEqual((math.floor(level), round(level)), (want, want))
 
     def test_cells_finer_than_a_unit_of_the_plot_are_left_to_the_browser_s_smoothing(self):
         # The global map's quarter-degree cells, 1,440 across 827 units: shown
@@ -220,7 +252,7 @@ class TestFieldsAsPictures(unittest.TestCase):
                                      ("finer across", _map(_field(1500, 40), self.RAMP)[2], " smooth"),
                                      ("finer down", "".join(tall.parts), " smooth")):
             with self.subTest(name):
-                self.assertEqual(classes(markup), [f"cellimg dark{smooth}", f"cellimg light{smooth}"])
+                self.assertEqual(classes(markup), [f"cellimg ramp-d{smooth}"])
         css = fields.ramp_css()
         self.assertIn(".cellimg.smooth { image-rendering: auto; }", css)
         self.assertGreater(css.index(".cellimg.smooth"), css.index("image-rendering: pixelated"))
@@ -257,9 +289,11 @@ class TestFieldsAsPictures(unittest.TestCase):
         html = fields.global_map(grid)
         with mock.patch.object(fields, "PICTURE_CELLS", grid.rows * grid.cols):
             shapes = fields.global_map(grid)
-        self.assertEqual(len(_pictures(html)), 2)
+        self.assertEqual(len(_pictures(html)), 1)
+        # The globe reads its classes from this picture, by this name.
+        self.assertIn(f'<image id="{fields.GLOBAL_PICTURE}" class="cellimg ramp-d', html)
         self.assertNotIn("<image", shapes)
-        pictures, runs = r'<image class="cellimg[^>]*/>', r'<path d="[^"]*" fill="var\(--d\d+\)"/>'
+        pictures, runs = r'<image(?: id="[^"]+")? class="cellimg[^>]*/>', r'<path d="[^"]*" fill="var\(--d\d+\)"/>'
         self.assertLess(sum(map(len, re.findall(pictures, html))), sum(map(len, re.findall(runs, shapes))) / 10)
         # The hover blocks, the coast, the frame and the table are as they were.
         self.assertEqual(re.sub(r"clip\d+", "clip", re.sub(pictures + "\n", "", html)),
