@@ -10,9 +10,11 @@ then and now's Street View) goes first to the nearest street, as Google Maps'
 figure goes to its blue lines: Google's keyless embed looks only some tens of
 metres about a point, and on 9 October 2026 one in a block in Lima found no
 panorama and one in Sao Paulo a cafe's inside. FOSSGIS's OSRM names the
-nearest road a car may take on OpenStreetMap, asked once a second at most and
-credited as its operator asks. An address or the page's API opens exactly
-where it says.
+nearest roads a car may take on OpenStreetMap, asked once a second at most and
+credited as its operator asks; the pick goes to the nearest named one within a
+kilometre, as unnamed ways (driveways, service roads) are where Google's car
+did not go, and Next street goes down the rest. An address or the page's API
+opens exactly where it says.
 
 That is the street's own record, not the atlas's 2.5 degree cell: the point's
 monthly rainfall and temperature since 1981 from NASA POWER, composited in the
@@ -59,8 +61,14 @@ T975 = (12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228,
 #   (T2M, deg C), on MERRA-2's 0.5 by 0.625 degree grid; the monthly record
 #   from 1981 to the month before last, the daily to three days ago.
 # * Open-Meteo's forecast: the weather now and the next 24 hours' rain.
-# * Open-Meteo's seasonal forecast: ECMWF's, by month for six months, as
-#   anomalies from the model's own climate of past forecasts.
+# * Open-Meteo's seasonal forecast: ECMWF's, by month for the seven months
+#   its run reaches from the month it is made in (Open-Meteo gives six unless
+#   asked), as anomalies from the model's own climate of past forecasts: the
+#   card gives six, and the replay's window from next month needs the seventh.
+# * POWER's daily record again, every day since 1981, for the replay of El
+#   Nino's rain on the street, asked only when the replay is opened: as CSV,
+#   342 KB for Winter Haven on 12 October 2026, where the JSON was 547 (POWER
+#   sends neither compressed).
 SOURCES = {
     "monthly": ("https://power.larc.nasa.gov/api/temporal/monthly/point?parameters=PRECTOTCORR,T2M"
                 "&community=AG&longitude={lon}&latitude={lat}&start=1981&end={year}&format=JSON"),
@@ -71,13 +79,16 @@ SOURCES = {
             "wind_gusts_10m&hourly=precipitation&forecast_hours=24&timezone=auto"),
     "ahead": ("https://seasonal-api.open-meteo.com/v1/seasonal?latitude={lat}&longitude={lon}"
               "&monthly=temperature_2m_anomaly,precipitation_mean,precipitation_anomaly,"
-              "sea_surface_temperature_anomaly"),
+              "sea_surface_temperature_anomaly&forecast_days=215"),
+    "days": ("https://power.larc.nasa.gov/api/temporal/daily/point?parameters=PRECTOTCORR,T2M"
+             "&community=AG&longitude={lon}&latitude={lat}&start=19810101&end={end}&format=CSV"),
 }
 
-# Where a picked point's street is asked, as FOSSGIS's OSRM answered on 9
-# October 2026: the nearest point on OpenStreetMap's roads a car may take, the
-# road's name and how far it is, the point written in at {lon} and {lat}.
-ROADS = "https://routing.openstreetmap.de/routed-car/nearest/v1/driving/{lon},{lat}?number=1"
+# Where a picked point's street is asked, as FOSSGIS's OSRM answered on 12
+# October 2026: the 100 nearest stretches of OpenStreetMap's roads a car may
+# take (its documented limit, in 25 KB), each with its road's name and how far
+# it is, the point written in at {lon} and {lat}.
+ROADS = "https://routing.openstreetmap.de/routed-car/nearest/v1/driving/{lon},{lat}?number=100"
 
 
 def months(series) -> dict:
@@ -116,26 +127,69 @@ def payload(state) -> dict:
 _STREETS = next(layer for layer in worldmap.MAP_LAYERS if layer["id"] == "streets")
 
 
+_MONTH_WORDS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+                "November", "December")
+
+
+def _sim_panel() -> str:
+    """The replay of El Nino's rain, in the chip's place while it is open:
+    Play, the El Nino, the six months and the speed; a slider through the
+    days, the day's readout, the chart with its key, and the words; what
+    went wrong, with a Retry; the years side by side, and how it is known."""
+    starts = "".join(f'<option value="{m + 1}">{_MONTH_WORDS[m]} to {_MONTH_WORDS[(m + 5) % 12]}</option>'
+                     for m in range(12))
+    return ('<div class="streetsim" id="street-sim" role="group" aria-labelledby="street-sim-title" tabindex="-1" '
+            'hidden><div class="streetchiphead"><b id="street-sim-title">El Ni\u00f1o\u2019s rain, replayed here</b>'
+            '<button type="button" class="streetmore" id="street-sim-back">Back to the card</button></div>'
+            '<div class="streetsimbar">'
+            '<button type="button" class="toolbtn" id="street-sim-play" disabled>Play</button>'
+            '<label>El Ni\u00f1o <select id="street-sim-event" disabled></select></label>'
+            f'<label>Months <select id="street-sim-start">{starts}</select></label>'
+            '<label>Speed <select id="street-sim-speed"><option value="7">a week a second</option>'
+            '<option value="14">two weeks a second</option><option value="30">a month a second</option></select>'
+            "</label></div>"
+            '<input type="range" class="streetsimday" id="street-sim-day" min="0" max="0" step="1" value="0" '
+            'aria-label="Day of the window" disabled>'
+            '<p class="streetsimread" id="street-sim-read"></p>'
+            '<div class="streetsimchart" id="street-sim-chart"></div>'
+            '<p class="streetsimkey" id="street-sim-key"></p>'
+            '<p class="streetsimsaid" id="street-sim-said" aria-live="polite"></p>'
+            '<p class="streetfail" id="street-sim-fail" hidden><span id="street-sim-why"></span> '
+            '<button type="button" class="toolbtn" id="street-sim-retry">Retry</button></p>'
+            '<details class="streetsimmore"><summary>Year by year</summary>'
+            '<div class="streetsimtable" id="street-sim-table"></div></details>'
+            '<details class="streetsimmore"><summary>Method and sources</summary>'
+            '<div id="street-sim-method"></div></details></div>')
+
+
 def map_parts() -> str:
     """The stage, on the map and over it while a point is dropped into: a bar
     with the place and the ways on, Google's panorama, and under it a strip
-    with the minimap and the card's first lines, so nothing of the page sits
-    on Google's own controls and credit; the minimap's tiles, the nearest
-    street and the forecast the chip quotes are credited beside them. The
-    stage takes the focus a pick gives it."""
+    with the minimap and the card's first lines, or the replay of El Nino's
+    rain in their place, so nothing of the page sits on Google's own controls
+    and credit; the replay's rain and the badge naming its day lie over the
+    panorama, clear of its foot and never taking a pointer. The minimap's
+    tiles, the nearest street, the forecast the chip quotes and the replay's
+    record are credited beside them. The stage takes the focus a pick gives
+    it."""
     return ('<section class="streetstage ui" id="street-stage" aria-label="Street View" tabindex="-1" hidden>'
             '<div class="streetbar">'
             '<p class="streetplace" id="street-place" aria-live="polite"></p>'
+            '<button type="button" class="toolbtn" id="street-next" hidden>Next street</button>'
             '<button type="button" class="toolbtn" id="street-then">Then and now</button>'
             '<button type="button" class="toolbtn" id="street-copy">Copy link</button>'
             '<a class="toolbtn" id="street-gmaps" href="https://www.google.com/maps" target="_blank" '
             'rel="noopener">Google Maps \u2197</a>'
             '<button type="button" class="toolbtn" id="street-exit">Exit</button>'
-            '<p class="streetnote">A point picked goes first to the nearest street within reach, and Street '
-            "View opens on Google\u2019s panorama there; where Google has none it says \u201cNo Street View "
-            "available\u201d, and the minimap and the card are this point\u2019s either way.</p>"
+            '<p class="streetroads" id="street-roads"></p>'
+            '<p class="streetnote">Street View shows Google\u2019s panorama nearest the stage\u2019s point; where '
+            "Google has none it says \u201cNo Street View available\u201d. A point picked (the figure dropped, or "
+            "the minimap tapped) goes to the nearest named street within a kilometre, else the nearest road within "
+            "reach, and Next street tries the others. The minimap and the card are this point\u2019s either way.</p>"
             '<p class="streetlink" id="street-link" role="status"></p></div>'
-            '<div class="streetpano" id="street-pano"></div>'
+            '<div class="streetview"><div class="streetpano" id="street-pano"></div>'
+            '<canvas class="streetrain" id="street-rain" aria-hidden="true" hidden></canvas>'
+            '<p class="streetday" id="street-day" aria-hidden="true" hidden></p></div>'
             '<div class="streetfoot">'
             '<div class="streetmini" id="street-mini" role="group" aria-label="Minimap: tap a street to move '
             'Street View there">'
@@ -145,12 +199,16 @@ def map_parts() -> str:
             '<button type="button" id="street-mini-in" aria-label="Zoom the minimap in">+</button>'
             '<button type="button" id="street-mini-out" aria-label="Zoom the minimap out">&minus;</button>'
             "</div></div>"
-            '<div class="streetchip" id="street-chip"><div class="streetchiphead"><b>El Ni\u00f1o on this '
-            'street</b><button type="button" class="streetmore" id="street-more">The whole card \u2193</button>'
-            "</div>"
+            '<div class="streetchip" id="street-chip"><div class="streetchiphead" id="street-chip-head"><b>El '
+            'Ni\u00f1o on this street</b><button type="button" class="toolbtn streetreplay" id="street-replay">'
+            'Replay El Ni\u00f1o\u2019s rain</button><button type="button" class="streetmore" id="street-more">The '
+            "whole card \u2193</button></div>"
             '<p class="streetchipsaid" id="street-chip-said"></p>'
+            + _sim_panel() +
             '<p class="streetcredit">ECMWF\u2019s forecast: <a href="https://open-meteo.com/" target="_blank" '
             'rel="noopener">Weather data by Open-Meteo.com</a></p>'
+            '<p class="streetcredit" id="street-sim-credit" hidden>Daily rain: <a href="https://power.larc.nasa.gov/" '
+            'target="_blank" rel="noopener">NASA POWER</a>, NASA Langley Research Center.</p>'
             f'<p class="streetcredit">Minimap: {esc(_STREETS["credit"])}</p>'
             '<p class="streetcredit">Nearest street: <a href="https://project-osrm.org/" target="_blank" '
             'rel="noopener">OSRM</a> by FOSSGIS over <a href="https://www.openstreetmap.org/copyright" '
@@ -359,8 +417,8 @@ _JS = r"""
   }
   // One source asked, and given up after STREET_WAIT or the wait given; what
   // went wrong said as the card says it after the source's name ("Open-Meteo
-  // answered 429").
-  function streetFetch(url, wait) {
+  // answered 429"). Its answer read as JSON, or with `text` as text.
+  function streetFetch(url, wait, text) {
     wait = wait || STREET_WAIT;
     return new Promise(function (resolve, reject) {
       var ctl = typeof AbortController === "function" ? new AbortController() : null, done = false;
@@ -376,7 +434,8 @@ _JS = r"""
       }
       fetch(url, ctl ? {signal: ctl.signal} : undefined).then(function (r) {
         if (!r.ok) { end(null, "answered " + r.status); return; }
-        r.json().then(function (json) { end(json, ""); }, function () { end(null, "sent something that is not data"); });
+        (text ? r.text() : r.json()).then(function (body) { end(body, ""); },
+                                          function () { end(null, "sent something that is not data"); });
       }, function () { end(null, "could not be reached"); });
     });
   }
@@ -568,13 +627,17 @@ _JS = r"""
     streetCard(lon, lat, true);
   }
   // The card written again where Here shows it, while Here is on its point,
-  // and the stage's chip while the street is.
+  // and the stage's chip while the street is, with the replay, which takes
+  // ECMWF's months from the card's answers.
   function streetShow(lon, lat) {
     var key = streetCacheKey("", lon, lat), box = $("street-card");
     if (box && S.here && streetCacheKey("", S.here.lon, S.here.lat) === key) {
       retake(box, streetCardHtml(streetState(S.here.lon, S.here.lat)));
     }
-    if (S.street && streetCacheKey("", S.street.lon, S.street.lat) === key) streetChip();
+    if (S.street && streetCacheKey("", S.street.lon, S.street.lat) === key) {
+      streetChip();
+      if (S.sim && S.sim.rec) { simBuild(); simDraw(); }
+    }
   }
   document.addEventListener("click", function (e) {
     var el = e.target.closest ? e.target.closest("[data-street],[data-street-retry]") : null;
@@ -583,6 +646,275 @@ _JS = r"""
     else if (el.getAttribute("data-street") === "ask") streetCard(S.here.lon, S.here.lat, true);
     else if (el.getAttribute("data-street") === "again") streetAgain(S.here.lon, S.here.lat);
   });
+
+  // ---- the replay's record: POWER's days since 1981 ----------------------------------
+  // POWER's daily record as CSV: a header, a line naming the columns (YEAR
+  // and DOY, or YEAR, MO and DY, and the parameters, in any order) and a line
+  // a day. Read as {from: "YYYY-MM-DD", p: [mm], t: [deg C]}, a value a day
+  // from the first day with one: null for POWER's fill value (-999), for a
+  // day the answer does not give, and for what is not a number (or is a
+  // rainfall under nothing); the fills after the last day with a value left
+  // off. Null for an answer with no day in it.
+  function powerCsv(text) {
+    if (typeof text !== "string") return null;
+    var lines = text.split(/\r?\n/), at = -1, cols = null, days = {}, lo = Infinity, hi = -Infinity, i;
+    for (i = 0; i < lines.length && !cols; i++) if (lines[i].split(",").indexOf("YEAR") >= 0) { at = i; cols = lines[i].split(","); }
+    if (!cols) return null;
+    var Y = cols.indexOf("YEAR"), J = cols.indexOf("DOY"), M = cols.indexOf("MO"), DY = cols.indexOf("DY");
+    var P = cols.indexOf("PRECTOTCORR"), T = cols.indexOf("T2M");
+    if (P < 0 || T < 0 || (J < 0 && (M < 0 || DY < 0))) return null;
+    function num(s) { return /^-?\d+(\.\d+)?$/.test(s) && +s !== -999 ? +s : null; }
+    function whole(s) { return /^\d{1,3}$/.test(s) ? +s : NaN; }
+    for (i = at + 1; i < lines.length; i++) {
+      var c = lines[i].split(",");
+      if (c.length !== cols.length || !/^\d{4}$/.test(c[Y])) continue;
+      var y = +c[Y], m = J >= 0 ? 1 : whole(c[M]), d = J >= 0 ? whole(c[J]) : whole(c[DY]);
+      var ms = Date.UTC(y, m - 1, d), day = new Date(ms);
+      if (!(d >= 1) || day.getUTCFullYear() !== y || (J < 0 && (day.getUTCMonth() !== m - 1 || day.getUTCDate() !== d))) continue;
+      var p = num(c[P]), t = num(c[T]), n = Math.round(ms / 86400000);
+      if (p !== null && p < 0) p = null;
+      if (p === null && t === null) continue;
+      days[n] = [p, t];
+      lo = Math.min(lo, n);
+      hi = Math.max(hi, n);
+    }
+    if (!isFinite(lo)) return null;
+    var rec = {from: new Date(lo * 86400000).toISOString().slice(0, 10), p: [], t: []};
+    for (var k = lo; k <= hi; k++) {
+      var v = days[k] || [null, null];
+      rec.p.push(v[0]);
+      rec.t.push(v[1]);
+    }
+    return rec;
+  }
+  // POWER's cell for a place: MERRA-2's grid, 0.5 deg by 0.625 deg, each
+  // cell about its grid point (POWER answered differently either side of
+  // 28.25 N and of 81.5625 W on 12 October 2026, and alike either side of
+  // 28.5 N and of 81.25 W). The replay asks for the grid point: POWER is sent
+  // no closer a position than the cell's, and a move within it asks nothing.
+  function simCell(lon, lat) {
+    var i = Math.round((wrap(lon) + 180) / 0.625) % 576, j = Math.round(clamp(lat, -90, 90) / 0.5);
+    var c = {lon: (i * 0.625 - 180).toFixed(3), lat: (j * 0.5).toFixed(1)};
+    c.key = "days|" + c.lat + "," + c.lon;
+    return c;
+  }
+  function simUrl(c) {
+    var d = new Date(Date.now());
+    return D.street.sources.days.replace("{lon}", c.lon).replace("{lat}", c.lat)
+      .replace("{end}", d.getUTCFullYear() + pad2(d.getUTCMonth() + 1) + pad2(d.getUTCDate()));
+  }
+  // POWER's days for a cell, a third of a megabyte: kept in memory for the
+  // SIM_POINTS cells last asked, for a day, and never in the tab's session,
+  // where it would crowd out the card's answers; asked once however many ask
+  // while it comes, and what went wrong kept beside the cell.
+  var SIM_POINTS = 3, SIM_KEPT = {}, SIM_ASKED = {}, SIM_WHY = {}, SIM_SEQ = 0;
+  function simGet(lon, lat) {
+    var cell = simCell(lon, lat), key = cell.key, had = SIM_KEPT[key];
+    if (had && Date.now() - had.at < RECORD_KEPT) { had.seq = ++SIM_SEQ; return Promise.resolve(had.data); }
+    if (!SIM_ASKED[key]) {
+      delete SIM_WHY[key];
+      SIM_ASKED[key] = streetFetch(simUrl(cell), STREET_WAIT, true).then(function (text) {
+        var rec = powerCsv(text);
+        if (!rec) throw streetFailure("has nothing for this point");
+        delete SIM_ASKED[key];
+        SIM_KEPT[key] = {at: Date.now(), seq: ++SIM_SEQ, data: rec};
+        Object.keys(SIM_KEPT).sort(function (a, b) { return SIM_KEPT[b].seq - SIM_KEPT[a].seq; }).slice(SIM_POINTS)
+          .forEach(function (k) { delete SIM_KEPT[k]; });
+        return rec;
+      }).catch(function (err) {
+        delete SIM_ASKED[key];
+        SIM_WHY[key] = err && err.why || "could not be read";
+        throw err;
+      });
+    }
+    return SIM_ASKED[key];
+  }
+  // ---- the replay's model: past El Ninos' windows against neutral years' ---------------
+  // A window is SIM_MONTHS months; one missing more than SIM_MISSING days is
+  // not replayed, and the window under way is shown from SIM_SOON days.
+  var SIM_DAY = 86400000, SIM_MONTHS = 6, SIM_MISSING = 5, SIM_SOON = 7;
+  // The window of SIM_MONTHS months from the first of month `start` (1 to
+  // 12) of `year`: its first day and the day after its last (ms), its length
+  // in days, its months ("YYYY-MM"), and its name as the site names an
+  // episode, "1997-98" across the new year.
+  function simWindow(start, year) {
+    var first = Date.UTC(year, start - 1, 1), end = Date.UTC(year, start - 1 + SIM_MONTHS, 1), months = [];
+    for (var k = 0; k < SIM_MONTHS; k++) {
+      var d = new Date(Date.UTC(year, start - 1 + k, 1));
+      months.push(streetKey(d.getUTCFullYear(), d.getUTCMonth() + 1));
+    }
+    return {first: first, end: end, days: Math.round((end - first) / SIM_DAY), months: months,
+            label: start - 1 + SIM_MONTHS > 12 ? year + "-" + pad2((year + 1) % 100) : String(year)};
+  }
+  // A window's days at the point and what they come to: rain day by day (p,
+  // null where the record has none) and temperature (t); the rain
+  // accumulated (cum) and its total, a day missing counted dry; its days of
+  // 20 mm or more (ETCCDI's R20mm); its wettest day; its longest run of days
+  // under 1 mm (ETCCDI's CDD, a day missing counted dry); its mean
+  // temperature; and how many days it misses. Null when the record does not
+  // hold the whole window or misses more than SIM_MISSING of its days. With
+  // `before` (ms), the window under way: the days before then that the
+  // record holds, SIM_SOON of them at least.
+  function simRun(rec, start, year, before) {
+    var w = simWindow(start, year), from = Date.parse(rec.from + "T00:00:00Z");
+    var i0 = Math.round((w.first - from) / SIM_DAY), n = w.days, partial = before !== undefined;
+    if (i0 < 0) return null;
+    if (partial) n = Math.min(n, rec.p.length - i0, Math.floor((before - w.first) / SIM_DAY));
+    else if (i0 + n > rec.p.length) return null;
+    var run = {tag: year, label: w.label, first: w.first, p: [], t: [], cum: [], total: 0, r20: 0, wettest: null, dry: 0,
+               tmean: null, missing: 0, partial: partial}, spell = 0, tsum = 0, tn = 0;
+    for (var k = 0; k < n; k++) {
+      var p = rec.p[i0 + k], t = rec.t[i0 + k];
+      run.p.push(p);
+      run.t.push(t);
+      if (p === null) run.missing++;
+      run.total += p || 0;
+      run.cum.push(run.total);
+      if (p !== null && p >= 20) run.r20++;
+      if (p !== null && (!run.wettest || p > run.wettest.mm)) run.wettest = {mm: p, day: k};
+      spell = p === null || p < 1 ? spell + 1 : 0;
+      run.dry = Math.max(run.dry, spell);
+      if (t !== null) { tsum += t; tn++; }
+    }
+    if (tn) run.tmean = tsum / tn;
+    if (partial ? n - run.missing < SIM_SOON : run.missing > SIM_MISSING) return null;
+    return run;
+  }
+  // The record's windows from month `start`, told apart by the index in each
+  // window's first running season, as the card's composite takes its events
+  // for the season ahead: El Ninos, a month of it at the index's El Nino
+  // bound or over it (the season's peak kept), newest first; neutral years,
+  // all three months strictly within the neutral bound - stricter than the
+  // composite's months, since a replay plays whole windows; and this year's
+  // apart: the window under way at nowMs (begun, with days enough on record
+  // to replay or not), or else the last one ended inside the El Nino still
+  // under way, which is never a past one.
+  function simYears(rec, start, nowMs) {
+    var R = D.street, since = ongoingFrom(), out = {events: [], neutral: [], now: null, begun: false};
+    for (var y = +rec.from.slice(0, 4), last = new Date(nowMs).getUTCFullYear(); y <= last; y++) {
+      var w = simWindow(start, y);
+      if (w.first > nowMs) break;
+      if (nowMs < w.end) { out.now = simRun(rec, start, y, nowMs); out.begun = true; continue; }
+      var season = w.months.slice(0, 3), run = simRun(rec, start, y);
+      if (since && season[2] >= since) { out.now = run || out.now; continue; }
+      if (!run) continue;
+      var known = season.map(function (k) { return indexAt(+k.slice(0, 4), +k.slice(5, 7)); })
+        .filter(function (v) { return v !== null; });
+      if (known.some(function (v) { return v >= R.warm; })) {
+        run.peak = Math.max.apply(null, known);
+        out.events.unshift(run);
+      } else if (known.length === 3 && known.every(function (v) { return Math.abs(v) < R.neutral; })) {
+        out.neutral.push(run);
+      }
+    }
+    return out;
+  }
+  // The neutral years' rain accumulated by each date of the window, their
+  // days lined up as a year's without 29 February (simOnDay): the mean and
+  // the 10th and 90th percentiles (straight between the years either side).
+  // Its last day is their totals'.
+  function simBand(runs) {
+    var n = Math.min.apply(null, runs.map(function (r) { return r.cum.length - (simLeap(r.first) < 0 ? 0 : 1); }));
+    var out = {mean: [], lo: [], hi: []};
+    for (var j = 0; j < n; j++) {
+      var v = runs.map(function (r) { return simCumOn(r, j); }).sort(function (a, b) { return a - b; });
+      out.mean.push(streetMean(v));
+      out.lo.push(simQuantile(v, 0.1));
+      out.hi.push(simQuantile(v, 0.9));
+    }
+    return out;
+  }
+  // Where 29 February falls in the window from `first` (ms), as a day of it,
+  // or -1 for a window without it.
+  function simLeap(first) {
+    var d = new Date(first), end = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + SIM_MONTHS, 1);
+    for (var y = d.getUTCFullYear(); y <= d.getUTCFullYear() + 1; y++) {
+      var t = Date.UTC(y, 1, 29);
+      if (new Date(t).getUTCDate() === 29 && t >= first && t < end) return Math.round((t - first) / SIM_DAY);
+    }
+    return -1;
+  }
+  // Day k of the window from `first` as the band counts its days: a year's
+  // without 29 February, which goes with the 28th.
+  function simOnDay(first, k) {
+    var z = simLeap(first);
+    return z >= 0 && k >= z ? k - 1 : k;
+  }
+  // A run's rain accumulated by day j as the band counts its days (by 28
+  // February, its 29th too), or null past the run's last day.
+  function simCumOn(r, j) {
+    var z = simLeap(r.first), i = z >= 0 && j >= z - 1 ? j + 1 : j;
+    return i < r.cum.length ? r.cum[i] : null;
+  }
+  // The band on day k of the window from `first`: the neutral years' mean and
+  // percentiles by its date, or null past the band's end.
+  function simBandOn(m, first, k) {
+    var b = m.band, j = simOnDay(first, k);
+    return b && j >= 0 && j < b.mean.length ? {mean: b.mean[j], lo: b.lo[j], hi: b.hi[j]} : null;
+  }
+  function simQuantile(sorted, q) {
+    var at = q * (sorted.length - 1), i = Math.floor(at);
+    return i + 1 < sorted.length ? sorted[i] + (at - i) * (sorted[i + 1] - sorted[i]) : sorted[i];
+  }
+  // The point's climate: each calendar month's mean total over the years
+  // the record holds every day of it; null for a month it never does.
+  function simClimate(rec) {
+    var from = Date.parse(rec.from + "T00:00:00Z"), sums = {}, totals = [[], [], [], [], [], [], [], [], [], [], [], []];
+    rec.p.forEach(function (p, i) {
+      var d = new Date(from + i * SIM_DAY), key = streetKey(d.getUTCFullYear(), d.getUTCMonth() + 1);
+      var s = sums[key] || (sums[key] = {mm: 0, days: 0, gap: false, y: d.getUTCFullYear(), m: d.getUTCMonth()});
+      if (p === null) s.gap = true; else s.mm += p;
+      s.days++;
+    });
+    Object.keys(sums).forEach(function (key) {
+      var s = sums[key];
+      if (!s.gap && s.days === new Date(Date.UTC(s.y, s.m + 1, 0)).getUTCDate()) totals[s.m].push(s.mm);
+    });
+    return totals.map(function (list) { return list.length ? streetMean(list) : null; });
+  }
+  // ECMWF's forecast for the coming window from month `start` - the next not
+  // yet begun - by the delta method: each month's total is the point's
+  // climate for it scaled by the model's forecast against the model's own
+  // climate of past forecasts, where that climate is the dry floor or more
+  // (where the card gives it as a percentage), else with the model's anomaly
+  // added, never under nothing; for the months from the window's first that
+  // the forecast covers. The rain accumulated day by day, its total and the
+  // climate it stands on; null when the forecast does not reach the window's
+  // first month.
+  function simEcmwf(rows, start, clim, nowMs) {
+    var y = new Date(nowMs).getUTCFullYear(), w = simWindow(start, y);
+    if (w.first <= nowMs) w = simWindow(start, y + 1);
+    var out = {first: w.first, label: w.label, months: [], cum: [], total: 0, base: 0};
+    for (var k = 0; k < w.months.length; k++) {
+      var key = w.months[k], m = +key.slice(5, 7), row = null;
+      (rows || []).forEach(function (r) { if (r && r.month === key) row = r; });
+      if (!row || row.anom === null || clim[m - 1] === null) break;
+      var days = new Date(Date.UTC(+key.slice(0, 4), m, 0)).getUTCDate();
+      var mm = Math.max(0, typeof row.percent === "number" ? clim[m - 1] * (1 + row.percent / 100)
+                                                           : clim[m - 1] + row.anom * days);
+      for (var d = 0; d < days; d++) out.cum.push(out.total + mm * (d + 1) / days);
+      out.months.push(key);
+      out.total += mm;
+      out.base += clim[m - 1];
+    }
+    return out.months.length ? out : null;
+  }
+  // The replay's model of the window from month `start`: past El Ninos,
+  // neutral years with their band and means, the window under way, ECMWF's
+  // projection, the strongest El Nino and the window's months in words.
+  function simModel(rec, start, rows, nowMs) {
+    var y = simYears(rec, start, nowMs), N = y.neutral, strongest = null;
+    function mean(key) {
+      var v = N.map(function (r) { return r[key]; }).filter(function (x) { return x !== null; });
+      return v.length ? streetMean(v) : null;
+    }
+    y.events.forEach(function (r) { if (!strongest || r.peak > strongest.peak) strongest = r; });
+    return {start: start, words: MONTH_WORDS[start - 1] + " to " + MONTH_WORDS[(start + SIM_MONTHS - 2) % 12],
+            events: y.events, neutral: N, now: y.now, begun: y.begun, band: N.length ? simBand(N) : null,
+            base: N.length ? {total: mean("total"), r20: mean("r20"), dry: mean("dry"), tmean: mean("tmean"),
+                              years: N.length} : null,
+            ecmwf: rows ? simEcmwf(rows, start, simClimate(rec), nowMs) : null, strongest: strongest ? strongest.tag : null};
+  }
 
   // ---- the card ------------------------------------------------------------------------
   // Open-Meteo's own words for its credit, linked, wherever its data shows.
@@ -770,10 +1102,13 @@ _JS = r"""
     if (mm < 0.1) return "A trace of rain forecast in the next 24 hours.";
     return mm.toFixed(1) + " mm of rain forecast in the next 24 hours.";
   }
-  // ECMWF's next six months at the point, each against the model's own normal.
+  // ECMWF's next six months at the point, from the reader's month, each
+  // against the model's own normal.
   function streetAheadHtml(st, rows) {
-    var html = ["<h4>The next six months, ECMWF</h4>"];
+    var html = ["<h4>The next six months, ECMWF</h4>"], d = new Date(Date.now());
     if (!rows) return html.concat(streetWait(st, "ahead")).join("");
+    var from = streetKey(d.getUTCFullYear(), d.getUTCMonth() + 1);
+    rows = rows.filter(function (r) { return r.month >= from; }).slice(0, 6);
     if (!rows.some(function (r) { return r.t !== null || r.anom !== null; })) {
       return html.concat("<p>ECMWF\u2019s seasonal forecast has nothing for this point.</p>").join("");
     }
@@ -895,11 +1230,15 @@ _JS = r"""
       "own climate of past forecasts. Right now is Open-Meteo\u2019s forecast for the quarter hour.</p>" +
       '<p class="links">' + openMeteo() + '<a href="https://power.larc.nasa.gov/" target="_blank" rel="noopener">' +
       'NASA POWER \u2197</a><a href="https://www.ecmwf.int/" target="_blank" rel="noopener">ECMWF \u2197</a></p>' +
-      "<p>These data were obtained from the NASA Langley Research Center (LaRC) POWER Project funded through the NASA " +
-      "Earth Science/Applied Science Program.</p>" +
+      streetAcknowledged() + "</details>";
+  }
+  // NASA POWER's and ECMWF's words, as each asks for them where its data show.
+  function streetAcknowledged() {
+    return "<p>These data were obtained from the NASA Langley Research Center (LaRC) POWER Project funded through the " +
+      "NASA Earth Science/Applied Science Program.</p>" +
       "<p>This service is based on data and products of the European Centre for Medium-Range Weather Forecasts " +
       "(ECMWF). Source www.ecmwf.int. ECMWF does not accept any liability whatsoever for any error or omission in the " +
-      "data, their availability, or for any loss or damage arising from their use.</p></details>";
+      "data, their availability, or for any loss or damage arising from their use.</p>";
   }
   // ---- the card's charts ---------------------------------------------------------------
   // A row's scale: the nice number at or over its largest value, and at least
@@ -999,6 +1338,9 @@ _JS = r"""
   // the reader asking. Entered already, the stage moves and its minimap
   // keeps its zoom. Entered to find the point's street (opts.find), the
   // stage shows the point while Here, the card and Google's frame wait.
+  // Entered on a pick's street, it keeps the pick's list (opts.roads, the
+  // entry it is on, opts.road, and the point picked, opts.picked) for Next
+  // street; entered any other way, it has none.
   function streetEnter(lon, lat, label, opts) {
     opts = opts || {};
     lon = lonIn(lon); lat = clamp(lat, -85, 85);
@@ -1014,11 +1356,15 @@ _JS = r"""
     }
     S.street = {lon: lon, lat: lat, label: label || placeLabel(lon, lat),
                 mini: finite(opts.mini) ? clamp(Math.round(opts.mini), MINI_MIN, MINI_MAX) : was ? was.mini : MINI_Z,
-                box: null, link: "", finding: !!opts.find, back: back};
+                box: null, link: "", finding: !!opts.find, back: back, roads: opts.roads || null,
+                road: opts.roads ? opts.road || 0 : 0, picked: opts.roads ? opts.picked : null};
     if (!opts.find) {
       hereAt(lon, lat, S.street.label);
       streetCard(lon, lat, true);
     }
+    // The replay stays open on the new point, stopped where it was, on the
+    // record of its cell.
+    if (S.sim) { simPlay(false); simLoad(); }
     streetDraw();
     return true;
   }
@@ -1030,6 +1376,7 @@ _JS = r"""
     var st = S.street, stage = $("street-stage"), on = document.activeElement;
     if (!st) return false;
     var focused = !!on && !!stage.contains && stage.contains(on);
+    simClose(true);
     S.street = null;
     clearTimeout(snapTimer);
     cancelAnimationFrame(anim); anim = 0;
@@ -1068,10 +1415,13 @@ _JS = r"""
       }
     }
     setText($("street-place"), st.label);
+    setHidden($("street-next"), !(st.roads && st.roads.length > 1));
+    setText($("street-roads"), roadsLine(st));
     $("street-gmaps").setAttribute("href", googleLinks(st.lat, st.lon, S.z).street);
     setText($("street-link"), st.link);
     miniDraw();
     streetChip();
+    simDraw();
   }
   // For the page's API: where the street is.
   function streetView() {
@@ -1145,13 +1495,18 @@ _JS = r"""
   // Google Maps' figure goes to its blue lines: Google's embed looks only some
   // tens of metres about a point, so one in a block or a park found nothing,
   // or a shop's photo of its inside. The stage opens on the point at once;
-  // OSRM is asked for the nearest road a car may take, and one within reach
-  // takes the point, with its name. Out of reach, or no answer within
-  // SNAP_WAIT, and the point stays as picked. OSRM is asked once a second at
-  // most, as its operator asks: a pick made meanwhile replaces the one
-  // waiting, and an answer for a stage since moved or left is dropped.
-  var SNAP_PX = 24, SNAP_NEAR = 250, SNAP_FAR = 5000, SNAP_WAIT = 2500, SNAP_GAP = 1000;
-  var FINDING = "Finding the nearest street\u2026", snapAt = -Infinity, snapTimer = 0;
+  // OSRM is asked for the nearest roads a car may take, and the pick goes to
+  // the nearest named one within SNAP_NAMED (or the reach, if further), else
+  // the nearest of any name within reach: of thirty drops over Winter Haven
+  // on 12 October 2026, eight of the thirteen that went to an unnamed way (a
+  // driveway, a service road) found a panorama, and fourteen of the fifteen
+  // that went to a named road. Next street goes down the other named roads,
+  // to SNAP_FAR, and to the point as picked. No answer within SNAP_WAIT, and
+  // the point stays as picked. OSRM is asked once a second at most, as its
+  // operator asks: a pick made meanwhile replaces the one waiting, and an
+  // answer for a stage since moved or left is dropped.
+  var SNAP_PX = 24, SNAP_NEAR = 250, SNAP_FAR = 5000, SNAP_WAIT = 2500, SNAP_GAP = 1000, SNAP_NAMED = 1000;
+  var SNAP_ROADS = 6, FINDING = "Finding the nearest street\u2026", snapAt = -Infinity, snapTimer = 0;
   function streetPick(lon, lat, z, label) {
     var fresh = !S.street, stage = $("street-stage");
     streetEnter(lon, lat, label, {find: true});
@@ -1163,10 +1518,11 @@ _JS = r"""
     snapTimer = setTimeout(function () {
       if (S.street !== st) return;
       snapAt = Date.now();
-      snapRoad(st.lon, st.lat, snapReach(z, st.lat)).then(function (road) {
+      snapRoads(st.lon, st.lat, snapReach(z, st.lat)).then(function (roads) {
         if (S.street !== st) return;
-        if (!road) streetEnter(st.lon, st.lat, st.label);
-        else streetEnter(road.lon, road.lat, (road.name ? road.name + ", " : "") + placeLabel(road.lon, road.lat));
+        var picked = {lon: st.lon, lat: st.lat, label: st.label}, e = roads && roads[0];
+        if (!e) streetEnter(st.lon, st.lat, st.label);
+        else streetEnter(e.lon, e.lat, roadLabel(e, picked), {roads: roads, road: 0, picked: picked});
       });
     }, Math.max(0, snapAt + SNAP_GAP - Date.now()));
     return true;
@@ -1176,16 +1532,73 @@ _JS = r"""
   function snapReach(z, lat) {
     return clamp(SNAP_PX * CIRCUMFERENCE * 1000 * Math.cos(rad(lat)) / (TILE * Math.pow(2, z)), SNAP_NEAR, SNAP_FAR);
   }
-  // The nearest road a car may take to a point, by OSRM: {lon, lat, name}
-  // within reach (metres), or null, as for no answer or one not understood.
-  function snapRoad(lon, lat, reach) {
+  // Where a picked point may go, by OSRM's nearest roads a car may take, as a
+  // list of {lon, lat, name, d (metres from the point), point}: first where
+  // the pick goes - the nearest named road within SNAP_NAMED or the reach,
+  // whichever is further, else the nearest road of any name within reach -
+  // then the other named roads to SNAP_FAR, each name once at its nearest
+  // stretch, nearest first, SNAP_ROADS roads in all; and the point as picked,
+  // last, or first when no road is taken. Null for no answer, or one not
+  // understood or with no road in it that can be read.
+  function snapRoads(lon, lat, reach) {
     var url = D.street.roads.replace("{lon}", lon.toFixed(6)).replace("{lat}", lat.toFixed(6));
     return streetFetch(url, SNAP_WAIT).then(function (json) {
-      var w = json && json.code === "Ok" && Array.isArray(json.waypoints) ? json.waypoints[0] : null;
-      var at = w && Array.isArray(w.location) ? w.location : [];
-      if (!finite(at[0]) || !finite(at[1]) || !finite(w.distance) || w.distance > reach) return null;
-      return {lon: lonIn(at[0]), lat: clamp(at[1], -85, 85), name: typeof w.name === "string" ? w.name.trim() : ""};
+      if (!json || json.code !== "Ok" || !Array.isArray(json.waypoints)) return null;
+      var named = {}, any = null;
+      json.waypoints.forEach(function (w) {
+        var at = w && Array.isArray(w.location) ? w.location : [];
+        if (!finite(at[0]) || !finite(at[1]) || !finite(w.distance) || w.distance < 0) return;
+        var r = {lon: lonIn(at[0]), lat: clamp(at[1], -85, 85), name: typeof w.name === "string" ? w.name.trim() : "",
+                 d: w.distance, point: false};
+        if (!any || r.d < any.d) any = r;
+        if (r.name && r.d <= SNAP_FAR && !(named[r.name] && named[r.name].d <= r.d)) named[r.name] = r;
+      });
+      if (!any) return null;
+      var list = Object.keys(named).map(function (k) { return named[k]; }).sort(function (a, b) { return a.d - b.d; });
+      var first = list.length && list[0].d <= Math.max(reach, SNAP_NAMED) ? list[0] : any && any.d <= reach ? any : null;
+      var rest = list.filter(function (r) { return r !== first; }), point = {lon: lon, lat: lat, name: "", d: 0, point: true,
+                                                                            reach: reach};
+      return first ? [first].concat(rest.slice(0, SNAP_ROADS - 1), [point]) : [point].concat(rest.slice(0, SNAP_ROADS));
     }, function () { return null; });
+  }
+  // An entry of a pick's list by name, as the stage's bar names it.
+  function roadLabel(e, picked) { return e.point ? picked.label : (e.name ? e.name + ", " : "") + placeLabel(e.lon, e.lat); }
+  // A distance in metres, as the line about a pick gives it: to the metre
+  // under a kilometre, to a tenth of one over it.
+  function roadDistance(m) {
+    var r = Math.round(m);
+    return r < 1000 ? r + " m" : (m / 1000).toFixed(1).replace(/\.0$/, "") + " km";
+  }
+  // The line about a pick: where the stage is against the point picked, and
+  // where Next street goes from it. Nothing for a point entered exactly.
+  function roadsLine(st) {
+    var list = st && st.roads;
+    if (!list) return "";
+    var k = st.road, e = list[k], n = list.length, said;
+    if (e.point) {
+      var named = Math.max(e.reach, SNAP_NAMED);
+      said = "The point as picked" + (k > 0 ? " (" + (k + 1) + " of " + n + ")"
+           : named > e.reach ? ": no named street within " + roadDistance(named) + ", nor any road within " +
+                               roadDistance(e.reach) : ": no road within " + roadDistance(e.reach)) + ".";
+    } else if (k === 0) {
+      said = (e.name ? "The nearest named street, " : "The nearest road, ") + roadDistance(e.d) + " from the point picked.";
+    } else {
+      said = (e.name || "An unnamed road") + ", " + roadDistance(e.d) + " from the point picked (" + (k + 1) + " of " + n + ").";
+    }
+    if (n > 1) {
+      var next = list[(k + 1) % n];
+      said += " Next street: " + (next.point ? "the point picked" : (next.name || "an unnamed road") + ", " +
+                                  roadDistance(next.d) + " away") + ".";
+    }
+    return said;
+  }
+  // Next street: the next entry of the pick's list, entered exactly, and
+  // after the last the first again.
+  function streetNext() {
+    var st = S.street;
+    if (!st || !st.roads || st.roads.length < 2) return false;
+    var k = (st.road + 1) % st.roads.length, e = st.roads[k];
+    return streetEnter(e.lon, e.lat, roadLabel(e, st.picked), {roads: st.roads, road: k, picked: st.picked});
   }
   // The figure let go over the map, or a tap or Enter while it waits: a pick.
   function figureLand(lon, lat) { return streetPick(lon, lat, S.z); }
@@ -1216,7 +1629,674 @@ _JS = r"""
       }, function () { /* the link stays shown, to copy by hand */ });
     } catch (err) { /* no clipboard: the link stays shown */ }
   }
+  // ---- the replay: El Nino's rain, day by day, on the street ---------------------------
+  // The replay, in the chip's place while it is open. S.sim is the window's
+  // first month (start, 1 to 12), the run shown (tag: a past El Nino's year
+  // as text, or "now" for this year's), the day shown and how far Play has
+  // run towards the next (pos), the speed in days a second, whether it
+  // plays, the POWER cell it is for (key) with the record and the model once
+  // they come or what went wrong (why), the frame asked for and the time of
+  // the last, whether a pointer seeks on the chart and a finger down on it
+  // not yet seeking (touch), and the chart's geometry as last drawn. A finger
+  // seeks once it goes SIM_SLOP px across, more than up or down.
+  S.sim = null;
+  var SIM_SPEEDS = [7, 14, 30], SIM_HELD = 250, SIM_SLOP = 8;
+  var SIM_LOADING = "Reading NASA POWER\u2019s days for this place, every one since 1981\u2026";
+  // The replay opened on the stage's point at next month's window, its
+  // record asked if it has not got the cell's, the focus on the panel.
+  function simOpen() {
+    if (!S.street) return false;
+    if (!S.sim) {
+      var start = new Date(Date.now()).getUTCMonth() + 2;
+      S.sim = {start: start > 12 ? start - 12 : start, tag: null, day: 0, pos: 0, speed: SIM_SPEEDS[0],
+               playing: false, key: "", rec: null, model: null, why: "", frame: 0, last: 0, seeking: false, touch: null,
+               geo: null};
+    }
+    simLoad();
+    simDraw();
+    var panel = $("street-sim");
+    if (panel.focus) panel.focus({preventScroll: true});
+    return true;
+  }
+  // The replay closed: Play stopped, the card's chip back, and the focus, if
+  // it was in the panel, on the button that opens it - unless the stage is
+  // being left, which puts it on the map.
+  function simClose(leaving) {
+    var sim = S.sim, panel = $("street-sim"), on = document.activeElement;
+    if (!sim) return false;
+    var inside = !!on && !!panel.contains && panel.contains(on), opener = $("street-replay");
+    if (sim.frame) cancelAnimationFrame(sim.frame);
+    S.sim = null;
+    simDraw();
+    if (inside && !leaving && opener.focus) opener.focus({preventScroll: true});
+    return true;
+  }
+  // The record of the stage's cell, asked when it is not the replay's: an
+  // answer for a cell since left is not shown, and the replay, moved, stops
+  // where it was.
+  function simLoad() {
+    var sim = S.sim, st = S.street;
+    if (!sim || !st || st.finding) return;
+    var cell = simCell(st.lon, st.lat);
+    if (cell.key === sim.key) return;
+    simPlay(false);
+    sim.key = cell.key; sim.rec = null; sim.model = null; sim.why = "";
+    simGet(st.lon, st.lat).then(function (rec) {
+      if (S.sim !== sim || sim.key !== cell.key) return;
+      sim.rec = rec;
+      simBuild();
+      simDraw();
+    }, function (err) {
+      if (S.sim !== sim || sim.key !== cell.key) return;
+      sim.why = err && err.why || "could not be read";
+      simDraw();
+    });
+  }
+  // The record asked for again, by the panel's Retry.
+  function simRetry() {
+    if (!S.sim) return false;
+    S.sim.key = "";
+    simLoad();
+    simDraw();
+    return true;
+  }
+  // The replay's model from its record, ECMWF's months as the card has them
+  // for the point, and the reader's clock.
+  function simBuild() {
+    var sim = S.sim, st = S.street, ahead = st ? streetState(st.lon, st.lat).got.ahead : null;
+    sim.model = simModel(sim.rec, sim.start, ahead ? seasonalRows(ahead) : null, Date.now());
+    simFit();
+  }
+  // The model built again on the record it has, as a run taken in place
+  // brings a new index: the run and the day shown kept where it still has
+  // them.
+  function simRetake() {
+    var sim = S.sim;
+    if (!sim || !sim.rec) return false;
+    simBuild();
+    simDraw();
+    return true;
+  }
+  // The run shown kept if the model has it, else the strongest El Nino, else
+  // this year's; the day shown within it.
+  function simFit() {
+    var sim = S.sim, m = sim.model;
+    var tags = m.events.map(function (r) { return String(r.tag); }).concat(m.now ? ["now"] : []);
+    if (tags.indexOf(sim.tag) < 0) sim.tag = m.strongest !== null ? String(m.strongest) : m.now ? "now" : null;
+    var run = simChosen();
+    sim.day = run ? clamp(sim.day, 0, run.p.length - 1) : 0;
+    sim.pos = sim.day;
+  }
+  // Whether the replay can be played, sought or chosen: it has a run to show
+  // and the stage's street is not being found, the record shown being the
+  // last point's.
+  function simLive() { return !!simChosen() && !!S.street && !S.street.finding; }
+  // The run the replay shows: the past El Nino chosen, or this year's.
+  function simChosen() {
+    var sim = S.sim, m = sim && sim.model;
+    if (!m || sim.tag === null) return null;
+    if (sim.tag === "now") return m.now;
+    for (var i = 0; i < m.events.length; i++) if (String(m.events[i].tag) === sim.tag) return m.events[i];
+    return null;
+  }
+  // Another run shown, on the same day of the window; another window, from
+  // its first day.
+  function simPick(tag) {
+    var sim = S.sim;
+    if (!sim || !sim.model) return false;
+    sim.tag = String(tag);
+    simFit();
+    simDraw();
+    return true;
+  }
+  function simStart(start) {
+    var sim = S.sim;
+    if (!sim || !(start >= 1 && start <= 12)) return false;
+    simPlay(false);
+    sim.start = Math.round(start);
+    sim.day = 0;
+    if (sim.rec) simBuild();
+    simDraw();
+    return true;
+  }
+  // The panel as S.sim has it, in the chip's place, with the rain over the
+  // panorama, or the card's chip back.
+  function simDraw() {
+    var sim = S.sim, on = !!sim && !!S.street;
+    $("street-stage").classList.toggle("simon", on);
+    setHidden($("street-sim"), !on);
+    setHidden($("street-sim-credit"), !on);
+    setHidden($("street-chip-head"), on);
+    setHidden($("street-chip-said"), on);
+    if (!on) { rainDay(""); return; }
+    var m = sim.model, run = simChosen(), live = simLive(), pick = $("street-sim-event"), slider = $("street-sim-day");
+    setValue($("street-sim-start"), String(sim.start));
+    setValue($("street-sim-speed"), String(sim.speed));
+    setMarkup(pick, m ? simOptions(m) : "");
+    setValue(pick, sim.tag === null ? "" : sim.tag);
+    pick.disabled = !live;
+    $("street-sim-play").disabled = !live;
+    slider.max = String(run ? run.p.length - 1 : 0);
+    slider.disabled = !live;
+    setHidden($("street-sim-fail"), !sim.why);
+    setText($("street-sim-why"), sim.why ? "NASA POWER\u2019s days for this place could not be read (" + sim.why + ")." : "");
+    setMarkup($("street-sim-said"), sim.why ? "" : m ? simWords(m, run) : SIM_LOADING);
+    setMarkup($("street-sim-key"), m && run ? simKey(m, run) : "");
+    setMarkup($("street-sim-table"), m ? simTable(m, run) : "");
+    setMarkup($("street-sim-method"), simMethod(sim.rec));
+    simChartDraw();
+    simDay(sim.day);
+  }
+  // The runs to choose from: this year's first, then the El Ninos, newest
+  // first, each with the index's peak in the window's first season.
+  function simOptions(m) {
+    var out = m.now ? ['<option value="now">' + esc((m.now.partial ? "This year so far, " : "This year, ") + m.now.label) +
+                       "</option>"] : [];
+    m.events.forEach(function (r) {
+      out.push('<option value="' + r.tag + '">' + esc(r.label + " (" + signedText(r.peak, 1) + ")") + "</option>");
+    });
+    return out.join("");
+  }
+  // The day shown: the slider, the readout, the playhead, and the rain over
+  // the panorama with the badge naming the day.
+  function simDay(k) {
+    var sim = S.sim, run = simChosen(), slider = $("street-sim-day");
+    if (!sim) return;
+    if (!run) {
+      setText($("street-sim-read"), "");
+      slider.removeAttribute("aria-valuetext");
+      rainDay("");
+      return;
+    }
+    sim.day = clamp(Math.floor(k) || 0, 0, run.p.length - 1);
+    var p = run.p[sim.day], when = simDate(run.first + sim.day * SIM_DAY) + ": " + (p === null ? "rain not on record" : simMm(p));
+    setValue(slider, String(sim.day));
+    if (slider.getAttribute("aria-valuetext") !== when) slider.setAttribute("aria-valuetext", when);
+    setText($("street-sim-read"), simRead(sim.model, run, sim.day));
+    simHead();
+    rainDay(when);
+  }
+  // The readout: the day, its rain and temperature, and the rain so far
+  // against the neutral years' by the same date.
+  function simRead(m, run, k) {
+    var p = run.p[k], t = run.t[k], b = simBandOn(m, run.first, k);
+    return simDate(run.first + k * SIM_DAY) + ": " + (p === null ? "rain not on record" : simMm(p) + " (" + simIn(p) +
+      ") of rain") + (t === null ? "" : ", " + simC(t)) + ". So far " + simMm(run.cum[k]) + " (" + simIn(run.cum[k]) + ")" +
+      (b ? "; neutral years by this day " + simMm(b.mean) + " (10th to 90th percentile " + simNum(b.lo) + " to " +
+       simMm(b.hi) + ")" : "") + ".";
+  }
+  // Play or pause, from the day shown, or from the first when the last is
+  // shown.
+  function simPlay(on) {
+    var sim = S.sim, run = simChosen(), button = $("street-sim-play");
+    if (!sim) return false;
+    on = !!on && simLive();
+    if (on && !sim.playing) {
+      if (sim.day >= run.p.length - 1) simDay(0);
+      sim.pos = sim.day;
+    }
+    sim.playing = on;
+    sim.last = 0;
+    setText(button, on ? "Pause" : "Play");
+    simFrame();
+    return on;
+  }
+  // A frame asked for while the replay plays or its rain falls, and none
+  // while neither does.
+  function simFrame() {
+    var sim = S.sim;
+    if (!sim) return;
+    var want = sim.playing || rainOn();
+    if (want && !sim.frame) sim.frame = requestAnimationFrame(simTick);
+    else if (!want && sim.frame) { cancelAnimationFrame(sim.frame); sim.frame = 0; }
+  }
+  // A frame: Play's days moved on by the time since the last at the speed
+  // chosen - a frame held back, as in a tab in the background, counting
+  // SIM_HELD at most - to the window's end, where Play stops; and the rain,
+  // while it falls, drawn.
+  function simTick(ts) {
+    var sim = S.sim;
+    if (!sim) return;
+    sim.frame = 0;
+    if (sim.playing) {
+      var run = simChosen(), end = run ? run.p.length - 1 : 0;
+      if (sim.last) sim.pos = Math.min(end, sim.pos + Math.min(ts - sim.last, SIM_HELD) / 1000 * sim.speed);
+      sim.last = ts;
+      if (Math.floor(sim.pos) !== sim.day) simDay(sim.pos);
+      if (!run || sim.pos >= end) simPlay(false);
+    }
+    if (rainOn()) rainPaint(ts);
+    simFrame();
+  }
+  // The day under a pointer on the chart, or a step of the slider.
+  function simSeek(clientX) {
+    var sim = S.sim, g = sim && sim.geo;
+    if (!g || !simLive()) return false;
+    var r = $("street-sim-chart").getBoundingClientRect(), x = (clientX - r.left) * g.width / (r.width || g.width);
+    simDay(Math.floor((x - g.L) / g.W * g.N));
+    sim.pos = sim.day;
+    return true;
+  }
+  function simSeekDay(k) {
+    if (!S.sim || !simLive()) return false;
+    simDay(k);
+    S.sim.pos = S.sim.day;
+    return true;
+  }
+  // The chart sought from a pointer's event, the chart holding the pointer
+  // until it is let go.
+  function simSeekFrom(e) {
+    if (!simSeek(e.clientX)) return false;
+    S.sim.seeking = true;
+    try { if (e.pointerId !== undefined) e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* seeks while over it */ }
+    return true;
+  }
+  // The chart drawn at the width it has, and the playhead on the day shown.
+  function simChartDraw() {
+    var sim = S.sim, box = $("street-sim-chart"), run = simChosen();
+    if (!sim || !sim.model || !run) { setMarkup(box, ""); if (sim) sim.geo = null; return; }
+    var c = simChart(sim.model, run, Math.round(box.getBoundingClientRect().width) || 320);
+    sim.geo = c.geo;
+    setMarkup(box, c.svg);
+  }
+  function simHead() {
+    var sim = S.sim, g = sim && sim.geo, run = simChosen(), head = $("street-sim-head"), dot = $("street-sim-dot");
+    if (!g || !run || !head || !dot) return;
+    var x = Math.round((g.L + (sim.day + 1) * g.W / g.N) * 10) / 10;
+    head.setAttribute("x1", x);
+    head.setAttribute("x2", x);
+    dot.setAttribute("cx", x);
+    dot.setAttribute("cy", Math.round((g.T + g.PH * (1 - run.cum[sim.day] / g.top)) * 10) / 10);
+  }
+  // The chart, w px wide: the rain accumulated over the window day by day -
+  // the neutral years' mean dashed over the band of their 10th to 90th
+  // percentiles, by the same dates as the run shown, the El Ninos faint in El
+  // Nino's red, each named where a pointer rests on it, and the one shown bold,
+  // ECMWF's projection dashed blue, this year's in ink - each named line
+  // labelled at its end, those at the window's end kept apart; under it the
+  // run's rain each day as bars, the months along the foot, and the
+  // playhead. Its geometry kept, to place the playhead and to seek.
+  function simChart(m, run, w) {
+    var L = 36, R = 66, T = 8, PH = 112, BT = 128, BH = 26, H = 170, W = Math.max(40, w - L - R), N = 1, top = 10;
+    var e = m.ecmwf, shown = run === m.now, out = [], labels = [], i, k;
+    function r1(v) { return Math.round(v * 10) / 10; }
+    function x(d) { return r1(L + d * W / N); }
+    function y(v) { return r1(T + PH * (1 - v / top)); }
+    function mark(v) { return v % 1 === 0 ? simNum(v) : v.toFixed(1); }
+    function path(c) {
+      var d = "M" + L + "," + y(0);
+      for (var j = 0; j < c.length; j++) d += "L" + x(j + 1) + "," + y(c[j]);
+      return d;
+    }
+    function label(c, text, cls) {
+      var edge = c.length >= N - 2;
+      labels.push({x: edge ? L + W + 4 : x(c.length) + 4, y: y(c[c.length - 1]) + 3.5, text: text, cls: cls, edge: edge});
+    }
+    m.events.concat(m.now ? [m.now] : []).forEach(function (r) {
+      N = Math.max(N, r.partial ? simWindow(m.start, r.tag).days : r.cum.length);
+      top = Math.max(top, r.total);
+    });
+    var bm = [], bl = [], bh = [], days = simWindow(m.start, run.tag).days;
+    for (k = 0; k < days; k++) {
+      var on = simBandOn(m, run.first, k);
+      if (!on) break;
+      bm.push(on.mean); bl.push(on.lo); bh.push(on.hi);
+    }
+    if (bm.length) { N = Math.max(N, bm.length); top = Math.max(top, bh[bh.length - 1]); }
+    if (e) { N = Math.max(N, e.cum.length); top = Math.max(top, e.total); }
+    top = simCeil(top);
+    out.push('<svg class="streetsimsvg" viewBox="0 0 ' + w + " " + H + '" width="' + w + '" height="' + H +
+             '" role="img" aria-label="' + esc(simChartSaid(m, run)) + '">');
+    [0, top / 2, top].forEach(function (v) {
+      out.push('<line class="grid" x1="' + L + '" x2="' + (L + W) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text x="' +
+               (L - 4) + '" y="' + r1(y(v) + 3.5) + '" text-anchor="end">' + mark(v) + "</text>");
+    });
+    out.push('<text x="' + (L + 4) + '" y="' + (T + 9) + '">rain so far, mm</text>');
+    if (bm.length) {
+      var band = "M" + L + "," + y(0);
+      for (k = 0; k < bl.length; k++) band += "L" + x(k + 1) + "," + y(bl[k]);
+      for (k = bh.length - 1; k >= 0; k--) band += "L" + x(k + 1) + "," + y(bh[k]);
+      out.push('<path class="band" d="' + band + 'Z"/>');
+    }
+    m.events.forEach(function (r) {
+      if (r === run) return;
+      out.push('<path class="evfaint" d="' + path(r.cum) + '"><title>' + esc(r.label + " (" + signedText(r.peak, 1) +
+               "): " + simMm(r.total)) + "</title></path>");
+    });
+    if (bm.length) { out.push('<path class="neutral" d="' + path(bm) + '"/>'); label(bm, "Neutral", "neutral"); }
+    if (e) { out.push('<path class="ecmwf" d="' + path(e.cum) + '"/>'); label(e.cum, "ECMWF", "ecmwf"); }
+    if (m.now) {
+      out.push('<path class="now" d="' + path(m.now.cum) + '"' + (shown ? ' style="stroke-width:2.75px"' : "") + "/>");
+      label(m.now.cum, "This year", "now");
+    }
+    if (!shown) { out.push('<path class="ev" d="' + path(run.cum) + '"/>'); label(run.cum, run.label, "ev"); }
+    var most = 1, bars = "", bw = W / N, gap = bw > 3 ? 1 : 0;
+    run.p.forEach(function (p) { if (p !== null && p > most) most = p; });
+    most = simCeil(most);
+    run.p.forEach(function (p, d) {
+      if (p === null || p <= 0) return;
+      var h = r1(Math.max(0.5, p / most * BH));
+      bars += "M" + r1(L + d * bw + gap / 2) + "," + r1(BT + BH - h) + "h" + r1(bw - gap) + "v" + h + "h" + r1(gap - bw) + "z";
+    });
+    out.push('<path class="bars" d="' + bars + '"/><text x="' + (L - 4) + '" y="' + (BT + 7) + '" text-anchor="end">' +
+             mark(most) + "</text>");
+    var first = new Date(run.first);
+    for (i = 0; i < SIM_MONTHS; i++) {
+      var at = Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + i, 1), tx = x((at - run.first) / SIM_DAY);
+      out.push('<line class="tick" x1="' + tx + '" x2="' + tx + '" y1="' + (BT + BH) + '" y2="' + (BT + BH + 4) +
+               '"/><text x="' + r1(tx + 2) + '" y="' + (H - 2) + '">' + MONTHS[new Date(at).getUTCMonth()] + "</text>");
+    }
+    var edge = labels.filter(function (l) { return l.edge; }).sort(function (a, c) { return a.y - c.y; });
+    for (i = 1; i < edge.length; i++) edge[i].y = Math.max(edge[i].y, edge[i - 1].y + 11);
+    var over = edge.length ? edge[edge.length - 1].y - (T + PH + 3.5) : 0;
+    if (over > 0) edge.forEach(function (l) { l.y -= over; });
+    labels.forEach(function (l) {
+      out.push('<text class="lab ' + l.cls + '" x="' + r1(l.x) + '" y="' + r1(l.y) + '">' + esc(l.text) + "</text>");
+    });
+    out.push('<line id="street-sim-head" class="head" x1="' + L + '" x2="' + L + '" y1="' + T + '" y2="' + (BT + BH) +
+             '"/><circle id="street-sim-dot" class="dot' + (shown ? " ink" : "") + '" r="3.5" cx="' + L + '" cy="' + y(0) +
+             '"/></svg>');
+    return {svg: out.join(""), geo: {L: L, W: W, N: N, T: T, PH: PH, top: top, width: w}};
+  }
+  // What the chart shows, in words, for a reader who cannot see it.
+  function simChartSaid(m, run) {
+    var said = [(run === m.now ? (run.partial ? "this year so far " : "this year ") : run.label + " ") + simMm(run.total)];
+    if (m.base) said.push("the neutral years\u2019 mean " + simMm(m.base.total));
+    if (m.ecmwf) said.push("ECMWF\u2019s forecast " + simMm(m.ecmwf.total));
+    return "Rain accumulated, " + m.words + ": " + said.join("; ") + ".";
+  }
+  // A scale's top: the value rounded up to 1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6 or
+  // 8 of its power of ten.
+  function simCeil(v) {
+    var p = Math.pow(10, Math.floor(Math.log(v) / Math.LN10)), steps = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+    for (var i = 0; i < steps.length; i++) if (steps[i] * p >= v - 1e-9) return Math.round(steps[i] * p * 1000) / 1000;
+    return 10 * p;
+  }
+  // The chart's key: each line it draws, and whose rain the bars are.
+  function simKey(m, run) {
+    var shown = run === m.now, out = [], others = m.events.length - (shown ? 0 : 1);
+    if (!shown) out.push('<span class="ev">' + esc(run.label) + "</span>");
+    if (others > 0) out.push('<span class="faint">' + (shown ? "El Ni\u00f1os" : "other El Ni\u00f1os") + "</span>");
+    if (m.band) out.push('<span class="neutral">neutral years\u2019 mean, 10th to 90th percentile shaded</span>');
+    if (m.ecmwf) {
+      out.push('<span class="ecmwf">ECMWF ' + esc(m.ecmwf.label + (m.ecmwf.months.length === SIM_MONTHS ? "" : ", " +
+               simSpan(m.ecmwf.months))) + "</span>");
+    }
+    if (m.now) out.push('<span class="now">' + (m.now.partial ? "this year so far" : "this year") + "</span>");
+    out.push('<span class="bars">bars: ' + esc(shown ? "this year" : run.label) + "\u2019s rain each day</span>");
+    return out.join("");
+  }
+  // The replay's words: the run shown against the neutral years - its rain,
+  // its days of 20 mm or more, its wettest day, its longest dry spell and its
+  // warmth - what the El Ninos brought on average and how many were wetter,
+  // and what ECMWF's forecast comes to; this year so far against both by the
+  // same day.
+  function simWords(m, run) {
+    var b = m.base, out = [];
+    if (!run) {
+      return "No El Ni\u00f1o since 1981 reached +" + D.street.warm.toFixed(1) + " in " + esc(simSeason(m.start)) +
+        " with POWER\u2019s record of its window whole here, and this year\u2019s " + (m.begun ? "has fewer than " +
+        SIM_SOON + " days on POWER\u2019s record yet" : "has not begun") + ": there is nothing to replay for " +
+        esc(m.words) + ".";
+    }
+    if (run.partial) {
+      var k = run.cum.length - 1, j = simOnDay(run.first, k), on = simBandOn(m, run.first, k), against = [];
+      var evs = m.events.map(function (r) { return simCumOn(r, j); }).filter(function (v) { return v !== null; });
+      if (on) against.push(simMm(on.mean) + " by the same day in the neutral years");
+      if (evs.length) against.push(simMm(streetMean(evs)) + " in the El Ni\u00f1os");
+      return "<b>" + esc(m.words + " " + run.label) + " so far</b>, " + simDays(k + 1) + " to " +
+        simDate(run.first + k * SIM_DAY) + ": " + simMm(run.total) +
+        (against.length ? ", against a mean of " + against.join(" and ") : "") + ".";
+    }
+    out.push("<b>" + esc(m.words + " " + run.label) + "</b>" + (run === m.now ? ", in the El Ni\u00f1o under way," : "") +
+             " brought " + simMm(run.total) + " here" + (b && b.total > 0 ? ", " + Math.round(run.total / b.total * 100) +
+             "% of the neutral years\u2019 mean of " + simMm(b.total) + " (" + b.years + " years)" : "") + ".");
+    out.push(simDays(run.r20) + " of 20 mm or more" + (b ? " (neutral years: " + simCount(b.r20) + " on average)" : "") + ".");
+    if (run.wettest) {
+      out.push("Wettest day: " + simMm(run.wettest.mm) + " on " + simDate(run.first + run.wettest.day * SIM_DAY) + ".");
+    }
+    out.push("Longest dry spell: " + simDays(run.dry) + (b ? " (neutral years: " + simDays(b.dry) + ")" : "") + ".");
+    if (run.tmean !== null) {
+      out.push("Mean temperature " + simC(run.tmean) + (b && b.tmean !== null ? ", " + simWarmer(run.tmean - b.tmean) +
+               " the neutral years\u2019 " + simC(b.tmean) : "") + ".");
+    }
+    if (run.missing) {
+      out.push(simDays(run.missing) + " missing from POWER\u2019s record " + (run.missing === 1 ? "is" : "are") +
+               " counted dry.");
+    }
+    if (b && m.events.length > 1) {
+      out.push("Over the " + m.events.length + " El Ni\u00f1os replayable here since 1981, these months brought " +
+               simMm(streetMean(m.events.map(function (r) { return r.total; }))) + " on average, more than the neutral " +
+               "mean in " + m.events.filter(function (r) { return r.total > b.total; }).length + " of them.");
+    }
+    if (m.ecmwf) {
+      var e = m.ecmwf, whole = e.months.length === SIM_MONTHS, by = simBandOn(m, e.first, e.cum.length - 1);
+      out.push("ECMWF\u2019s forecast for " + esc((whole ? m.words : simSpan(e.months)) + " " + e.label) +
+               (whole ? "" : ", the months it reaches,") + " comes to " + simMm(e.total) + " here, against " +
+               simMm(e.base) + " in an average year" + (by ? " and " + simMm(by.mean) + " in the neutral years\u2019 mean" :
+               "") + ".");
+    }
+    return out.join(" ");
+  }
+  // A difference of temperature in words: "1.7 deg C cooler than".
+  function simWarmer(d) {
+    var r = Math.round(d * 10) / 10;
+    return r === 0 ? "the same as" : Math.abs(r).toFixed(1) + " \u00b0C " + (r > 0 ? "warmer" : "cooler") + " than";
+  }
+  // A window's first season, and the months from the first to the last of
+  // a list, in words.
+  function simSeason(start) { return MONTH_WORDS[start - 1] + " to " + MONTH_WORDS[(start + 1) % 12]; }
+  function simSpan(months) {
+    var a = MONTH_WORDS[+months[0].slice(5) - 1], z = MONTH_WORDS[+months[months.length - 1].slice(5) - 1];
+    return months.length > 1 ? a + " to " + z : a;
+  }
+  // Year by year: this year's, each El Nino's and the neutral mean, with the
+  // same measures, and ECMWF's sum.
+  function simTable(m, run) {
+    var b = m.base, rows = [];
+    var head = ["Window", D.street.index + " peak", "Rain", "Of neutral", "Days of 20 mm+", "Wettest day",
+                "Longest dry spell", "Mean temperature", "Days missing"];
+    function pct(v, base) { return base > 0 ? Math.round(v / base * 100) + "%" : ""; }
+    function row(cls, name, cells) {
+      return "<tr" + (cls ? ' class="' + cls + '"' : "") + '><th scope="row">' + esc(name) + "</th>" +
+             cells.map(function (c) { return "<td>" + esc(c) + "</td>"; }).join("") + "</tr>";
+    }
+    function line(r, name, peak) {
+      var by = r.partial ? simBandOn(m, r.first, r.cum.length - 1) : null;
+      var base = r.partial ? (by ? by.mean : 0) : b ? b.total : 0;
+      return row(r === run ? "strong" : "", name, [peak, simMm(r.total), pct(r.total, base), String(r.r20),
+                 r.wettest ? simMm(r.wettest.mm) : "", simDays(r.dry), r.tmean === null ? "" : simC(r.tmean),
+                 String(r.missing)]);
+    }
+    if (m.now) rows.push(line(m.now, (m.now.partial ? "This year so far, " : "This year, ") + m.now.label, ""));
+    m.events.forEach(function (r) { rows.push(line(r, r.label, signedText(r.peak, 1))); });
+    if (b) {
+      rows.push(row("", "Neutral years\u2019 mean (" + b.years + ")", ["", simMm(b.total), "100%", simCount(b.r20), "",
+                                                                     simDays(b.dry), b.tmean === null ? "" : simC(b.tmean), ""]));
+    }
+    if (m.ecmwf) {
+      var e = m.ecmwf, whole = e.months.length === SIM_MONTHS, at = simBandOn(m, e.first, e.cum.length - 1);
+      rows.push(row("", "ECMWF\u2019s forecast, " + e.label + (whole ? "" : " (" + simSpan(e.months) + " only)"),
+                    ["", simMm(e.total), pct(e.total, at ? at.mean : 0), "", "", "", "", ""]));
+    }
+    return '<table class="streettable"><thead><tr>' + head.map(function (h) {
+      return '<th scope="col">' + esc(h) + "</th>";
+    }).join("") + "</tr></thead><tbody>" + rows.join("") + "</tbody></table>";
+  }
+  // How the replay knows what it plays, and whose data it is, in the words
+  // each source asks for.
+  function simMethod(rec) {
+    var st = S.street, R = D.street, since = ongoingFrom(), from = rec ? Date.parse(rec.from + "T00:00:00Z") : 0;
+    var km = st ? Math.round(0.625 * 111.32 * Math.cos(st.lat * Math.PI / 180)) : 0;
+    return "<p>The replay plays what fell. Its days are NASA POWER\u2019s daily record for this place\u2019s grid cell: " +
+      "MERRA-2\u2019s rainfall, corrected against gauges (PRECTOTCORR), and 2 m temperature (T2M), on a 0.5\u00b0 by " +
+      "0.625\u00b0 grid, about 55 by " + km + " km here" + (rec ? ", from " + simDate(from) + " to " +
+      simDate(from + (rec.p.length - 1) * SIM_DAY) : "") + ". A day is the cell\u2019s mean, smoother than a " +
+      "gauge\u2019s, and POWER\u2019s newest days are NASA\u2019s GEOS-IT analysis, not MERRA-2. POWER is sent the " +
+      "cell\u2019s grid point, not the place.</p>" +
+      "<p>A window is the six months from the first of the month chosen, named for its year, or for the two it spans " +
+      "(\u201c1997-98\u201d). It is an El Ni\u00f1o\u2019s when " + esc(R.index) + " centred on one of its first three " +
+      "months is +" + R.warm.toFixed(1) + " or more (its peak the highest of the three), as the card takes its El " +
+      "Ni\u00f1os for the season ahead, and a neutral year\u2019s when all three are within \u00b1" + R.neutral.toFixed(1) +
+      (since ? "; the El Ni\u00f1o under way since " + streetMonthWords(since) + " is this year\u2019s, not a past one" :
+       "") + ". It is the index as the window opens, as a forecast made then would have it: a window from spring " +
+      "takes El Ni\u00f1os growing and fading alike. A window counts when the record has all its days but five at " +
+      "most, and a day missing counts as dry. Days of 20 mm or more are ETCCDI\u2019s R20mm; the longest dry spell, " +
+      "its CDD, is the most days running under 1 mm. The band is the neutral years\u2019 10th to 90th percentile of " +
+      "the rain accumulated by each date of the window, 29 February counted with the 28th.</p>" +
+      "<p>ECMWF\u2019s forecast comes to the place by the delta method: for each month of the coming window it " +
+      "forecasts, POWER\u2019s mean for that calendar month over every complete year here since 1981, scaled by the " +
+      "model\u2019s forecast against its own climate of past forecasts where that climate is " + R.dry_floor +
+      " mm a day or more, else with the model\u2019s anomaly added, never under nothing. It is drawn only for a " +
+      "window not yet begun.</p>" +
+      "<p>The rain over Street View is the page\u2019s drawing, not Google\u2019s: nothing under 0.5 mm, and above it " +
+      "streaks as many and as fast as the day\u2019s rain is heavy, up to 50 mm, with the sky dimmed to match; snow " +
+      "where the day\u2019s mean temperature is at or below 0 \u00b0C. Google\u2019s imagery under it is as Google took " +
+      "it.</p>" +
+      '<p class="links"><a href="https://power.larc.nasa.gov/" target="_blank" rel="noopener">NASA POWER \u2197</a>' +
+      openMeteo() + '<a href="https://www.ecmwf.int/" target="_blank" rel="noopener">ECMWF \u2197</a></p>' +
+      streetAcknowledged();
+  }
+  // Numbers as the replay says them: millimetres to a tenth under 10 and
+  // whole over it, thousands set apart; inches; counts; days; degrees; dates.
+  function simNum(v) {
+    if (v === 0) return "0";
+    if (Math.abs(v) < 10) return v.toFixed(1);
+    return String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+  function simMm(v) { return simNum(v) + " mm"; }
+  function simIn(v) { var x = v / 25.4; return x.toFixed(x < 1 ? 2 : 1) + " in"; }
+  function simCount(v) { return v % 1 === 0 ? String(v) : v.toFixed(1); }
+  function simDays(n) { return simCount(n) + (n === 1 ? " day" : " days"); }
+  function simC(v) { var r = Math.round(v * 10) / 10; return (r < 0 ? "\u2212" : "") + Math.abs(r).toFixed(1) + " \u00b0C"; }
+  function simDate(ms) {
+    var d = new Date(ms);
+    return d.getUTCDate() + " " + MONTH_WORDS[d.getUTCMonth()] + " " + d.getUTCFullYear();
+  }
+  // ---- the rain over Street View ---------------------------------------------------------
+  // The rain the page draws over Google's panorama for a day of the replay,
+  // from the day's rain (mm) and mean temperature (deg C): none for a day
+  // the record does not have, dry under half a millimetre, else a strength
+  // s, the root of the rain against 50 mm, up to 1, giving 20 + 380 s
+  // streaks falling 1 + 1.2 s of the view a second - or, at or below 0 deg
+  // C, 30 + 270 s flakes falling 0.12 + 0.12 s - and the sky dimmed by
+  // 0.08 + 0.3 s.
+  function rainLevel(mm, t) {
+    if (typeof mm !== "number" || !isFinite(mm)) return {kind: "none", drops: 0, gloom: 0, speed: 0};
+    if (mm < 0.5) return {kind: "dry", drops: 0, gloom: 0, speed: 0};
+    var s = Math.min(1, Math.sqrt(mm / 50)), snow = typeof t === "number" && t <= 0;
+    return {kind: snow ? "snow" : "rain", drops: Math.round(snow ? 30 + 270 * s : 20 + 380 * s),
+            gloom: Math.round((0.08 + 0.3 * s) * 1000) / 1000,
+            speed: Math.round((snow ? 0.12 + 0.12 * s : 1 + 1.2 * s) * 1000) / 1000};
+  }
+  // A streak is as long as its drop falls in RAIN_BLUR seconds, and leans
+  // RAIN_SLANT across for each pixel down, as its drop drifts on the wind.
+  var RAIN_BLUR = 0.03, RAIN_SLANT = 0.12, RAIN_STILL = null;
+  // Whether the reader asks for less motion, asked of the browser once.
+  function rainStill() {
+    if (RAIN_STILL === null) {
+      RAIN_STILL = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : false;
+    }
+    return !!(RAIN_STILL && RAIN_STILL.matches);
+  }
+  // Whether rain falls on the day the replay shows, to be drawn frame by frame.
+  function rainOn() {
+    var rain = S.sim && S.sim.rain;
+    return !!rain && rain.drops > 0 && !rainStill();
+  }
+  // The rain for the day the replay shows, and the badge naming it (when, in
+  // the slider's words): both hidden, and the canvas let go, while the replay
+  // shows no day or the street is being found. The canvas is shown only while
+  // it rains: one cleared and drawn on no more can go on showing what it drew
+  // last (Chrome, 12 October 2026). The drops are kept while the day's kind
+  // of rain is, as many as the day asks; a wet day is drawn at once, and the
+  // frames run while it rains, unless the reader asks for less motion.
+  function rainDay(when) {
+    var sim = S.sim, run = simChosen(), st = S.street, canvas = $("street-rain"), badge = $("street-day");
+    var on = !!run && !!st && !st.finding, level = on ? rainLevel(run.p[sim.day], run.t[sim.day]) : null;
+    setHidden(canvas, !(level && level.drops));
+    setHidden(badge, !on);
+    if (!on) {
+      if (canvas.width) { canvas.width = 0; canvas.height = 0; }
+      if (sim && sim.rain) { sim.rain = null; simFrame(); }
+      return;
+    }
+    setText(badge, when);
+    var key = when + "|" + level.kind + "|" + level.drops, was = sim.rain;
+    if (was && was.key === key) return;
+    var drops = was && was.kind === level.kind ? was.parts : [];
+    while (drops.length > level.drops) drops.pop();
+    while (drops.length < level.drops) {
+      drops.push({x: Math.random(), y: Math.random(), z: 0.4 + 0.6 * Math.random(), w: Math.random() * 2 * Math.PI});
+    }
+    sim.rain = {key: key, kind: level.kind, drops: level.drops, gloom: level.gloom, speed: level.speed, parts: drops,
+                last: was ? was.last : 0};
+    if (level.drops) rainPaint(0);
+    simFrame();
+  }
+  // The canvas sized to its box at the device's pixel ratio, two at most.
+  function rainSize(canvas) {
+    var r = canvas.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+    var w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+    if (canvas.width !== Math.round(w * dpr)) canvas.width = Math.round(w * dpr);
+    if (canvas.height !== Math.round(h * dpr)) canvas.height = Math.round(h * dpr);
+    return {w: w, h: h, dpr: dpr};
+  }
+  // A frame of the rain at time ts, or the rain as it is (no ts), its clock
+  // left where it was: the drops moved on by the time since the last frame,
+  // the sky dimmed, and each drop drawn at one of three depths, the nearer
+  // faster, bigger and brighter - rain as streaks leaning with the wind, as
+  // long as they are fast; snow as flakes swaying as they fall - a path a
+  // depth.
+  function rainPaint(ts) {
+    var rain = S.sim && S.sim.rain, canvas = $("street-rain");
+    var ctx = rain && canvas.getContext ? canvas.getContext("2d") : null;
+    if (!ctx) return false;
+    var box = rainSize(canvas), w = box.w, h = box.h, snow = rain.kind === "snow", sway = (ts || rain.last) / 1000;
+    var dt = ts && rain.last ? Math.min(ts - rain.last, SIM_HELD) / 1000 : 0, depths = [[], [], []];
+    if (ts) rain.last = ts;
+    ctx.setTransform(box.dpr, 0, 0, box.dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!rain.parts.length) return true;
+    ctx.fillStyle = "rgba(14, 22, 33, " + rain.gloom + ")";
+    ctx.fillRect(0, 0, w, h);
+    rain.parts.forEach(function (d) {
+      var v = rain.speed * d.z;
+      d.y += v * dt;
+      if (!snow) d.x += RAIN_SLANT * v * dt * h / w;
+      if (d.y > 1.08) { d.y -= 1.16; d.x = Math.random(); }
+      d.x -= Math.floor(d.x);
+      depths[d.z < 0.6 ? 0 : d.z < 0.8 ? 1 : 2].push(d);
+    });
+    depths.forEach(function (list, k) {
+      if (!list.length) return;
+      ctx.beginPath();
+      list.forEach(function (d) {
+        var x = d.x * w, y = d.y * h;
+        if (snow) {
+          var r = 0.8 + 1.6 * d.z;
+          x += Math.sin(d.w + sway * (0.6 + d.z)) * 10 * d.z;
+          ctx.moveTo(x + r, y);
+          ctx.arc(x, y, r, 0, 2 * Math.PI);
+        } else {
+          var len = rain.speed * d.z * h * RAIN_BLUR;
+          ctx.moveTo(x, y);
+          ctx.lineTo(x - RAIN_SLANT * len, y - len);
+        }
+      });
+      if (snow) {
+        ctx.fillStyle = "rgba(255, 255, 255, " + (0.5 + 0.2 * k) + ")";
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = "rgba(214, 226, 240, " + (0.28 + 0.16 * k) + ")";
+        ctx.lineWidth = 0.8 + 0.4 * k;
+        ctx.stroke();
+      }
+    });
+    return true;
+  }
   $("street-exit").addEventListener("click", function () { streetLeave(); });
+  $("street-next").addEventListener("click", function () { streetNext(); });
   $("street-then").addEventListener("click", function () { streetThen(); });
   $("street-copy").addEventListener("click", function () { streetCopy(); });
   $("street-more").addEventListener("click", function () { streetMore(); });
@@ -1231,14 +2311,63 @@ _JS = r"""
   // A wheel over the stage is the stage's (the chip scrolls), not the map's.
   $("street-stage").addEventListener("wheel", function (e) { e.stopPropagation(); }, {passive: true});
   if (window.ResizeObserver) new ResizeObserver(function () { if (S.street) miniDraw(); }).observe($("street-mini"));
-  // Esc leaves the street, unless then-and-now's keys took it first (to stop
-  // the map waiting for a tap); keys typed into a field are its own.
+  // The replay's controls. A mouse or pen down on the chart seeks, and seeks
+  // as it moves until it is let go. A finger seeks where it is lifted, or
+  // once it goes across (SIM_SLOP) and on as it moves; moving up or down
+  // first, it scrolls the panel (pan-y, the browser's) and seeks nothing.
+  $("street-replay").addEventListener("click", function () { simOpen(); });
+  $("street-sim-back").addEventListener("click", function () { simClose(); });
+  $("street-sim-retry").addEventListener("click", function () { simRetry(); });
+  $("street-sim-play").addEventListener("click", function () { if (S.sim) simPlay(!S.sim.playing); });
+  $("street-sim-event").addEventListener("change", function (e) { simPick(e.target.value); });
+  $("street-sim-start").addEventListener("change", function (e) { simStart(+e.target.value); });
+  $("street-sim-speed").addEventListener("change", function (e) {
+    var v = +e.target.value;
+    if (S.sim && SIM_SPEEDS.indexOf(v) >= 0) S.sim.speed = v;
+  });
+  $("street-sim-day").addEventListener("input", function (e) { simSeekDay(+e.target.value); });
+  $("street-sim-chart").addEventListener("pointerdown", function (e) {
+    if (!S.sim || (e.button !== undefined && e.button !== 0)) return;
+    if (e.pointerType === "touch") S.sim.touch = {id: e.pointerId, x: e.clientX, y: e.clientY};
+    else simSeekFrom(e);
+  });
+  $("street-sim-chart").addEventListener("pointermove", function (e) {
+    var sim = S.sim, t = sim && sim.touch;
+    if (sim && sim.seeking) { simSeek(e.clientX); return; }
+    if (!t || t.id !== e.pointerId) return;
+    var across = Math.abs(e.clientX - t.x), up = Math.abs(e.clientY - t.y);
+    if (across > SIM_SLOP && across > up) { sim.touch = null; simSeekFrom(e); }
+    else if (up > SIM_SLOP) sim.touch = null;
+  });
+  $("street-sim-chart").addEventListener("pointerup", function (e) {
+    var sim = S.sim;
+    if (!sim) return;
+    if (sim.touch && sim.touch.id === e.pointerId) simSeek(e.clientX);
+    sim.touch = null;
+    sim.seeking = false;
+  });
+  $("street-sim-chart").addEventListener("pointercancel", function () { if (S.sim) { S.sim.touch = null; S.sim.seeking = false; } });
+  if (window.ResizeObserver) new ResizeObserver(function () {
+    var sim = S.sim;
+    if (sim && sim.geo && Math.round($("street-sim-chart").getBoundingClientRect().width) !== sim.geo.width) {
+      simChartDraw();
+      simHead();
+    }
+  }).observe($("street-sim-chart"));
+  // The rain drawn again at the canvas's new size.
+  if (window.ResizeObserver) new ResizeObserver(function () { if (S.sim && S.sim.rain) rainPaint(0); })
+    .observe($("street-rain"));
+  // Esc closes the replay, and leaves the street when it is closed, unless
+  // then-and-now's keys took it first (to stop the map waiting for a tap);
+  // keys typed into a field are its own, but for the replay's own controls.
   document.addEventListener("keydown", function (e) {
-    var t = e.target, tag = t && t.tagName;
+    var t = e.target, tag = t && t.tagName, mine = !!S.sim && !!(t && t.closest && t.closest("#street-sim"));
     if (e.defaultPrevented || e.key !== "Escape" || !S.street) return;
-    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || (t && t.closest && t.closest("#findform"))) return;
+    if (!mine && (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || (t && t.closest && t.closest("#findform")))) {
+      return;
+    }
     e.preventDefault();
-    streetLeave();
+    if (S.sim) simClose(); else streetLeave();
   });
 """
 
@@ -1272,10 +2401,16 @@ def css() -> str:
 .streetplace { flex: 1 1 180px; min-width: 0; margin: 0; font: 600 0.92rem var(--font); }
 .streetbar .toolbtn { min-height: 36px; padding: 0 10px; font-size: 0.8rem; }
 .streetbar a.toolbtn { display: inline-flex; align-items: center; text-decoration: none; }
-.streetnote, .streetlink { flex: 1 1 100%; margin: 0; font-size: 0.72rem; line-height: 1.35; color: var(--ink2); }
+.streetnote, .streetlink, .streetroads { flex: 1 1 100%; margin: 0; font-size: 0.72rem; line-height: 1.35;
+  color: var(--ink2); }
+.streetroads { color: var(--ink); }
 .streetlink { overflow-wrap: anywhere; }
 .streetlink:empty { display: none; }
-.streetpano { position: relative; flex: 1 1 auto; min-height: 140px; background: var(--plane); }
+/* The line about a pick says it for this point: the note gives it the room. */
+.streetroads:empty { display: none; }
+.streetroads:not(:empty) + .streetnote { display: none; }
+.streetview { position: relative; flex: 1 1 auto; min-height: 140px; }
+.streetpano { position: absolute; inset: 0; background: var(--plane); }
 .streetframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .streetfinding { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   margin: 0; padding: 0 16px; text-align: center; font-size: 0.86rem; color: var(--ink2); }
@@ -1309,4 +2444,68 @@ def css() -> str:
   .streetmini { width: 220px; height: 165px; }
   .streetchip { max-height: 165px; }
 }
+/* The replay, in the chip's place: the chip stands taller and, on a phone,
+   takes the minimap's room, and the stage stands taller, so the panorama,
+   where the rain falls, keeps its room; its chart is drawn to the width it
+   has, a finger across it seeking and up and down scrolling. */
+.streetreplay { min-height: 32px; padding: 0 10px; font-size: 0.76rem; }
+.streetstage.simon .streetfoot { max-height: 52%; }
+.streetstage.simon .streetchip { max-height: none; }
+@media (max-width: 899px) { .streetstage.simon .streetmini { display: none; } }
+@media (max-width: 899px) { #map.streeton:has(.streetstage.simon) { height: 92vh; height: 92svh; } }
+.streetsim { display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px; }
+.streetsim:focus { outline: none; }
+.streetsimbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.streetsimbar label { display: inline-flex; align-items: center; gap: 4px; font-size: 0.74rem; color: var(--ink2); }
+.streetsimbar select { min-height: 32px; max-width: 13em; padding: 0 4px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface); color: var(--ink); font: 0.76rem var(--font); }
+.streetsimbar .toolbtn { min-height: 32px; min-width: 5.5em; }
+.streetsimday { width: 100%; margin: 0; accent-color: var(--warm); }
+.streetsimread, .streetsimsaid, .streetsimkey, .streetsim .streetfail { margin: 0; }
+.streetsimread { min-height: 2.9em; font-variant-numeric: tabular-nums; }
+.streetsimchart { position: relative; min-height: 170px; touch-action: pan-y; cursor: col-resize; }
+.streetsimsvg { display: block; width: 100%; height: auto; }
+.streetsimsvg text { font: 10px var(--font); fill: var(--ink2); }
+.streetsimsvg .lab { font-weight: 700; }
+.streetsimsvg .lab.ev { fill: var(--warm); }
+.streetsimsvg .lab.ecmwf { fill: var(--s1); }
+.streetsimsvg .lab.now { fill: var(--ink); }
+.streetsimsvg .grid { stroke: var(--border); stroke-width: 1; }
+.streetsimsvg .tick { stroke: var(--axis); stroke-width: 1; }
+.streetsimsvg .band { fill: var(--ink2); fill-opacity: 0.14; stroke: none; }
+/* A line's class names its label too: its rules are its path's. */
+.streetsimsvg path.neutral, .streetsimsvg path.ecmwf, .streetsimsvg path.ev, .streetsimsvg path.evfaint,
+.streetsimsvg path.now { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.streetsimsvg path.neutral { stroke: var(--ink2); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.streetsimsvg path.ecmwf { stroke: var(--s1); stroke-width: 2; stroke-dasharray: 6 3; }
+.streetsimsvg path.evfaint { stroke: var(--warm); stroke-width: 1.25; stroke-opacity: 0.3; }
+.streetsimsvg path.ev { stroke: var(--warm); stroke-width: 2.75; }
+.streetsimsvg path.now { stroke: var(--ink); stroke-width: 1.75; }
+.streetsimsvg .bars { fill: var(--warm); fill-opacity: 0.75; }
+.streetsimsvg .head { stroke: var(--ink); stroke-width: 1; }
+.streetsimsvg .dot { fill: var(--warm); stroke: var(--surface); stroke-width: 1.5; }
+.streetsimsvg .dot.ink { fill: var(--ink); }
+.streetsimkey { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 0.7rem; color: var(--ink2); }
+.streetsimkey span::before { content: ""; display: inline-block; width: 14px; margin: 0 4px 3px 0;
+  vertical-align: middle; border-top: 2px solid var(--ink2); }
+.streetsimkey .ev::before { border-top: 3px solid var(--warm); }
+.streetsimkey .faint::before { border-top-color: var(--warm); opacity: 0.4; }
+.streetsimkey .neutral::before { border-top-style: dashed; }
+.streetsimkey .ecmwf::before { border-top: 2px dashed var(--s1); }
+.streetsimkey .now::before { border-top-color: var(--ink); }
+.streetsimkey .bars::before { width: 6px; height: 9px; border: 0; background: var(--warm); opacity: 0.75; }
+.streetsimmore summary { min-height: 32px; display: flex; align-items: center; cursor: pointer; font-weight: 600;
+  font-size: 0.76rem; }
+.streetsimmore p { margin: 4px 0 8px; font-size: 0.74rem; }
+.streetsimtable { overflow-x: auto; }
+.streetsimtable tr.strong th, .streetsimtable tr.strong td { font-weight: 700; }
+/* The replay's rain over the panorama: the page's drawing, never taking a
+   pointer, clear of Google's logo and terms in the panorama's bottom 40 px
+   and fading out above them; the badge naming its day sits above them too. */
+.streetrain { position: absolute; left: 0; top: 0; width: 100%; height: calc(100% - 40px); pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), transparent); }
+.streetday { position: absolute; left: 8px; bottom: 48px; max-width: calc(100% - 16px); margin: 0; padding: 3px 8px;
+  border-radius: 6px; background: var(--surface); color: var(--ink); font: 600 0.74rem var(--font);
+  font-variant-numeric: tabular-nums; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); pointer-events: none; }
 """

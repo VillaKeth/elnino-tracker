@@ -77,7 +77,7 @@ class TestStreetPayload(unittest.TestCase):
 
     def test_each_source_is_asked_for_the_point_and_nothing_else(self):
         sources = street.payload(state_with(EVENT))["sources"]
-        self.assertEqual(set(sources), {"monthly", "daily", "now", "ahead"})
+        self.assertEqual(set(sources), {"monthly", "daily", "now", "ahead", "days"})
         for key, url in sources.items():
             with self.subTest(key):
                 self.assertTrue(url.startswith("https://"), url)
@@ -88,13 +88,23 @@ class TestStreetPayload(unittest.TestCase):
         self.assertIn("start={start}&end={end}", sources["daily"])
         self.assertIn("monthly=temperature_2m_anomaly,precipitation_mean,precipitation_anomaly,"
                       "sea_surface_temperature_anomaly", sources["ahead"])
+        # ECMWF's run reaches seven months from the month it is made in; the
+        # replay's six from next month need them all, and Open-Meteo gives
+        # six unless asked (12 October 2026).
+        self.assertTrue(sources["ahead"].endswith("&forecast_days=215"), sources["ahead"])
         self.assertIn("forecast_hours=24", sources["now"])
+        # The replay's record: every day since 1981, as CSV, 342 KB where the
+        # JSON was 547 for Winter Haven on 12 October 2026.
+        self.assertEqual(sources["days"], "https://power.larc.nasa.gov/api/temporal/daily/point?parameters="
+                         "PRECTOTCORR,T2M&community=AG&longitude={lon}&latitude={lat}&start=19810101&end={end}"
+                         "&format=CSV")
 
-    def test_a_picked_point_is_taken_to_the_nearest_road_on_osrm_s_car_network(self):
-        # FOSSGIS's OSRM over OpenStreetMap, as it answered on 9 October 2026:
-        # the nearest point on a road a car may take, its name and how far.
+    def test_a_picked_point_is_taken_to_a_road_on_osrm_s_car_network(self):
+        # FOSSGIS's OSRM over OpenStreetMap, as it answered on 12 October
+        # 2026: the 100 nearest stretches of road a car may take, each with
+        # its name and how far it is, its documented limit, in 25 KB.
         self.assertEqual(street.payload(state_with(EVENT))["roads"],
-                         "https://routing.openstreetmap.de/routed-car/nearest/v1/driving/{lon},{lat}?number=1")
+                         "https://routing.openstreetmap.de/routed-car/nearest/v1/driving/{lon},{lat}?number=100")
 
 
 class TestStreetOnThePage(_DeskFixtures, unittest.TestCase):
@@ -185,12 +195,26 @@ class TestStreetStageMarkup(_DeskFixtures, unittest.TestCase):
                       'rel="noopener">Google Maps \u2197</a>', stage)
         self.assertIn('<p class="streetlink" id="street-link" role="status"></p>', stage)
         self.assertIn('<div class="streetpano" id="street-pano"></div>', stage)
+        # Next street, first of the ways on, shown when a pick has a list; and
+        # the line saying where the stage is against the pick.
+        self.assertIn('<p class="streetplace" id="street-place" aria-live="polite"></p>'
+                      '<button type="button" class="toolbtn" id="street-next" hidden>Next street</button>'
+                      '<button type="button" class="toolbtn" id="street-then">Then and now</button>', stage)
+        self.assertIn('<p class="streetroads" id="street-roads"></p><p class="streetnote">', stage)
 
     def test_what_google_shows_is_said_before_it_is_met(self):
-        self.assertIn('<p class="streetnote">A point picked goes first to the nearest street within reach, and '
-                      "Street View opens on Google\u2019s panorama there; where Google has none it says \u201cNo "
-                      "Street View available\u201d, and the minimap and the card are this point\u2019s either "
-                      "way.</p>", street.map_parts())
+        # Shown while no pick's line is - a point entered exactly, or its
+        # street still being found - it says what a pick does.
+        self.assertIn('<p class="streetnote">Street View shows Google\u2019s panorama nearest the stage\u2019s point; '
+                      "where Google has none it says \u201cNo Street View available\u201d. A point picked (the figure "
+                      "dropped, or the minimap tapped) goes to the nearest named street within a kilometre, else the "
+                      "nearest road within reach, and Next street tries the others. The minimap and the card are this "
+                      "point\u2019s either way.</p>", street.map_parts())
+        # The line about the pick, once there is one, says it for this point:
+        # the note gives it the room.
+        css = street.css()
+        self.assertIn(".streetroads:empty { display: none; }", css)
+        self.assertIn(".streetroads:not(:empty) + .streetnote { display: none; }", css)
 
     def test_the_nearest_street_is_credited_as_its_operator_and_openstreetmap_ask(self):
         self.assertIn('<p class="streetcredit">Nearest street: <a href="https://project-osrm.org/" target="_blank" '
@@ -218,14 +242,88 @@ class TestStreetStageMarkup(_DeskFixtures, unittest.TestCase):
 
     def test_the_chip_holds_the_card_s_first_lines_and_goes_to_the_rest(self):
         stage = street.map_parts()
-        self.assertIn('<div class="streetchip" id="street-chip"><div class="streetchiphead"><b>El Ni\u00f1o on this '
-                      'street</b><button type="button" class="streetmore" id="street-more">The whole card \u2193'
-                      "</button></div>", stage)
+        self.assertIn('<div class="streetchip" id="street-chip"><div class="streetchiphead" id="street-chip-head"><b>El '
+                      'Ni\u00f1o on this street</b><button type="button" class="toolbtn streetreplay" '
+                      'id="street-replay">Replay El Ni\u00f1o\u2019s rain</button><button type="button" '
+                      'class="streetmore" id="street-more">The whole card \u2193</button></div>', stage)
         self.assertIn('<p class="streetchipsaid" id="street-chip-said"></p>', stage)
         # The panorama is between the bar and the strip under it, so nothing
         # of the page sits on Google's own controls and credit.
         order = [stage.index(s) for s in ('class="streetbar"', 'id="street-pano"', 'class="streetfoot"')]
         self.assertEqual(order, sorted(order))
+
+    def test_the_rain_lies_over_the_panorama_clear_of_google_s_foot(self):
+        # The replay's rain and the badge naming its day lie over Google's
+        # panorama, beside its frame and not in it, so a new frame keeps them.
+        self.assertIn('<div class="streetview"><div class="streetpano" id="street-pano"></div>'
+                      '<canvas class="streetrain" id="street-rain" aria-hidden="true" hidden></canvas>'
+                      '<p class="streetday" id="street-day" aria-hidden="true" hidden></p></div>', street.map_parts())
+        # Neither takes a pointer from the panorama; the rain stops 40 px above
+        # its foot, Google's logo and terms, and fades out above them, and the
+        # badge sits above them too.
+        css = street.css()
+        self.assertIn(".streetrain { position: absolute; left: 0; top: 0; width: 100%; height: calc(100% - 40px); "
+                      "pointer-events: none;", css)
+        self.assertIn("-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), transparent);", css)
+        self.assertIn(" mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), transparent);", css)
+        self.assertIn(".streetday { position: absolute; left: 8px; bottom: 48px;", css)
+        self.assertRegex(css, r"\.streetday \{[^}]*pointer-events: none;")
+
+    def test_the_replay_opens_in_the_chip_with_its_controls(self):
+        stage = street.map_parts()
+        panel = stage[stage.index('<div class="streetsim" id="street-sim"'):]
+        self.assertTrue(panel.startswith('<div class="streetsim" id="street-sim" role="group" '
+                                         'aria-labelledby="street-sim-title" tabindex="-1" hidden>'))
+        self.assertIn('<b id="street-sim-title">El Ni\u00f1o\u2019s rain, replayed here</b><button type="button" '
+                      'class="streetmore" id="street-sim-back">Back to the card</button>', panel)
+        # Its words say what it does, Play or Pause, and nothing more.
+        self.assertIn('<button type="button" class="toolbtn" id="street-sim-play" disabled>Play</button>', panel)
+        self.assertIn('<label>El Ni\u00f1o <select id="street-sim-event" disabled></select></label>', panel)
+        # Six months from any month, and three speeds, a week a second first.
+        starts = re.findall(r'<option value="(\d+)">([^<]*)</option>',
+                            re.search(r'<select id="street-sim-start">(.*?)</select>', panel).group(1))
+        self.assertEqual(len(starts), 12)
+        self.assertEqual([starts[0], starts[9], starts[11]],
+                         [("1", "January to June"), ("10", "October to March"), ("12", "December to May")])
+        self.assertIn('<label>Speed <select id="street-sim-speed"><option value="7">a week a second</option>'
+                      '<option value="14">two weeks a second</option><option value="30">a month a second</option>'
+                      "</select></label>", panel)
+        self.assertIn('<input type="range" class="streetsimday" id="street-sim-day" min="0" max="0" step="1" '
+                      'value="0" aria-label="Day of the window" disabled>', panel)
+        order = [panel.index('id="' + ident + '"') for ident in
+                 ("street-sim-day", "street-sim-read", "street-sim-chart", "street-sim-key", "street-sim-said",
+                  "street-sim-fail", "street-sim-table", "street-sim-method")]
+        self.assertEqual(order, sorted(order))
+        self.assertIn('<p class="streetfail" id="street-sim-fail" hidden><span id="street-sim-why"></span> <button '
+                      'type="button" class="toolbtn" id="street-sim-retry">Retry</button></p>', panel)
+        self.assertIn("<summary>Year by year</summary>", panel)
+        self.assertIn("<summary>Method and sources</summary>", panel)
+        # NASA POWER credited under it while it is open.
+        self.assertIn('<p class="streetcredit" id="street-sim-credit" hidden>Daily rain: <a '
+                      'href="https://power.larc.nasa.gov/" target="_blank" rel="noopener">NASA POWER</a>, NASA Langley '
+                      "Research Center.</p>", stage)
+        # Open, the chip stands taller and, on a phone, takes the minimap's
+        # room; a finger across the chart seeks, and up and down scrolls.
+        css = street.css()
+        self.assertIn(".streetstage.simon .streetchip { max-height: none; }", css)
+        self.assertIn("@media (max-width: 899px) { .streetstage.simon .streetmini { display: none; } }", css)
+        # On a phone the stage stands taller while it is open, so the
+        # panorama, where the rain falls, keeps its room.
+        # (of the viewport as it is with the browser's bars shown, where the
+        # browser knows it).
+        self.assertIn("@media (max-width: 899px) { #map.streeton:has(.streetstage.simon) { height: 92vh; height: 92svh; } }",
+                      css)
+        self.assertIn(".streetsimchart { position: relative; min-height: 170px; touch-action: pan-y;", css)
+
+    def test_the_chart_s_line_rules_leave_its_labels_seen(self):
+        # A line's class names its label too: a rule taking a line's fill
+        # away is a path's, or the label at its end is drawn unseen.
+        css = street.css()
+        for cls in ("neutral", "ecmwf", "ev", "evfaint", "now"):
+            with self.subTest(cls):
+                self.assertNotRegex(css, r"\.streetsimsvg \.%s\b" % cls)
+                self.assertRegex(css, r"\.streetsimsvg path\.%s \{ stroke: " % cls)
+        self.assertIn(".streetsimsvg text { font: 10px var(--font); fill: var(--ink2); }", css)
 
     def test_the_chip_credits_open_meteo_whose_forecast_it_quotes(self):
         # The chip's sentence gives ECMWF's months as Open-Meteo serves them,
@@ -297,6 +395,21 @@ LIMA = 'streetEnter(-77.0428, -12.0464, "Lima");\n'
 # FOSSGIS's server answered on 9 October 2026 (its hint and nodes left out).
 ROAD_LIMA = {"code": "Ok", "waypoints": [{"location": [-77.050231, -12.045687], "name": "Avenida Guillermo Dansey",
                                           "distance": 59.23305783}]}
+# OSRM's answer for a point picked in Winter Haven, made as its answers come:
+# two unnamed ways at the point, Hoover Road twice, Lake Shore Drive with
+# spaces about its name and again without, a road 1.5 km off, one past 5 km,
+# and two waypoints that cannot be read.
+ROADS_WH = {"code": "Ok", "waypoints": [
+    {"location": [-81.729997, 27.99967], "name": "", "distance": 4.2},
+    {"location": [-81.7301, 27.9997], "name": "", "distance": 9.0},
+    {"location": [-81.729659, 27.989109], "name": "Hoover Road", "distance": 227.4},
+    {"location": [-81.7297, 27.9892], "name": "Hoover Road", "distance": 231.0},
+    {"location": [-81.731, 27.991], "name": " Lake Shore Drive ", "distance": 310.0},
+    {"location": [-81.735, 27.995], "name": "Lake Shore Drive", "distance": 330.0},
+    {"location": [-81.701989, 28.047209], "name": "Martin Luther King Jr Boulevard", "distance": 1483.0},
+    {"location": [-81.75, 28.0], "name": "Far Road", "distance": 5200.0},
+    {"location": ["x", None], "name": "Broken", "distance": 20},
+    {"location": [-81.74, 28.01], "name": "No Distance"}]}
 CARD_ASKED = ["https://api.open-meteo.com/v1/forecast", "https://power.larc.nasa.gov/api/temporal/daily/point",
               "https://power.larc.nasa.gov/api/temporal/monthly/point",
               "https://seasonal-api.open-meteo.com/v1/seasonal"]
@@ -359,7 +472,7 @@ class TestStreetStageRuns(unittest.TestCase):
         self.assertEqual(got["here"], {"lon": -77.050231, "lat": -12.045687, "label": label})
         self.assertTrue(got["frame"])
         self.assertEqual(got["first"],
-                         "https://routing.openstreetmap.de/routed-car/nearest/v1/driving/-77.050283,-12.045154?number=1")
+                         "https://routing.openstreetmap.de/routed-car/nearest/v1/driving/-77.050283,-12.045154?number=100")
         self.assertEqual(got["card"], CARD_ASKED)
 
     def test_a_street_is_within_reach_of_24_pixels_of_the_view_from_250_m_to_5_km(self):
@@ -375,10 +488,12 @@ class TestStreetStageRuns(unittest.TestCase):
         self.assertAlmostEqual(got[1], 897.0, delta=0.5)
         self.assertAlmostEqual(got[4], 458.6, delta=0.5)
 
-    def test_a_road_out_of_reach_or_no_answer_leaves_the_point_where_it_was_picked(self):
+    def test_a_pick_goes_to_a_named_street_within_a_kilometre_else_a_road_within_reach_else_stays(self):
         def road(distance, name="Avenida Guillermo Dansey", location=(-77.050231, -12.045687)):
             return {"code": "Ok", "waypoints": [{"location": list(location), "name": name, "distance": distance}]}
-        cases = [("out of reach at a street's zoom", 16, road(400)), ("within a city's view", 12, road(400)),
+        cases = [("a named road 400 m off at a street's zoom", 16, road(400)),
+                 ("a named road 1.2 km off at a street's zoom", 16, road(1200)),
+                 ("a named road 1.2 km off in a city's view", 11, road(1200)),
                  ("past 5 km at the world's", 3, road(6000)), ("a failure", 16, "error"), ("an error status", 16, 503),
                  ("no road", 16, {"code": "NoSegment", "message": "Could not find a matching segment"}),
                  ("a strange answer", 16, {"code": "Ok", "waypoints": [{"location": ["a", None], "distance": 5}]}),
@@ -391,19 +506,97 @@ class TestStreetStageRuns(unittest.TestCase):
             advance(1000); await flush();
             advance(2500); await flush();
             return [S.street.lon, S.street.lat, S.street.label, S.street.finding,
-                    $("street-pano").innerHTML.indexOf("cbll=" + S.street.lat.toFixed(6) + "," + S.street.lon.toFixed(6)) > 0];
+                    $("street-pano").innerHTML.indexOf("cbll=" + S.street.lat.toFixed(6) + "," + S.street.lon.toFixed(6)) > 0,
+                    $("street-roads").textContent, $("street-next").hidden];
           }
           var cases = """ + json.dumps([[z, answer] for _, z, answer in cases]) + r""";
           for (var i = 0; i < cases.length; i++) out.push(await pick(cases[i][0], cases[i][1]));
           console.log(JSON.stringify(out));
         """)
-        stayed = [-77.050283, -12.045154, "12.05S 77.05W", False, True]
-        went = [-77.050231, -12.045687, "Avenida Guillermo Dansey, 12.05S 77.05W", False, True]
-        expected = [stayed, went, stayed, stayed, stayed, stayed, stayed, stayed,
-                    [-77.050231, -12.045687, "12.05S 77.05W", False, True]]
+        here, named = [-77.050283, -12.045154, "12.05S 77.05W"], "Avenida Guillermo Dansey, 12.05S 77.05W"
+        silent = here + [False, True, "", True]
+        expected = [
+            [-77.050231, -12.045687, named, False, True,
+             "The nearest named street, 400 m from the point picked. Next street: the point picked.", False],
+            here + [False, True, "The point as picked: no named street within 1 km, nor any road within 250 m. "
+                    "Next street: Avenida Guillermo Dansey, 1.2 km away.", False],
+            [-77.050231, -12.045687, named, False, True,
+             "The nearest named street, 1.2 km from the point picked. Next street: the point picked.", False],
+            here + [False, True, "The point as picked: no road within 5 km.", True],
+            silent, silent, silent,
+            # An answer whose roads cannot be read says nothing of them.
+            silent,
+            silent,
+            [-77.050231, -12.045687, "12.05S 77.05W", False, True,
+             "The nearest road, 5 m from the point picked. Next street: the point picked.", False]]
         for (name, _, _), result, want in zip(cases, got, expected):
             with self.subTest(name):
                 self.assertEqual(result, want)
+
+    def test_next_street_goes_down_the_named_streets_nearest_first_then_to_the_point_picked(self):
+        got = _run(self, r"""
+          route("routed-car/nearest", """ + json.dumps(ROADS_WH) + r""");
+          streetPick(-81.73, 27.9997, 16);
+          advance(0); await flush();
+          function at() {
+            return [S.street.lon, S.street.lat, S.street.label, $("street-roads").textContent, $("street-next").hidden,
+                    S.here.label];
+          }
+          var out = [at()];
+          for (var i = 0; i < 4; i++) { $("street-next").fire("click"); out.push(at()); }
+          console.log(JSON.stringify({out: out, roads: S.street.roads.map(function (r) { return r.point ? "*" : r.name; }),
+            osrm: ASKED.filter(function (u) { return u.indexOf("routed-car") >= 0; }).length}));
+        """)
+        hoover = [-81.729659, 27.989109, "Hoover Road, 27.99N 81.73W",
+                  "The nearest named street, 227 m from the point picked. Next street: Lake Shore Drive, 310 m away.",
+                  False, "Hoover Road, 27.99N 81.73W"]
+        self.assertEqual(got["out"], [
+            hoover,
+            [-81.731, 27.991, "Lake Shore Drive, 27.99N 81.73W",
+             "Lake Shore Drive, 310 m from the point picked (2 of 4). Next street: Martin Luther King Jr Boulevard, "
+             "1.5 km away.", False, "Lake Shore Drive, 27.99N 81.73W"],
+            [-81.701989, 28.047209, "Martin Luther King Jr Boulevard, 28.05N 81.70W",
+             "Martin Luther King Jr Boulevard, 1.5 km from the point picked (3 of 4). Next street: the point picked.",
+             False, "Martin Luther King Jr Boulevard, 28.05N 81.70W"],
+            [-81.73, 27.9997, "28.00N 81.73W",
+             "The point as picked (4 of 4). Next street: Hoover Road, 227 m away.", False, "28.00N 81.73W"],
+            hoover])
+        # Each name once, at its nearest stretch; the unnamed ways at the
+        # point, the road past 5 km and the waypoints not read left out; and
+        # OSRM asked once for the lot.
+        self.assertEqual(got["roads"], ["Hoover Road", "Lake Shore Drive", "Martin Luther King Jr Boulevard", "*"])
+        self.assertEqual(got["osrm"], 1)
+
+    def test_a_road_of_any_name_within_reach_comes_before_named_ones_past_a_kilometre(self):
+        answer = {"code": "Ok", "waypoints": [w for w in ROADS_WH["waypoints"]
+                                              if w.get("name") in ("", "Martin Luther King Jr Boulevard")]}
+        got = _run(self, r"""
+          route("routed-car/nearest", """ + json.dumps(answer) + r""");
+          streetPick(-81.73, 27.9997, 16);
+          advance(0); await flush();
+          console.log(JSON.stringify([S.street.lon, S.street.lat, S.street.label, $("street-roads").textContent,
+            S.street.roads.map(function (r) { return r.point ? "*" : r.name || "-"; })]));
+        """)
+        self.assertEqual(got, [-81.729997, 27.99967, "28.00N 81.73W",
+                               "The nearest road, 4 m from the point picked. Next street: Martin Luther King Jr "
+                               "Boulevard, 1.5 km away.", ["-", "Martin Luther King Jr Boulevard", "*"]])
+
+    def test_six_streets_at_most_and_none_for_an_exact_point(self):
+        many = {"code": "Ok", "waypoints": [{"location": [-81.73 + i / 1000, 28.0], "name": "Road %d" % i,
+                                             "distance": 50 + 100 * i} for i in range(9)]}
+        got = _run(self, r"""
+          route("routed-car/nearest", """ + json.dumps(many) + r""");
+          streetPick(-81.73, 28.0, 16);
+          advance(0); await flush();
+          var listed = S.street.roads.map(function (r) { return r.point ? "*" : r.name; });
+          // An address, the page's API and a street kept across a load open
+          // exactly where they say, with nothing to go down.
+          streetHashApply("#street=28.10000,-81.70000");
+          var linked = [S.street.roads, $("street-next").hidden, $("street-roads").textContent, streetNext()];
+          console.log(JSON.stringify([listed, linked]));
+        """)
+        self.assertEqual(got, [["Road 0", "Road 1", "Road 2", "Road 3", "Road 4", "Road 5", "*"],
+                               [None, True, "", False]])
 
     def test_a_newer_pick_or_leaving_drops_an_older_answer_and_osrm_is_asked_once_a_second(self):
         got = _run(self, r"""
@@ -728,6 +921,8 @@ var elninoLive = {shows: function () { note("shows"); }, sameCode: function () {
                                       CALLS.indexOf("showHere") >= 0]));
         """, extra=extra)
         self.assertEqual(got, ["Lima", False, True, 1, True])
+        # The replay, open, tells its years apart again by the new run's index.
+        self.assertIn("if (S.sim) simRetake();", _js_function(js, "takeRun"))
 
     def test_asking_again_lets_go_of_the_point_s_answers_and_asks_each_source(self):
         got = _run(self, r"""
@@ -1013,19 +1208,30 @@ def text(markup: str) -> str:
 
 
 # ECMWF's months ahead as Open-Meteo answered for Lima and for Jakarta on
-# 9 October 2026 (Jakarta's sea surface made up, as at a point offshore), and
-# Lima's weather that morning, its hours of rain made up.
-_MONTHS_AHEAD = ["2026-10-01", "2026-11-01", "2026-12-01", "2027-01-01", "2027-02-01", "2027-03-01"]
+# 9 October 2026, the seven of October's run the page asks for (April's as it
+# answered on the 12th, its other months the same) (Jakarta's sea surface made
+# up, as at a point offshore), and Lima's weather that morning, its hours of
+# rain made up.
+_MONTHS_AHEAD = ["2026-10-01", "2026-11-01", "2026-12-01", "2027-01-01", "2027-02-01", "2027-03-01", "2027-04-01"]
 AHEAD_LIMA = {"monthly": {"time": _MONTHS_AHEAD,
-                          "temperature_2m_anomaly": [3.7, 4.3, 4.1, 3.7, 3.4, 3.4],
-                          "precipitation_mean": [4.7, 12.5, 20.4, 30.6, 20.9, 20.2],
-                          "precipitation_anomaly": [3.2, 10.4, 16.0, 21.4, 9.6, 7.7],
-                          "sea_surface_temperature_anomaly": [None] * 6}}
+                          "temperature_2m_anomaly": [3.7, 4.3, 4.1, 3.7, 3.4, 3.4, 3.5],
+                          "precipitation_mean": [4.7, 12.5, 20.4, 30.6, 20.9, 20.2, 9.0],
+                          "precipitation_anomaly": [3.2, 10.4, 16.0, 21.4, 9.6, 7.7, 1.2],
+                          "sea_surface_temperature_anomaly": [None] * 7}}
 AHEAD_JAKARTA = {"monthly": {"time": _MONTHS_AHEAD,
-                             "temperature_2m_anomaly": [1.5, 1.8, 1.3, 1.5, 1.5, 1.5],
-                             "precipitation_mean": [47.1, 149.9, 292.6, 337.0, 292.2, 307.7],
-                             "precipitation_anomaly": [-80.1, -76.0, 40.5, 66.8, 41.3, 49.7],
-                             "sea_surface_temperature_anomaly": [0.6, 0.5, 0.4, 0.4, 0.3, 0.3]}}
+                             "temperature_2m_anomaly": [1.5, 1.8, 1.3, 1.5, 1.5, 1.5, 1.5],
+                             "precipitation_mean": [47.1, 149.9, 292.6, 337.0, 292.2, 307.7, 255.5],
+                             "precipitation_anomaly": [-80.1, -76.0, 40.5, 66.8, 41.3, 49.7, 50.6],
+                             "sea_surface_temperature_anomaly": [0.6, 0.5, 0.4, 0.4, 0.3, 0.3, 0.3]}}
+# ECMWF's months as Open-Meteo would answer at the replay's clock, noon on 29
+# September 2026: September's run, seven months from September (Jakarta's
+# October to March, September's made up).
+_JAKARTA = AHEAD_JAKARTA["monthly"]
+AHEAD_SEPTEMBER = {"monthly": {"time": ["2026-09-01"] + _JAKARTA["time"][:6],
+                               "temperature_2m_anomaly": [1.4] + _JAKARTA["temperature_2m_anomaly"][:6],
+                               "precipitation_mean": [60.2] + _JAKARTA["precipitation_mean"][:6],
+                               "precipitation_anomaly": [-61.0] + _JAKARTA["precipitation_anomaly"][:6],
+                               "sea_surface_temperature_anomaly": [0.6] + _JAKARTA["sea_surface_temperature_anomaly"][:6]}}
 NOW_LIMA = {"latitude": -12.056238, "longitude": -77.06198, "utc_offset_seconds": -18000,
             "timezone": "America/Lima", "timezone_abbreviation": "GMT-5",
             "current": {"time": "2026-10-09T08:45", "interval": 900, "temperature_2m": 23.4, "precipitation": 0.0,
@@ -1155,7 +1361,7 @@ return Promise.all([a, b]).then(function (both) {
             stored: Object.keys(store), asking: Object.keys(STREET_ASKED).length};
   });
 });""", reply=AHEAD_LIMA)
-        self.assertEqual(got, {"calls": 1, "same": True, "again": 6, "stored": ["elnino-street-1:ahead|-12.05,-77.04"],
+        self.assertEqual(got, {"calls": 1, "same": True, "again": 7, "stored": ["elnino-street-1:ahead|-12.05,-77.04"],
                                "asking": 0})
 
     def test_the_weather_now_is_asked_again_after_a_quarter_of_an_hour(self):
@@ -1231,10 +1437,23 @@ return [st.asked, st.got.ahead.monthly.time, st.why.now, st.asking.monthly, st.g
         self.assertAlmostEqual(january["percent"], 21.4 / 9.2 * 100)
         self.assertEqual(february["days"], 28)
         self.assertAlmostEqual(jakarta[0]["percent"], -80.1 / 127.2 * 100)
-        self.assertEqual([r["sst"] for r in lima], [None] * 6)
+        self.assertEqual([r["sst"] for r in lima], [None] * 7)
         self.assertEqual(jakarta[0]["sst"], 0.6)
         self.assertEqual((holed[5]["rain"], holed[5]["normal"], holed[5]["percent"]), (None, None, None))
         self.assertAlmostEqual(holed[5]["anom"], 7.7 / 31)
+
+    def test_the_card_gives_ecmwf_s_six_months_from_the_reader_s(self):
+        # Seven months asked for, from the month the run was made in: the card
+        # gives six from the reader's - on 2 November, before November's run
+        # is out, October's from November on.
+        body = "return streetAheadHtml(INPUT.state, seasonalRows(INPUT.ahead));"
+        october = self.run_js(body, state=self.state(), ahead=AHEAD_LIMA)
+        november = self.run_js(body, state=self.state(), ahead=AHEAD_LIMA, at="2026-11-02T09:00:00Z")
+        self.assertEqual(re.findall(r'<th scope="row">([^<]*)</th>', october),
+                         ["Oct 2026", "Nov 2026", "Dec 2026", "Jan 2027", "Feb 2027", "Mar 2027"])
+        self.assertEqual(re.findall(r'<th scope="row">([^<]*)</th>', november),
+                         ["Nov 2026", "Dec 2026", "Jan 2027", "Feb 2027", "Mar 2027", "Apr 2027"])
+        self.assertIn("<h4>The next six months, ECMWF</h4>", october)
 
     def test_the_season_ahead_is_the_three_months_from_next_month(self):
         got = self.run_js('return [streetAhead(Date.parse("2026-10-09T15:00:00Z")), streetAhead(Date.parse("2026-12-31T23:00:00Z"))];')
@@ -1473,7 +1692,7 @@ return streetGet("ahead", -77.04, -12.05).then(function (again) {
         self.assertEqual(got["got"], [None, {"current": {"temperature_2m": 20}, "hourly": None,
                                              "timezone_abbreviation": "PET"}, None])
         self.assertEqual(got["removed"], ["elnino-street-1:ahead|-12.05,-77.04", "elnino-street-1:monthly|-12.05,-77.04"])
-        self.assertEqual([got["card"], got["calls"], got["again"]], ["string", 1, 6])
+        self.assertEqual([got["card"], got["calls"], got["again"]], ["string", 1, 7])
 
     def test_a_card_that_cannot_be_written_says_so_and_offers_to_ask_again(self):
         got = self.run_js(r"""
@@ -1500,7 +1719,7 @@ STREET_KEPT["ahead|11.00,20.00"] = {at: Date.now() - 25 * 3600000, data: {monthl
 return Promise.all([streetGet("ahead", 20, 10), streetGet("ahead", 20, 11)])
   .then(function (got) { return [calls, got[0].monthly.time.length, got[1].monthly.time.length]; });""",
                           reply=AHEAD_LIMA)
-        self.assertEqual(got, [1, 0, 6])
+        self.assertEqual(got, [1, 0, 7])
 
     def test_the_tab_keeps_the_last_twenty_points_asked(self):
         # The session is the site's, shared with the follower's handover:
@@ -1537,6 +1756,964 @@ return [first, [Object.keys(STREET_KEPT).sort(), Object.keys(store).sort()]];"""
         self.assertEqual(got[0], [keys(range(1, 21)), sorted(["someone-else"] + keys(range(1, 21), store))])
         self.assertEqual(got[1], [sorted(keys(range(2, 21)) + ["ahead|21.00,0.00"]),
                                   sorted(["someone-else", store + "ahead|21.00,0.00"] + keys([20], store))])
+
+
+# POWER's daily record as its CSV comes, header and all, as it answered for
+# Winter Haven on 12 October 2026, cut to a few days: the third day missing,
+# a temperature and a rainfall filled, and the last day nothing but fills.
+POWER_CSV = (
+    "-BEGIN HEADER-\n"
+    "NASA/POWER Source Native Resolution Daily Data \n"
+    "Dates (month/day/year): 01/01/1981 through 01/06/1981 in LST\n"
+    "Location: latitude  28.02   longitude -81.73 \n"
+    "The value for missing source data that cannot be computed or is outside of the sources availability "
+    "range: -999 \n"
+    "parameter(s): \n"
+    "PRECTOTCORR     MERRA-2 Precipitation Corrected (mm/day) \n"
+    "T2M             MERRA-2 Temperature at 2 Meters (C) \n"
+    "-END HEADER-\n"
+    "YEAR,DOY,PRECTOTCORR,T2M\n"
+    "1981,1,0.01,11.68\n"
+    "1981,2,0.0,9.2\n"
+    "1981,4,25.5,-999.0\n"
+    "1981,5,-999.0,12.25\n"
+    "1981,6,-999.0,-999.0\n")
+
+
+# A point's days and the index, 1981 to 1990, made so that every number the
+# replay gives can be worked out by hand. The index is neutral (0.0) but for
+# El Ninos in NDJ 1982-83 (peaking +2.2) and 1987-88 (+1.1 in November
+# alone), a La Nina in NDJ 1988-89, a warm-neutral November 1984 (+0.6), and
+# an El Nino under way from June 1990 to the record's end. It rains 1 mm a
+# day, 20 deg C; in the two El Ninos' November to April, 3 mm a day, 25 mm on
+# each month's first, at 18 deg C. 15 March 1983 is missing, 1 to 7 December
+# 1986 too, and 5 to 24 January 1986 is dry.
+REPLAY_SETUP = r"""
+  var DAY = 86400000, index = [];
+  for (var y = 1981; y <= 1990; y++) for (var m = 1; m <= 12; m++) {
+    var v = 0.0, key = y + "-" + pad2(m);
+    if (key === "1982-11") v = 2.0; else if (key === "1982-12") v = 2.2; else if (key === "1983-01") v = 2.1;
+    else if (key === "1987-11") v = 1.1; else if (key === "1987-12") v = 0.9; else if (key === "1988-01") v = 0.7;
+    else if (key >= "1988-11" && key <= "1989-01") v = -1.5;
+    else if (key === "1984-11") v = 0.6;
+    else if (key >= "1990-06") v = 0.6 + (m - 6) / 10;
+    index.push(v);
+  }
+  D.street = Object.assign({}, D.street, {months: {from: "1981-01", values: index}});
+  function warmDay(d) {
+    var y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, tag = m >= 11 ? y : y - 1;
+    return (tag === 1982 || tag === 1987) && (m >= 11 || m <= 4);
+  }
+  var REC = {from: "1981-01-01", p: [], t: []};
+  for (var ms = Date.UTC(1981, 0, 1); ms < Date.UTC(1991, 0, 1); ms += DAY) {
+    var d = new Date(ms), iso = d.toISOString().slice(0, 10), warm = warmDay(d);
+    var p = warm ? (d.getUTCDate() === 1 ? 25 : 3) : 1;
+    if (iso === "1983-03-15" || (iso >= "1986-12-01" && iso <= "1986-12-07")) p = null;
+    if (iso >= "1986-01-05" && iso <= "1986-01-24") p = 0;
+    REC.p.push(p);
+    REC.t.push(warm ? 18 : 20);
+  }
+  function brief(r) {
+    return r && {tag: r.tag, label: r.label, days: r.p.length, total: Math.round(r.total * 1000) / 1000, r20: r.r20,
+                 wettest: r.wettest, dry: r.dry, tmean: r.tmean, missing: r.missing, partial: r.partial,
+                 peak: r.peak === undefined ? null : r.peak};
+  }
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class TestStreetReplayRuns(unittest.TestCase):
+    """El Nino's rain replayed on the street, run under node as the page runs
+    it: POWER's days read and kept, the replay's model, its panel and the rain
+    drawn over the panorama."""
+
+    def test_the_rain_s_level_follows_the_day_s_rain_and_snows_at_or_below_freezing(self):
+        got = _run(self, r"""
+          console.log(JSON.stringify([[null, 20], [0.49, 20], [0.5, 20], [12.5, 20], [50, 20], [200, 20],
+                                      [12.5, 0], [12.5, 0.1], [12.5, null], [0, -5]].map(function (d) {
+            return rainLevel(d[0], d[1]);
+          })));
+        """)
+        none = {"kind": "none", "drops": 0, "gloom": 0, "speed": 0}
+        dry = {"kind": "dry", "drops": 0, "gloom": 0, "speed": 0}
+        self.assertEqual(got, [
+            none, dry,
+            # From half a millimetre, a strength s, the root of the rain
+            # against 50 mm, up to 1: 20 + 380 s streaks falling 1 + 1.2 s of
+            # the view a second, and the sky dimmed by 0.08 + 0.3 s.
+            {"kind": "rain", "drops": 58, "gloom": 0.11, "speed": 1.12},
+            {"kind": "rain", "drops": 210, "gloom": 0.23, "speed": 1.6},
+            {"kind": "rain", "drops": 400, "gloom": 0.38, "speed": 2.2},
+            {"kind": "rain", "drops": 400, "gloom": 0.38, "speed": 2.2},
+            # At or below 0 deg C, 30 + 270 s flakes, falling 0.12 + 0.12 s.
+            {"kind": "snow", "drops": 165, "gloom": 0.23, "speed": 0.18},
+            {"kind": "rain", "drops": 210, "gloom": 0.23, "speed": 1.6},
+            {"kind": "rain", "drops": 210, "gloom": 0.23, "speed": 1.6},
+            dry])
+
+    def test_power_s_days_are_read_from_its_csv(self):
+        got = _run(self, "console.log(JSON.stringify(powerCsv(" + json.dumps(POWER_CSV) + ")));")
+        # Day by day from the first, the missing day and the fills null, the
+        # days after the last with a value left off.
+        self.assertEqual(got, {"from": "1981-01-01", "p": [0.01, 0, None, 25.5, None],
+                               "t": [11.68, 9.2, None, None, 12.25]})
+
+    def test_power_s_days_by_month_and_day_and_in_another_order(self):
+        csv = ("-BEGIN HEADER-\n-END HEADER-\r\n"
+               "YEAR,MO,DY,T2M,PRECTOTCORR\r\n"
+               "2015,12,31,20.5,1.25\r\n"
+               "2016,1,1,19.0,0.0\r\n"
+               "2016,2,30,1,1\r\n"
+               "2015,13,1,1,1\r\n"
+               "abc,1,2,1,1\r\n"
+               "2016,1,2,x,-0.5\r\n"
+               "2016,1,3,18.0,3.5\r\n"
+               "2016,1,4,,\r\n"
+               "\r\n")
+        got = _run(self, "console.log(JSON.stringify(powerCsv(" + json.dumps(csv) + ")));")
+        # 30 February, a thirteenth month and a year that is not one are not
+        # days; what is not a number, or a rainfall under nothing, is no value.
+        self.assertEqual(got, {"from": "2015-12-31", "p": [1.25, 0, None, 3.5], "t": [20.5, 19, None, 18]})
+
+    def test_power_s_days_with_columns_before_the_year(self):
+        csv = ("-BEGIN HEADER-\n-END HEADER-\n"
+               "LAT,LON,YEAR,DOY,T2M,PRECTOTCORR\n"
+               "28.0,-81.875,1981,1,11.68,0.01\n"
+               "28.0,-81.875,1981,2,9.2,0.0\n")
+        got = _run(self, "console.log(JSON.stringify(powerCsv(" + json.dumps(csv) + ")));")
+        self.assertEqual(got, {"from": "1981-01-01", "p": [0.01, 0], "t": [11.68, 9.2]})
+
+    def test_an_answer_that_is_not_power_s_days_is_no_record(self):
+        answers = ["<html><body>Service Unavailable</body></html>", "", None, 42,
+                   "-BEGIN HEADER-\n-END HEADER-\nYEAR,DOY,T2M\n1981,1,12.0\n",
+                   "YEAR,PRECTOTCORR,T2M\n1981,1.0,12.0\n",
+                   "YEAR,DOY,PRECTOTCORR,T2M\n",
+                   "YEAR,DOY,PRECTOTCORR,T2M\n1981,366,1.0,12.0\n1981,0,1.0,12.0\n1981,1,-999,-999\n"]
+        got = _run(self, "console.log(JSON.stringify(" + json.dumps(answers) + ".map(powerCsv)));")
+        self.assertEqual(got, [None] * len(answers))
+
+    def test_power_s_cell_is_merra_2_s_grid_point_nearest_the_place(self):
+        got = _run(self, r"""
+          console.log(JSON.stringify([[-81.73, 28.24], [-81.73, 28.26], [-81.73, 28.49], [-81.73, 28.51],
+                                      [-81.55, 28.02], [-81.57, 28.02], [-81.24, 28.02], [-81.26, 28.02],
+                                      [179.9, -0.1], [-180, 0], [540.2, 45.2]].map(function (p) {
+            return simCell(p[0], p[1]);
+          })));
+        """)
+        # POWER answered differently either side of 28.25 N and of 81.5625 W
+        # on 12 October 2026, and alike either side of 28.5 N and of 81.25 W:
+        # each cell is about its grid point.
+        self.assertEqual([[c["lon"], c["lat"]] for c in got], [
+            ["-81.875", "28.0"], ["-81.875", "28.5"], ["-81.875", "28.5"], ["-81.875", "28.5"],
+            ["-81.250", "28.0"], ["-81.875", "28.0"], ["-81.250", "28.0"], ["-81.250", "28.0"],
+            ["-180.000", "0.0"], ["-180.000", "0.0"], ["-180.000", "45.0"]])
+        self.assertEqual(got[0]["key"], "days|28.0,-81.875")
+
+    def test_the_days_are_asked_once_a_cell_kept_for_three_cells_and_a_failure_said(self):
+        got = _run(self, r"""
+          route("format=CSV", """ + json.dumps(POWER_CSV) + r""");
+          function asked() { return ASKED.filter(function (u) { return u.indexOf("format=CSV") >= 0; }); }
+          var a = simGet(-81.73, 28.02), b = simGet(-81.70, 28.05), same = a === b, rec = await a;
+          var first = asked();
+          await simGet(-81, 28); await simGet(-80, 28); await simGet(-79, 28);
+          var kept = Object.keys(SIM_KEPT).sort();
+          await simGet(-81.73, 28.02);
+          route("longitude=-70.000", 503);
+          var why = null;
+          try { await simGet(-70, 28); } catch (err) { why = err.why; }
+          console.log(JSON.stringify({same: same, from: rec.from, first: first, kept: kept, n: asked().length, why: why,
+                                      said: SIM_WHY["days|28.0,-70.000"], left: Object.keys(SIM_ASKED)}));
+        """)
+        # Two places 5 km apart in one cell: one request, for its grid point,
+        # so POWER is sent no closer a position than the cell's.
+        self.assertTrue(got["same"])
+        self.assertEqual(got["from"], "1981-01-01")
+        self.assertEqual(got["first"], ["https://power.larc.nasa.gov/api/temporal/daily/point?parameters=PRECTOTCORR,"
+                                        "T2M&community=AG&longitude=-81.875&latitude=28.0&start=19810101&end=20260929"
+                                        "&format=CSV"])
+        # The last three cells kept; the first, asked again, is asked again:
+        # five answers, and the one that failed.
+        self.assertEqual(got["kept"], ["days|28.0,-78.750", "days|28.0,-80.000", "days|28.0,-81.250"])
+        self.assertEqual(got["n"], 6)
+        self.assertEqual([got["why"], got["said"], got["left"]], ["answered 503", "answered 503", []])
+
+    def test_a_window_is_six_months_from_its_first_named_as_the_site_names_an_episode(self):
+        got = _run(self, r"""
+          console.log(JSON.stringify([[11, 1997], [12, 2015], [1, 1998], [7, 1999], [8, 1999]].map(function (a) {
+            var w = simWindow(a[0], a[1]);
+            return [new Date(w.first).toISOString().slice(0, 10), new Date(w.end).toISOString().slice(0, 10), w.days,
+                    w.months, w.label];
+          })));
+        """)
+        self.assertEqual(got, [
+            ["1997-11-01", "1998-05-01", 181, ["1997-11", "1997-12", "1998-01", "1998-02", "1998-03", "1998-04"],
+             "1997-98"],
+            # Across the new year, 29 February 2016 in it.
+            ["2015-12-01", "2016-06-01", 183, ["2015-12", "2016-01", "2016-02", "2016-03", "2016-04", "2016-05"],
+             "2015-16"],
+            ["1998-01-01", "1998-07-01", 181, ["1998-01", "1998-02", "1998-03", "1998-04", "1998-05", "1998-06"], "1998"],
+            ["1999-07-01", "2000-01-01", 184, ["1999-07", "1999-08", "1999-09", "1999-10", "1999-11", "1999-12"], "1999"],
+            ["1999-08-01", "2000-02-01", 184, ["1999-08", "1999-09", "1999-10", "1999-11", "1999-12", "2000-01"],
+             "1999-00"]])
+
+    def test_a_window_s_days_and_what_they_come_to(self):
+        got = _run(self, REPLAY_SETUP + r"""
+          var r = simRun(REC, 11, 1982);
+          console.log(JSON.stringify([brief(r), r.cum.slice(0, 3), r.cum[180], r.p[0], r.p[134],
+                                      brief(simRun(REC, 11, 1985)), brief(simRun(REC, 11, 1986)),
+                                      simRun(REC, 11, 1990), simRun(REC, 11, 1980)]));
+        """)
+        el_nino, cum, last, first_day, missing_day, dry, gappy, past_end, before = got
+        # 174 days of 3 mm, six firsts of 25 and 15 March missing, counted
+        # dry: 672 mm; the wettest day the first, 1 November 1982.
+        self.assertEqual(el_nino, {"tag": 1982, "label": "1982-83", "days": 181, "total": 672, "r20": 6,
+                                   "wettest": {"mm": 25, "day": 0}, "dry": 1, "tmean": 18, "missing": 1,
+                                   "partial": False, "peak": None})
+        self.assertEqual([cum, last, first_day, missing_day], [[25, 28, 31], 672, 25, None])
+        # Twenty days without rain in January 1986.
+        self.assertEqual(dry, {"tag": 1985, "label": "1985-86", "days": 181, "total": 161, "r20": 0,
+                               "wettest": {"mm": 1, "day": 0}, "dry": 20, "tmean": 20, "missing": 0,
+                               "partial": False, "peak": None})
+        # Seven days missing are too many; a window past the record's end, or
+        # before its start, is none.
+        self.assertEqual([gappy, past_end, before], [None, None, None])
+
+    def test_el_ninos_and_neutral_years_are_told_by_the_index_in_the_window_s_first_season(self):
+        got = _run(self, REPLAY_SETUP + r"""
+          var y = simYears(REC, 11, Date.UTC(2026, 8, 29));
+          console.log(JSON.stringify({events: y.events.map(brief), neutral: y.neutral.map(function (r) { return r.tag; }),
+                                      now: y.now}));
+        """)
+        # Newest first, each with the index's peak in NDJ; La Nina, the warm
+        # November and the event under way are neither; 1986-87 has too many
+        # days missing; 1990-91 runs past the record.
+        self.assertEqual([e["tag"] for e in got["events"]], [1987, 1982])
+        self.assertEqual([e["peak"] for e in got["events"]], [1.1, 2.2])
+        self.assertEqual(got["events"][0], {"tag": 1987, "label": "1987-88", "days": 182, "total": 678, "r20": 6,
+                                            "wettest": {"mm": 25, "day": 0}, "dry": 0, "tmean": 18, "missing": 0,
+                                            "partial": False, "peak": 1.1})
+        self.assertEqual(got["neutral"], [1981, 1983, 1985, 1989])
+        self.assertIsNone(got["now"])
+
+    def test_this_year_so_far_is_the_window_under_way(self):
+        got = _run(self, REPLAY_SETUP + r"""
+          var at = Date.UTC(1991, 0, 20), y = simYears(REC, 11, at), z = simYears(REC, 11, Date.UTC(1990, 10, 6));
+          console.log(JSON.stringify([brief(y.now), y.now.cum.length, brief(z.now),
+                                      y.events.map(function (r) { return r.tag; })]));
+        """)
+        # On 20 January 1991 the window from November 1990 is under way: its
+        # days to the record's last; the El Nino under way is not among the
+        # past ones. Five days in, it is too soon.
+        self.assertEqual(got[0], {"tag": 1990, "label": "1990-91", "days": 61, "total": 61, "r20": 0,
+                                  "wettest": {"mm": 1, "day": 0}, "dry": 0, "tmean": 20, "missing": 0,
+                                  "partial": True, "peak": None})
+        self.assertEqual(got[1:], [61, None, [1987, 1982]])
+
+    def test_a_window_ended_inside_the_el_nino_under_way_is_this_year_s(self):
+        got = _run(self, REPLAY_SETUP + r"""
+          var y = simYears(REC, 6, Date.UTC(1991, 0, 20));
+          console.log(JSON.stringify([brief(y.now), y.events.length, y.neutral.length]));
+        """)
+        # June to November 1990 has ended, its first season inside the El Nino
+        # under way since June: not a past El Nino, nor gone, but this year's,
+        # whole.
+        self.assertEqual(got, [{"tag": 1990, "label": "1990", "days": 183, "total": 183, "r20": 0,
+                                "wettest": {"mm": 1, "day": 0}, "dry": 0, "tmean": 20, "missing": 0,
+                                "partial": False, "peak": None}, 0, 9])
+
+    def test_the_neutral_band_is_their_mean_and_10th_to_90th_percentiles_date_by_date(self):
+        got = _run(self, REPLAY_SETUP + r"""
+          var y = simYears(REC, 11, Date.UTC(2026, 8, 29)), b = simBand(y.neutral);
+          function at(k) { return [b.mean[k], b.lo[k], b.hi[k]].map(function (v) { return Math.round(v * 1000) / 1000; }); }
+          console.log(JSON.stringify([b.mean.length, at(0), at(119), at(180)]));
+        """)
+        # The four years lined up date by date, 29 February counted with the
+        # 28th: as many days as a year without it has, 181. On 28 February,
+        # 120, 121 (1984's 29th with it), 100 (twenty dry days in January
+        # 1986) and 120: the 10th percentile 0.3 of the way from 100 to 120.
+        # On the last day their totals, 181, 182, 161 and 181: their mean the
+        # neutral years' mean.
+        self.assertEqual(got, [181, [1, 1, 1], [115.25, 106, 120.7], [176.25, 167, 181.7]])
+
+    def test_the_band_s_last_day_is_the_neutral_totals_in_windows_of_182_and_183_days(self):
+        got = _run(self, REPLAY_SETUP + r"""
+          var m = simModel(REC, 12, null, Date.UTC(2026, 8, 29));
+          function on(first, k) {
+            var b = simBandOn(m, first, k);
+            return [b.mean, b.lo, b.hi].map(function (v) { return Math.round(v * 1000) / 1000; });
+          }
+          var leap = Date.UTC(2015, 11, 1), plain = Date.UTC(2014, 11, 1);
+          console.log(JSON.stringify([m.neutral.map(function (r) { return [r.tag, r.p.length, r.total]; }), m.base.total,
+                                      on(leap, 182), on(plain, 181), on(leap, 89), on(leap, 90), on(plain, 89),
+                                      on(leap, 91), on(plain, 90), simBandOn(m, leap, 183)]));
+        """)
+        neutral, mean, leap_end, plain_end, feb28, feb29, plain_feb28, mar1, plain_mar1, past = got
+        # December to May: 1983-84's has 29 February in it, 183 days, the
+        # others 182.
+        self.assertEqual(neutral, [[1981, 182, 182], [1983, 183, 183], [1984, 182, 182], [1985, 182, 162],
+                                   [1989, 182, 182]])
+        # On 31 May, the last day of a window of 183 days or of 182, the
+        # neutral years' totals: their mean, 178.2, and percentiles.
+        self.assertEqual(mean, 178.2)
+        self.assertEqual(leap_end, [178.2, 170, 182.6])
+        self.assertEqual(plain_end, leap_end)
+        # 29 February counted with the 28th; from 1 March, date by date.
+        self.assertEqual([feb29, plain_feb28], [feb28, feb28])
+        self.assertEqual(mar1, plain_mar1)
+        self.assertIsNone(past)
+
+    def test_the_point_s_climate_is_each_calendar_month_s_mean_over_its_complete_years(self):
+        got = _run(self, REPLAY_SETUP + r"""
+          var c = simClimate(REC);
+          console.log(JSON.stringify(c.map(function (v) { return v === null ? null : Math.round(v * 1000) / 1000; })));
+        """)
+        # November: 112 mm in the two El Ninos, 30 in the other eight.
+        # December 1986 has days missing: nine Decembers, two of 115.
+        self.assertEqual(got[10], 46.4)
+        self.assertEqual(got[11], round(447 / 9, 3))
+        self.assertEqual(got[5], 30)
+
+    def test_ecmwf_s_projection_scales_the_climate_by_its_forecast_or_adds_its_anomaly_where_dry(self):
+        got = _run(self, REPLAY_SETUP + r"""
+          var rows = [{month: "1990-11", days: 30, anom: 1.0, percent: 50}, {month: "1990-12", days: 31, anom: -10.0, percent: null},
+                      {month: "1991-01", days: 31, anom: null, percent: null}, {month: "1991-02", days: 28, anom: 1.0, percent: 50}];
+          var clim = simClimate(REC), at = Date.UTC(1990, 9, 15), e = simEcmwf(rows, 11, clim, at);
+          function r(v) { return Math.round(v * 1000) / 1000; }
+          console.log(JSON.stringify([e.label, e.months, e.cum.length, r(e.cum[0]), r(e.cum[29]), r(e.cum[60]), r(e.total),
+                                      r(e.base), simEcmwf(rows, 11, clim, Date.UTC(1990, 10, 2)),
+                                      simEcmwf([], 11, clim, at)]));
+        """)
+        # November: the point's 46.4 mm and half as much again, as the model
+        # forecasts 50% over its normal; December's normal is under the dry
+        # floor, so its anomaly is added: 49.7 less 310, held at nothing.
+        # January has no anomaly, so the projection stops there. A window
+        # begun has none, and so has a forecast without its months.
+        self.assertEqual(got, ["1990-91", ["1990-11", "1990-12"], 61, round(69.6 / 30, 3), 69.6, 69.6, 69.6,
+                               round(46.4 + 447 / 9, 3), None, None])
+
+    def test_the_model_gathers_the_window_s_years_the_neutral_means_and_the_strongest_event(self):
+        got = _run(self, REPLAY_SETUP + r"""
+          var mdl = simModel(REC, 11, null, Date.UTC(2026, 8, 29));
+          console.log(JSON.stringify([mdl.start, mdl.words, mdl.strongest, mdl.events.length, mdl.neutral.length,
+                                      mdl.base, mdl.ecmwf, mdl.band.mean.length]));
+        """)
+        # The band as many days long as November to April without 29 February.
+        self.assertEqual(got, [11, "November to April", 1982, 2, 4,
+                               {"total": 176.25, "r20": 0, "dry": 5, "tmean": 20, "years": 4}, None, 181])
+
+    def test_days_that_are_not_power_s_are_said_to_be_nothing_for_the_point(self):
+        got = _run(self, r"""
+          route("format=CSV", "<html>Maintenance</html>");
+          var why = null;
+          try { await simGet(-81.73, 28.02); } catch (err) { why = err.why; }
+          console.log(JSON.stringify([why, Object.keys(SIM_KEPT)]));
+        """)
+        self.assertEqual(got, ["has nothing for this point", []])
+
+
+# OSRM's answer for a pick by the edge of two of POWER's cells, 81.5625 W:
+# the nearest named road in the western cell, the next in the eastern.
+ROADS_EDGE = {"code": "Ok", "waypoints": [
+    {"location": [-81.5652, 28.0201], "name": "West Road", "distance": 20.0},
+    {"location": [-81.5600, 28.0200], "name": "East Road", "distance": 500.0}]}
+
+# The replay's panel on Winter Haven, its record REPLAY_SETUP's as POWER's
+# CSV gives it. At noon on 29 September 2026 the window is October to March:
+# 1982-83 the stronger of its two El Ninos, beside four neutral years.
+PANEL_SETUP = REPLAY_SETUP + r"""
+  function csvOf(rec, plus) {
+    var lines = ["-BEGIN HEADER-", "-END HEADER-", "YEAR,DOY,PRECTOTCORR,T2M"], from = Date.parse(rec.from + "T00:00:00Z");
+    rec.p.forEach(function (p, i) {
+      var d = new Date(from + i * DAY), y = d.getUTCFullYear(), doy = Math.round((d - Date.UTC(y, 0, 1)) / DAY) + 1;
+      lines.push(y + "," + doy + "," + (p === null ? -999 : p + (plus || 0)) + "," + rec.t[i]);
+    });
+    return lines.join("\n") + "\n";
+  }
+  var CSV = csvOf(REC);
+  route("format=CSV", CSV);
+  streetEnter(-81.73, 28.02, "Winter Haven");
+  function csvAsked() { return ASKED.filter(function (u) { return u.indexOf("format=CSV") >= 0; }); }
+"""
+LOADING = "Reading NASA POWER\u2019s days for this place, every one since 1981\u2026"
+
+# The rain's canvas with a 2D context that notes what is drawn on it; the
+# replay's frames among those asked for; and how often a thing was drawn.
+RAIN_CTX = r"""
+  var OPS = [];
+  var CTX = {setTransform: function () {}, clearRect: function () { OPS.push("clear"); },
+             fillRect: function () { OPS.push("dim"); }, beginPath: function () {},
+             moveTo: function () { OPS.push("drop"); }, lineTo: function () {}, arc: function () {},
+             stroke: function () { OPS.push("stroke"); }, fill: function () { OPS.push("fill"); }};
+  $("street-rain").getContext = function (kind) { return kind === "2d" ? CTX : null; };
+  function ticking() { return FRAMES.filter(function (t) { return t.f === simTick; }).length; }
+  function count(op) { return OPS.filter(function (o) { return o === op; }).length; }
+"""
+
+
+def table_rows(markup: str) -> list:
+    """A table's rows, each a list of its cells' words."""
+    return [[re.sub(r"<[^>]+>", "", c) for c in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", r)]
+            for r in re.findall(r"<tr[^>]*>(.*?)</tr>", markup)]
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class TestStreetReplayPanelRuns(unittest.TestCase):
+    """The replay's panel in the stage's chip, run under node as the page runs
+    it: opened, chosen, played, sought, said, failed, closed and moved."""
+
+    def test_the_replay_opens_in_the_chip_s_place_and_asks_power_once_for_the_cell(self):
+        got = _run(self, PANEL_SETUP + r"""
+          function shown() {
+            return [$("street-sim").hidden, $("street-chip-head").hidden, $("street-chip-said").hidden,
+                    $("street-sim-credit").hidden, $("street-stage").classList.contains("simon")];
+          }
+          var before = shown();
+          $("street-replay").fire("click");
+          var asking = [shown(), $("street-sim-said").innerHTML, $("street-sim-play").disabled,
+                        $("street-sim-event").disabled, $("street-sim-day").disabled];
+          await flush();
+          var open = [shown(), $("street-sim-play").disabled, $("street-sim-event").disabled, $("street-sim-day").disabled];
+          simOpen();
+          streetEnter(-81.70, 28.05, "Nearby");
+          await flush();
+          console.log(JSON.stringify({before: before, asking: asking, open: open, asked: csvAsked(), key: S.sim.key,
+                                      model: !!S.sim.model}));
+        """)
+        self.assertEqual(got["before"], [True, False, False, True, False])
+        self.assertEqual(got["asking"], [[False, True, True, False, True], LOADING, True, True, True])
+        self.assertEqual(got["open"], [[False, True, True, False, True], False, False, False])
+        # Asked once, for MERRA-2's grid point nearest the place; opened again,
+        # or moved within the cell, it asks nothing more.
+        self.assertEqual(got["asked"], ["https://power.larc.nasa.gov/api/temporal/daily/point?parameters=PRECTOTCORR,"
+                                        "T2M&community=AG&longitude=-81.875&latitude=28.0&start=19810101&end=20260929"
+                                        "&format=CSV"])
+        self.assertEqual([got["key"], got["model"]], ["days|28.0,-81.875", True])
+
+    def test_the_choices_are_the_el_ninos_newest_first_the_strongest_chosen_from_next_month(self):
+        got = _run(self, PANEL_SETUP + r"""
+          simOpen();
+          await flush();
+          var first = [$("street-sim-event").innerHTML, $("street-sim-event").value, $("street-sim-start").value,
+                       $("street-sim-speed").value, $("street-sim-day").max, $("street-sim-day").value, S.sim.model.words];
+          $("street-sim-start").value = "11";
+          $("street-sim-start").fire("change");
+          var nov = [$("street-sim-event").value, $("street-sim-day").max, S.sim.model.words];
+          $("street-sim-event").value = "1987";
+          $("street-sim-event").fire("change");
+          console.log(JSON.stringify({first: first, nov: nov, chosen: [S.sim.tag, $("street-sim-day").max]}));
+        """)
+        # On 29 September, the six months from October; each El Nino with the
+        # index's peak in October to December, 1982-83 the strongest.
+        self.assertEqual(got["first"], ['<option value="1987">1987-88 (+1.1)</option>'
+                                        '<option value="1982">1982-83 (+2.2)</option>',
+                                        "1982", "10", "7", "181", "0", "October to March"])
+        self.assertEqual(got["nov"], ["1982", "180", "November to April"])
+        # 1987-88's November to April has 29 February in it.
+        self.assertEqual(got["chosen"], ["1987", "181"])
+
+    def test_play_steps_the_days_at_the_speed_chosen_and_stops_at_the_end(self):
+        got = _run(self, PANEL_SETUP + r"""
+          simOpen();
+          await flush();
+          var play = $("street-sim-play");
+          play.fire("click");
+          var on = [S.sim.playing, play.textContent, play.getAttribute("aria-pressed"), FRAMES.length];
+          frames(125, 1);
+          frames(125, 8);
+          var week = S.sim.day;
+          frames(5000, 1);
+          var held = S.sim.day;
+          $("street-sim-speed").value = "30";
+          $("street-sim-speed").fire("change");
+          frames(125, 8);
+          var month = S.sim.day;
+          frames(125, 100);
+          var end = [S.sim.day, S.sim.playing, play.textContent, play.getAttribute("aria-pressed"), FRAMES.length];
+          play.fire("click");
+          var again = [S.sim.day, S.sim.playing];
+          play.fire("click");
+          console.log(JSON.stringify({on: on, week: week, held: held, month: month, end: end, again: again,
+                                      paused: [S.sim.playing, FRAMES.length]}));
+        """)
+        self.assertEqual(got["on"], [True, "Pause", None, 1])
+        # A week a second; a frame held back (a tab in the background) counts
+        # a quarter of a second at most; then a month a second.
+        self.assertEqual([got["week"], got["held"], got["month"]], [7, 8, 38])
+        # Stopped on the last day, whose rain still falls: its frames go on.
+        self.assertEqual(got["end"], [181, False, "Play", None, 1])
+        # Played again from the last day, it starts over.
+        self.assertEqual(got["again"], [0, True])
+        self.assertEqual(got["paused"], [False, 1])
+
+    def test_the_slider_and_the_chart_seek_the_day(self):
+        got = _run(self, PANEL_SETUP + r"""
+          simOpen();
+          await flush();
+          var slider = $("street-sim-day"), chart = $("street-sim-chart"), out = [];
+          slider.value = "40";
+          slider.fire("input");
+          out.push([S.sim.day, slider.getAttribute("aria-valuetext")]);
+          chart.fire("pointerdown", {clientX: 36, pointerId: 1});
+          out.push(S.sim.day);
+          chart.fire("pointermove", {clientX: 386, pointerId: 1});
+          out.push(S.sim.day);
+          chart.fire("pointerup", {pointerId: 1});
+          chart.fire("pointermove", {clientX: 600, pointerId: 1});
+          out.push(S.sim.day);
+          chart.fire("pointerdown", {clientX: 5000, pointerId: 2});
+          out.push([S.sim.day, S.sim.pos]);
+          console.log(JSON.stringify(out));
+        """)
+        # 10 November 1982, a day of 3 mm in the El Nino's months. The chart,
+        # 800 px across with 36 for its scale and 66 for its labels, is 183
+        # days wide (1983-84's window has 29 February); past its end is the
+        # run's own last day, and a move with no button down seeks nothing.
+        self.assertEqual(got, [[40, "10 November 1982: 3.0 mm"], 0, 91, 91, [181, 181]])
+
+    def test_a_finger_on_the_chart_seeks_on_a_tap_or_a_drag_across_and_scrolls_up_and_down(self):
+        got = _run(self, PANEL_SETUP + r"""
+          simOpen();
+          await flush();
+          var chart = $("street-sim-chart"), out = [];
+          function touch(type, x, y) { chart.fire(type, {pointerId: 5, pointerType: "touch", clientX: x, clientY: y}); }
+          touch("pointerdown", 386, 50);
+          out.push(S.sim.day);
+          touch("pointermove", 388, 80);
+          touch("pointercancel", 388, 80);
+          out.push(S.sim.day);
+          touch("pointerdown", 386, 50);
+          touch("pointerup", 386, 51);
+          out.push(S.sim.day);
+          touch("pointerdown", 36, 50);
+          touch("pointermove", 60, 52);
+          out.push(S.sim.day);
+          touch("pointermove", 211, 90);
+          out.push(S.sim.day);
+          touch("pointerup", 211, 90);
+          touch("pointermove", 600, 90);
+          out.push(S.sim.day);
+          console.log(JSON.stringify(out));
+        """)
+        # Down, nothing yet; moved up and down, it is the panel's scroll, which
+        # the browser takes (pointercancel): nothing sought. A tap seeks where
+        # it is let go; a drag seeks once it goes across more than up or down,
+        # and on as it moves, until it is let go.
+        self.assertEqual(got, [0, 0, 91, 6, 45, 45])
+
+    def test_on_the_window_s_last_day_the_neutral_years_are_their_totals_with_29_february_or_without(self):
+        got = _run(self, PANEL_SETUP + r"""
+          simOpen();
+          await flush();
+          simDay(181);
+          var plain = $("street-sim-read").textContent;
+          simPick("1987");
+          simDay(182);
+          console.log(JSON.stringify([plain, $("street-sim-read").textContent]));
+        """)
+        # October to March: 1987-88's has 29 February, 183 days, 1982-83's
+        # 182. On 31 March both stand against the neutral years' totals - 182,
+        # 183, 162 and 182 - their mean the neutral years' mean, 177 mm.
+        self.assertTrue(got[0].startswith("31 March 1983: "), got[0])
+        self.assertTrue(got[1].startswith("31 March 1988: "), got[1])
+        for said in got:
+            self.assertTrue(said.endswith("; neutral years by this day 177 mm (10th to 90th percentile 168 to 183 mm)."),
+                            said)
+
+    def test_the_readout_and_the_words_set_the_el_nino_against_the_neutral_years(self):
+        got = _run(self, PANEL_SETUP + r"""
+          simOpen();
+          await flush();
+          simDay(31);
+          var day = $("street-sim-read").textContent;
+          simDay(165);
+          console.log(JSON.stringify([day, $("street-sim-read").textContent, $("street-sim-day").getAttribute("aria-valuetext"),
+                                      $("street-sim-said").innerHTML]));
+        """)
+        self.assertEqual(got[0], "1 November 1982: 25 mm (0.98 in) of rain, 18.0 \u00b0C. So far 56 mm (2.2 in); "
+                                 "neutral years by this day 32 mm (10th to 90th percentile 32 to 32 mm).")
+        # 15 March 1983 is missing, and counted dry.
+        self.assertTrue(got[1].startswith("15 March 1983: rain not on record, 18.0 \u00b0C. So far 543 mm (21.4 in);"),
+                        got[1])
+        self.assertEqual(got[2], "15 March 1983: rain not on record")
+        self.assertEqual(got[3], "<b>October to March 1982-83</b> brought 591 mm here, 333% of the neutral years\u2019 "
+                                 "mean of 177 mm (4 years). 5 days of 20 mm or more (neutral years: 0 on average). "
+                                 "Wettest day: 25 mm on 1 November 1982. Longest dry spell: 1 day (neutral years: 5 "
+                                 "days). Mean temperature 18.3 \u00b0C, 1.7 \u00b0C cooler than the neutral years\u2019 "
+                                 "20.0 \u00b0C. 1 day missing from POWER\u2019s record is counted dry. Over the 2 El "
+                                 "Ni\u00f1os replayable here since 1981, these months brought 594 mm on average, more "
+                                 "than the neutral mean in 2 of them.")
+
+    def test_year_by_year_sets_every_el_nino_beside_the_neutral_mean(self):
+        got = _run(self, PANEL_SETUP + r"""
+          simOpen();
+          await flush();
+          console.log(JSON.stringify($("street-sim-table").innerHTML));
+        """)
+        self.assertEqual(table_rows(got), [
+            ["Window", "RONI peak", "Rain", "Of neutral", "Days of 20 mm+", "Wettest day", "Longest dry spell",
+             "Mean temperature", "Days missing"],
+            ["1987-88", "+1.1", "597 mm", "337%", "5", "25 mm", "0 days", "18.3 \u00b0C", "0"],
+            ["1982-83", "+2.2", "591 mm", "333%", "5", "25 mm", "1 day", "18.3 \u00b0C", "1"],
+            ["Neutral years\u2019 mean (4)", "", "177 mm", "100%", "0", "", "5 days", "20.0 \u00b0C", ""]])
+        # The run shown stands out.
+        self.assertIn('<tr class="strong"><th scope="row">1982-83</th>', got)
+
+    def test_a_record_that_cannot_be_read_is_said_with_a_retry(self):
+        got = _run(self, PANEL_SETUP + r"""
+          route("format=CSV", 503);
+          simOpen();
+          await flush();
+          var failed = [$("street-sim-fail").hidden, $("street-sim-why").textContent, $("street-sim-said").innerHTML,
+                        $("street-sim-play").disabled];
+          route("format=CSV", CSV);
+          $("street-sim-retry").fire("click");
+          var again = [$("street-sim-fail").hidden, $("street-sim-said").innerHTML];
+          await flush();
+          console.log(JSON.stringify({failed: failed, again: again, asked: csvAsked().length,
+                                      now: [$("street-sim-fail").hidden, S.sim.model.events.length, $("street-sim-play").disabled]}));
+        """)
+        self.assertEqual(got["failed"], [False, "NASA POWER\u2019s days for this place could not be read (answered 503).",
+                                         "", True])
+        self.assertEqual(got["again"], [True, LOADING])
+        self.assertEqual([got["asked"], got["now"]], [2, [True, 2, False]])
+
+    def test_back_to_the_card_exit_and_esc_close_it(self):
+        got = _run(self, PANEL_SETUP + r"""
+          simOpen();
+          await flush();
+          $("street-sim-play").fire("click");
+          $("street-sim-back").fire("click");
+          var back = [S.sim, $("street-sim").hidden, $("street-chip-said").hidden,
+                      $("street-stage").classList.contains("simon"), FRAMES.length];
+          simOpen();
+          await flush();
+          var kept = [!!S.sim.model, csvAsked().length];
+          var e = press("Escape");
+          var esc = [S.sim, !!S.street, e.defaultPrevented];
+          press("Escape");
+          var left = S.street;
+          streetEnter(-81.73, 28.02, "Winter Haven");
+          simOpen();
+          $("street-exit").fire("click");
+          console.log(JSON.stringify({back: back, kept: kept, esc: esc, left: left,
+                                      exit: [S.sim, S.street, $("street-sim").hidden]}));
+        """)
+        self.assertEqual(got["back"], [None, True, False, False, 0])
+        # The record kept: opened again, it is there at once.
+        self.assertEqual(got["kept"], [True, 1])
+        # Esc closes the replay first, and leaves the street after.
+        self.assertEqual(got["esc"], [None, True, True])
+        self.assertIsNone(got["left"])
+        self.assertEqual(got["exit"], [None, None, True])
+
+    def test_another_point_keeps_it_open_stopped_and_asks_again_only_for_another_cell(self):
+        got = _run(self, PANEL_SETUP + r"""
+          route("longitude=-81.250", csvOf(REC, 1));
+          simOpen();
+          await flush();
+          var first = S.sim.model.base.total;
+          $("street-sim-play").fire("click");
+          frames(125, 1); frames(125, 8);
+          streetEnter(-81.70, 28.05, "Nearby");
+          var same = [S.sim.playing, S.sim.day, S.sim.model.base.total, FRAMES.length];
+          streetEnter(-81.40, 28.02, "East");
+          var moving = [S.sim.model, $("street-sim-said").innerHTML, S.sim.day, $("street-sim").hidden];
+          streetEnter(-81.73, 28.02, "Back");
+          await flush();
+          var back = [S.sim.key, S.sim.model.base.total, S.sim.day];
+          streetEnter(-81.40, 28.02, "East");
+          await flush();
+          console.log(JSON.stringify({first: first, same: same, moving: moving, back: back,
+            east: [S.sim.key, S.sim.model.base.total, S.sim.day, $("street-sim").hidden],
+            asked: csvAsked().map(function (u) { return u.split("longitude=")[1].split("&")[0]; })}));
+        """)
+        self.assertEqual(got["first"], 177.25)
+        # Within the cell: stopped where it was, its rain still falling, and
+        # nothing asked.
+        self.assertEqual(got["same"], [False, 7, 177.25, 1])
+        # Into another: its record asked, the panel open and waiting on it.
+        self.assertEqual(got["moving"], [None, LOADING, 7, False])
+        # Back before it came: the first cell's record, and the other's answer
+        # not shown when it came.
+        self.assertEqual(got["back"], ["days|28.0,-81.875", 177.25, 7])
+        # In the other cell, its own record, a millimetre a day wetter.
+        self.assertEqual(got["east"], ["days|28.0,-81.250", 359.5, 7, False])
+        self.assertEqual(got["asked"], ["-81.875", "-81.250"])
+
+    def test_next_street_and_the_minimap_move_it_stopped_onto_the_new_cell_s_record(self):
+        got = _run(self, PANEL_SETUP + r"""
+          route("longitude=-81.250", csvOf(REC, 1));
+          route("routed-car/nearest", """ + json.dumps(ROADS_EDGE) + r""");
+          streetPick(-81.565, 28.02, 16);
+          advance(1000); await flush();
+          simOpen();
+          await flush();
+          function play() { $("street-sim-play").fire("click"); frames(125, 1); frames(125, 8); return [S.sim.playing, S.sim.day]; }
+          var west = [S.street.label, S.sim.key, play()];
+          $("street-next").fire("click");
+          var next = [S.street.label, S.sim.playing, S.sim.model, $("street-sim-said").innerHTML, $("street-sim-play").disabled];
+          await flush();
+          var east = [S.sim.key, S.sim.model.base.total, S.sim.day, play()];
+          $("street-mini").fire("click", {clientX: 400, clientY: 300});
+          var finding = [S.street.finding, S.sim.playing, $("street-sim-play").disabled, $("street-sim-day").disabled,
+                         $("street-sim-event").disabled, simPlay(true), simSeekDay(3), S.sim.day];
+          advance(1000); await flush();
+          console.log(JSON.stringify({west: west, next: next, east: east, finding: finding,
+            back: [S.street.label, S.sim.key, S.sim.model.base.total, S.sim.day, $("street-sim-play").disabled],
+            asked: csvAsked().map(function (u) { return u.split("longitude=")[1].split("&")[0]; })}));
+        """)
+        self.assertEqual(got["west"], ["West Road, 28.02N 81.57W", "days|28.0,-81.875", [True, 7]])
+        # Next street into the eastern cell: Play stopped, its record asked
+        # and the panel waiting on it; then the cell's own, on the same day.
+        self.assertEqual(got["next"], ["East Road, 28.02N 81.56W", False, None, LOADING, True])
+        self.assertEqual(got["east"], ["days|28.0,-81.250", 359.5, 7, [True, 14]])
+        # The minimap tapped while it plays: stopped, and nothing to play or
+        # seek while the pick's street is being found.
+        self.assertEqual(got["finding"], [True, False, True, True, True, False, False, 14])
+        # Found in the western cell: its record, kept, at once.
+        self.assertEqual(got["back"], ["West Road, 28.02N 81.57W", "days|28.0,-81.875", 177.25, 14, False])
+        self.assertEqual(got["asked"], ["-81.875", "-81.250"])
+
+    def test_a_run_taken_in_place_tells_the_replay_s_years_again_by_its_index(self):
+        got = _run(self, PANEL_SETUP + r"""
+          simOpen();
+          await flush();
+          simPick("1987");
+          simDay(40);
+          var before = [S.sim.model.events.map(function (r) { return r.tag; }), S.sim.tag];
+          // The new run's index: November 1987 at +0.9, under El Nino's bound.
+          var values = D.street.months.values.slice();
+          values[(1987 - 1981) * 12 + 10] = 0.9;
+          D.street = Object.assign({}, D.street, {months: {from: "1981-01", values: values}});
+          var retook = simRetake();
+          console.log(JSON.stringify([before, retook, S.sim.model.events.map(function (r) { return r.tag; }), S.sim.tag,
+                                      S.sim.day, $("street-sim-event").value]));
+        """)
+        # 1987-88 is no El Nino by the new run's index: the strongest left is
+        # shown, on the same day.
+        self.assertEqual(got, [[[1987, 1982], "1987"], True, [1982], "1982", 40, "1982"])
+
+    def test_with_nothing_to_replay_it_says_whether_this_year_s_window_has_begun(self):
+        got = _run(self, PANEL_SETUP + r"""
+          NOW = Date.UTC(1990, 5, 5, 12);
+          simOpen();
+          await flush();
+          var july = [$("street-sim-said").innerHTML, $("street-sim-play").disabled];
+          $("street-sim-start").value = "6";
+          $("street-sim-start").fire("change");
+          console.log(JSON.stringify([july, [$("street-sim-said").innerHTML, $("street-sim-play").disabled]]));
+        """)
+        # On 5 June 1990 no El Nino ever began a window from July or June;
+        # July's window has not begun, and June's has four days on record.
+        self.assertEqual(got, [
+            ["No El Ni\u00f1o since 1981 reached +1.0 in July to September with POWER\u2019s record of its window whole "
+             "here, and this year\u2019s has not begun: there is nothing to replay for July to December.", True],
+            ["No El Ni\u00f1o since 1981 reached +1.0 in June to August with POWER\u2019s record of its window whole "
+             "here, and this year\u2019s has fewer than 7 days on POWER\u2019s record yet: there is nothing to replay "
+             "for June to November.", True]])
+
+    def test_ecmwf_s_forecast_short_of_the_window_names_its_months(self):
+        # September's run as Open-Meteo gives it unasked: six months, to
+        # February, one short of October to March.
+        short = {"monthly": {k: v[:6] for k, v in AHEAD_SEPTEMBER["monthly"].items()}}
+        got = _run(self, 'route("v1/seasonal", ' + json.dumps(short) + ");" + PANEL_SETUP + r"""
+          await flush();
+          simOpen();
+          await flush();
+          console.log(JSON.stringify({key: $("street-sim-key").innerHTML, said: $("street-sim-said").innerHTML,
+                                      rows: $("street-sim-table").innerHTML}));
+        """)
+        self.assertIn('<span class="ecmwf">ECMWF 2026-27, October to February</span>', got["key"])
+        self.assertIn("ECMWF\u2019s forecast for October to February 2026-27, the months it reaches, comes to ", got["said"])
+        self.assertEqual(table_rows(got["rows"])[-1][0], "ECMWF\u2019s forecast, 2026-27 (October to February only)")
+
+    def test_the_method_says_how_it_is_known_in_the_sources_own_words(self):
+        got = _run(self, PANEL_SETUP + r"""
+          simOpen();
+          await flush();
+          console.log(JSON.stringify($("street-sim-method").innerHTML));
+        """)
+        words = re.sub(r"<[^>]+>", "", got)
+        self.assertIn("about 55 by 61 km here, from 1 January 1981 to 31 December 1990.", words)
+        self.assertIn("A window is the six months from the first of the month chosen, named for its year, or for the "
+                      "two it spans (\u201c1997-98\u201d). It is an El Ni\u00f1o\u2019s when RONI centred on one of its "
+                      "first three months is +1.0 or more (its peak the highest of the three)", words)
+        self.assertIn("It is the index as the window opens, as a forecast made then would have it: a window from "
+                      "spring takes El Ni\u00f1os growing and fading alike.", words)
+        self.assertIn("ECMWF\u2019s forecast comes to the place by the delta method: for each month of the coming "
+                      "window it forecasts, POWER\u2019s mean for that calendar month over every complete year here "
+                      "since 1981, scaled by the model\u2019s forecast against its own climate of past forecasts "
+                      "where that climate is 0.2 mm a day or more, else with the model\u2019s anomaly added, never "
+                      "under nothing.", words)
+        self.assertIn("POWER is sent the cell\u2019s grid point, not the place.", words)
+        self.assertIn("the El Ni\u00f1o under way since June 1990 is this year\u2019s, not a past one", words)
+        self.assertIn("These data were obtained from the NASA Langley Research Center (LaRC) POWER Project funded "
+                      "through the NASA Earth Science/Applied Science Program.", words)
+        self.assertIn("ECMWF does not accept any liability whatsoever", words)
+        self.assertIn('<a href="https://power.larc.nasa.gov/" target="_blank" rel="noopener">NASA POWER \u2197</a>', got)
+        self.assertIn("The rain over Street View is the page\u2019s drawing, not Google\u2019s: nothing under 0.5 mm, "
+                      "and above it streaks as many and as fast as the day\u2019s rain is heavy, up to 50 mm, with the "
+                      "sky dimmed to match; snow where the day\u2019s mean temperature is at or below 0 \u00b0C. "
+                      "Google\u2019s imagery under it is as Google took it.", words)
+
+    def test_the_chart_draws_each_line_labels_them_and_marks_the_day(self):
+        # ECMWF's months answered when the drop asks the card's sources.
+        got = _run(self, 'route("v1/seasonal", ' + json.dumps(AHEAD_SEPTEMBER) + ");" + PANEL_SETUP + r"""
+          await flush();
+          simOpen();
+          await flush();
+          simDay(91);
+          console.log(JSON.stringify({svg: $("street-sim-chart").innerHTML, key: $("street-sim-key").innerHTML,
+            said: $("street-sim-said").innerHTML, head: [$("street-sim-head").getAttribute("x1"),
+            $("street-sim-head").getAttribute("x2"), $("street-sim-dot").getAttribute("cx"),
+            $("street-sim-dot").getAttribute("cy")], rows: $("street-sim-table").innerHTML}));
+        """)
+        svg = got["svg"]
+        self.assertTrue(svg.startswith('<svg class="streetsimsvg" viewBox="0 0 800 170" width="800" height="170" '
+                                       'role="img" aria-label="'), svg[:200])
+        count = {cls: len(re.findall(r'class="%s"' % cls, svg)) for cls in ("band", "neutral", "evfaint", "ev",
+                                                                             "ecmwf", "now", "bars")}
+        self.assertEqual(count, {"band": 1, "neutral": 1, "evfaint": 1, "ev": 1, "ecmwf": 1, "now": 0, "bars": 1})
+        # A bar for each day of rain: 182 days, one missing.
+        self.assertEqual(re.search(r'<path class="bars" d="([^"]*)"', svg).group(1).count("M"), 181)
+        # The band and the neutral mean drawn over 1982-83's 182 days, each
+        # day the same date in the neutral years.
+        self.assertEqual(re.search(r'<path class="band" d="([^"]*)"', svg).group(1).count("L"), 364)
+        self.assertEqual(re.search(r'<path class="neutral" d="([^"]*)"', svg).group(1).count("L"), 182)
+        # The other El Ninos, faint, each named where a pointer rests on it.
+        self.assertRegex(svg, r'<path class="evfaint" d="[^"]*"><title>1987-88 \(\+1\.1\): 597 mm</title></path>')
+        for label in ("1982-83", "Neutral", "ECMWF", "0", "300", "600", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"):
+            self.assertIn(">" + label + "</text>", svg)
+        # Day 91, 31 December 1982, the 92nd of 183 across 698 px: 258 mm so
+        # far, on a scale to 600 over 112 px.
+        self.assertEqual(got["head"], ["386.9", "386.9", "386.9", "71.8"])
+        self.assertEqual(got["key"], '<span class="ev">1982-83</span><span class="faint">other El Ni\u00f1os</span>'
+                                     '<span class="neutral">neutral years\u2019 mean, 10th to 90th percentile shaded'
+                                     '</span><span class="ecmwf">ECMWF 2026-27</span><span class="bars">bars: '
+                                     "1982-83\u2019s rain each day</span>")
+        # ECMWF's months on POWER's, each the point's climate scaled by the
+        # model's forecast against its own: 37% of October's 31 mm, 66% of
+        # November's 46.4, then 116%, 125%, 116% and 119%.
+        self.assertIn("ECMWF\u2019s forecast for October to March 2026-27 comes to 256 mm here, against 257 mm in an "
+                      "average year and 177 mm in the neutral years\u2019 mean.", got["said"])
+        self.assertEqual(table_rows(got["rows"])[-1], ["ECMWF\u2019s forecast, 2026-27", "", "256 mm", "145%", "", "",
+                                                       "", "", ""])
+
+    def test_the_rain_falls_over_the_panorama_while_the_replay_shows_a_wet_day(self):
+        got = _run(self, PANEL_SETUP + RAIN_CTX + r"""
+          window.devicePixelRatio = 3;
+          var shut = [$("street-rain").hidden, $("street-day").hidden];
+          simOpen();
+          await flush();
+          var open = [$("street-rain").hidden, $("street-day").hidden, $("street-day").textContent, ticking(),
+                      count("clear"), count("drop")];
+          OPS = [];
+          frames(16);
+          var first = [count("clear"), count("dim"), count("drop"), count("stroke") > 0, count("fill"), ticking()];
+          OPS = [];
+          frames(16, 2);
+          console.log(JSON.stringify({shut: shut, open: open, first: first, more: [count("clear"), count("drop")],
+                                      size: [$("street-rain").width, $("street-rain").height]}));
+        """)
+        # Hidden until the replay shows a day; then the badge names it, the
+        # day's rain is drawn at once, and a frame is asked for while it rains.
+        self.assertEqual(got["shut"], [True, True])
+        self.assertEqual(got["open"], [False, False, "1 October 1982: 1.0 mm", 1, 1, 74])
+        # Each frame clears the canvas, dims the sky and draws a streak for
+        # each of the day's 74 drops (1 mm: s = 0.141), and asks for the next.
+        self.assertEqual(got["first"], [1, 1, 74, True, 0, 1])
+        self.assertEqual(got["more"], [2, 148])
+        # At the device's pixel ratio, two at most.
+        self.assertEqual(got["size"], [1600, 1200])
+
+    def test_snow_falls_on_a_day_at_or_below_freezing(self):
+        got = _run(self, PANEL_SETUP + RAIN_CTX + r"""
+          REC.t[Math.round((Date.UTC(1982, 9, 1) - Date.UTC(1981, 0, 1)) / DAY)] = -2;
+          route("format=CSV", csvOf(REC));
+          simOpen();
+          await flush();
+          OPS = [];
+          frames(16);
+          console.log(JSON.stringify([count("drop"), count("fill") > 0, count("stroke")]));
+        """)
+        # 30 + 270 s flakes, filled, not stroked.
+        self.assertEqual(got, [68, True, 0])
+
+    def test_the_rain_stops_on_a_dry_day_paused_on_close_and_on_leaving(self):
+        got = _run(self, PANEL_SETUP + RAIN_CTX + r"""
+          REC.p[Math.round((Date.UTC(1982, 9, 2) - Date.UTC(1981, 0, 1)) / DAY)] = 0.2;
+          route("format=CSV", csvOf(REC));
+          simOpen();
+          await flush();
+          var wet = ticking();
+          simSeekDay(1);
+          var dry = [ticking(), $("street-day").textContent, $("street-rain").hidden, $("street-day").hidden];
+          simSeekDay(0);
+          var again = [ticking(), $("street-rain").hidden];
+          $("street-sim-play").fire("click");
+          simSeekDay(1);
+          var playing = ticking();
+          $("street-sim-play").fire("click");
+          var paused = ticking();
+          simSeekDay(0);
+          simClose();
+          var closed = [ticking(), $("street-rain").hidden, $("street-day").hidden];
+          simOpen();
+          await flush();
+          var reopened = ticking();
+          streetLeave();
+          console.log(JSON.stringify([wet, dry, again, playing, paused, closed, reopened,
+                                      [ticking(), $("street-rain").hidden, $("street-day").hidden]]));
+        """)
+        # 2 October 1982, 0.2 mm, is dry: the canvas hidden, the badge naming
+        # the day still, and, paused, no frame asked for; playing, Play's
+        # frames go on. A canvas cleared and drawn on no more can go on showing
+        # what it drew last (Chrome, 12 October 2026): it is shown only while
+        # it rains.
+        self.assertEqual(got, [1, [0, "2 October 1982: 0.2 mm", True, False], [1, False], 1, 0, [0, True, True], 1,
+                               [0, True, True]])
+
+    def test_under_reduced_motion_the_rain_is_drawn_still_once_a_day(self):
+        got = _run(self, PANEL_SETUP + RAIN_CTX + r"""
+          window.matchMedia = function (q) { return {matches: /reduce/.test(q)}; };
+          simOpen();
+          await flush();
+          var still = [ticking(), count("clear"), count("drop")];
+          $("street-sim-play").fire("click");
+          frames(250, 4);
+          console.log(JSON.stringify([still, [S.sim.day, count("clear"), ticking()]]));
+        """)
+        # Drawn once, still, and no frame asked for; Play still steps the
+        # days, a week a second, and each day it reaches is drawn once.
+        self.assertEqual(got, [[0, 1, 74], [5, 4, 1]])
+
+    def test_this_year_so_far_is_a_choice_drawn_in_ink(self):
+        got = _run(self, PANEL_SETUP + r"""
+          NOW = Date.UTC(1991, 0, 20, 12);
+          simOpen();
+          await flush();
+          $("street-sim-start").value = "11";
+          $("street-sim-start").fire("change");
+          var options = $("street-sim-event").innerHTML, strongest = $("street-sim-event").value;
+          $("street-sim-event").value = "now";
+          $("street-sim-event").fire("change");
+          var svg = $("street-sim-chart").innerHTML;
+          console.log(JSON.stringify({options: options, strongest: strongest, max: $("street-sim-day").max,
+            said: $("street-sim-said").innerHTML, key: $("street-sim-key").innerHTML,
+            lines: ["now", "ev", "evfaint"].map(function (c) {
+              return (svg.match(new RegExp('class="' + c + '"', "g")) || []).length;
+            })}));
+        """)
+        self.assertEqual(got["options"], '<option value="now">This year so far, 1990-91</option>'
+                                         '<option value="1987">1987-88 (+1.1)</option>'
+                                         '<option value="1982">1982-83 (+2.2)</option>')
+        self.assertEqual([got["strongest"], got["max"], got["lines"]], ["1982", "60", [1, 0, 2]])
+        self.assertEqual(got["said"], "<b>November to April 1990-91 so far</b>, 61 days to 31 December 1990: 61 mm, "
+                                      "against a mean of 61 mm by the same day in the neutral years and 227 mm in "
+                                      "the El Ni\u00f1os.")
+        self.assertEqual(got["key"], '<span class="faint">El Ni\u00f1os</span><span class="neutral">neutral years\u2019 '
+                                     'mean, 10th to 90th percentile shaded</span><span class="now">this year so far'
+                                     '</span><span class="bars">bars: this year\u2019s rain each day</span>')
 
 
 if __name__ == "__main__":

@@ -517,7 +517,19 @@ function requestRender() { note("render"); }
 function ask(s) {}
 function owners() { return []; }
 function frameOf() { return null; }
-function cancelAnimationFrame() {}
+// Frames: a callback asked for runs when frames() passes a frame, given the
+// frame's time; one taken back does not.
+var FRAMES = [], FRAME = 0, FRAME_T = 0;
+function requestAnimationFrame(f) { FRAMES.push({id: ++FRAME, f: f}); return FRAME; }
+function cancelAnimationFrame(id) { FRAMES = FRAMES.filter(function (t) { return t.id !== id; }); }
+function frames(ms, n) {
+  for (var i = 0; i < (n || 1); i++) {
+    FRAME_T += ms;
+    var due = FRAMES;
+    FRAMES = [];
+    due.forEach(function (t) { t.f(FRAME_T); });
+  }
+}
 function animate(to, ms) { FLIGHTS.push({x: to.x, y: to.y, z: to.z, ms: ms}); S.x = to.x; S.y = to.y; S.z = to.z; }
 function settle() { note("settle"); }
 function setLayer(id) { note("setLayer " + id); S.layer = id; return true; }

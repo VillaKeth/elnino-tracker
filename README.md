@@ -49,7 +49,9 @@ for the season now, with today's sea surface temperature anomaly, the last three
 days' floods, the Niño regions with this week's anomalies and, a tick away, the
 impact regions this event puts in play. Tap any point, or find an address, for what the El Niño
 seasons since 1979 did there, and Google's own map, satellite view and Street
-View of it on request.
+View of it on request. Drop the figure in, as on Google Maps, for the street
+itself, and replay on its Street View what the past El Niños rained there, day
+by day.
 
 Pure Python standard library — no `pip install`, no build step, no CDN, no API
 key. Python 3.10 or newer.
@@ -102,6 +104,7 @@ number is how people get surprised.
 | What does it mean *where I am*? | Click any point; that place scored now and at peak |
 | What has it *actually done* here before? | The atlas: measured composite for that cell, with Welch's t |
 | What does that look like, street by street? | The map: the composites, today's ocean and floods, and the impact regions, over street maps and satellite |
+| What would El Niño's rain be on my street? | Drop into Street View and replay it: each past El Niño's days there, against neutral years and ECMWF's forecast, falling over the panorama |
 | What is spinning right now? | Every live cyclone, ATCF best track + official forecast |
 | Is the ENSO storm signal verifying? | Season ACE against date-matched climatology, scored in public |
 
@@ -1507,9 +1510,11 @@ link**, **Google Maps ↗** (the panorama's documented Maps URL) and **Exit** (E
 too). A strip under it holds a **minimap** of the map's own street tiles about
 the point, with a pin, its own + and − (zoom 3 to 18, opening at 15), Esri's
 credit, and a tap on it moving Street View there; and beside it the first lines
-of the card, with **The whole card ↓** and Open-Meteo's credit for the forecast
-they quote. Nothing of the page sits on Google's
-frame, whose controls, logo and terms are its own. *Here* moves to the point,
+of the card, with **Replay El Niño's rain** (below), **The whole card ↓** and
+Open-Meteo's credit for the forecast they quote. Nothing of the page sits on
+Google's frame, whose controls, logo and terms are its own, but the replay's
+rain and the badge naming its day, which never take a pointer and stay clear
+of its foot. *Here* moves to the point,
 with the card at its top. **Exit** puts the map back on the point at zoom 16 or
 deeper, as deep as the layer goes. While the stage is open the map's scrubber
 and key are hidden, every control that changes the map (a layer, the
@@ -1530,15 +1535,25 @@ then and now's Street View) goes first to the nearest street, as Google Maps'
 figure goes to its blue lines: Google's embed looks only some tens of metres
 about a point, and on 9 October 2026 a point in a block in Lima found no
 panorama and one in São Paulo a café's inside. FOSSGIS's OSRM
-(`routing.openstreetmap.de`, its `routed-car` profile's `nearest`) gives the
-nearest point on a road a car may take on OpenStreetMap, and it is taken when it
-lies within 24 pixels of the view, 250 m at the least and 5 km at the most.
-OSRM is asked once a second at most, the latest pick winning, and credited under
-the minimap as its operator asks; a pick it has not answered within 2.5 s opens
+(`routing.openstreetmap.de`, its `routed-car` profile's `nearest`, 100
+waypoints) names the nearest stretches of the roads a car may take on
+OpenStreetMap, and the pick goes to the nearest **named** road within a
+kilometre (or the pick's reach, if further), else to the nearest road of any
+name within reach: 24 pixels of the view, 250 m at the least and 5 km at the
+most. Named roads are where Google's car drove: of thirty drops over Winter
+Haven, Florida, on 12 October 2026, fourteen of the fifteen that went to a
+named road found a panorama, and eight of the thirteen that went to an unnamed
+way, a driveway or a service road. **Next street** in the bar goes down the
+other named roads within 5 km, nearest first, six roads in all, then back to
+the point as picked, and round again; the line under the bar says which road
+the stage is on, how far from the pick, and where Next street goes. OSRM is
+asked once a second at most, the latest pick winning, and credited under the
+minimap as its operator asks; a pick it has not answered within 2.5 s opens
 where it was made. An address, `#street=` and the page's API open exactly where
-they say. Where Google has no panorama at all its frame says "No Street View
-available", and the stage's note says why; the minimap and the card are the
-point's either way.
+they say. Street View shows Google's panorama nearest the stage's point; where
+Google has none at all its frame says "No Street View available", and **Next
+street** tries the others; the minimap and the card are the point's either way,
+as the note under the bar says.
 
 `map.html#street=LAT,LON` opens the stage (**Copy link** writes it); like
 every address the desk, the map and the atlas read, it opens all the same when
@@ -1568,7 +1583,7 @@ numbers are in a table beside it.
 | the record | NASA POWER, MERRA-2 on its 0.5° × 0.625° grid | monthly `PRECTOTCORR` (rain corrected against gauges, mm a day) and `T2M`, 1981 to date, in one request |
 | the latest months | NASA POWER, daily: GEOS-IT for its newest days | the same, for the months the monthly record has not reached (three days behind) |
 | right now | Open-Meteo's forecast | the weather now and the next 24 hours' rain |
-| the months ahead | Open-Meteo's seasonal forecast, ECMWF's | monthly temperature, rain and sea-surface anomalies, six months |
+| the months ahead | Open-Meteo's seasonal forecast, ECMWF's | monthly temperature, rain and sea-surface anomalies for the seven months its run reaches (`forecast_days=215`; six unasked): the card shows six from the reader's month, and the replay's window from next month takes the seventh |
 | the index | the tracker's own RONI | shipped in the page, month by month as CPC prints it |
 
 The method is the atlas's. A month is El Niño when RONI centred on it is +1.0 or
@@ -1608,6 +1623,85 @@ forecast of this one. POWER's newest days, the months its monthly record has
 yet to reach, are NASA's GEOS-IT analysis, not MERRA-2 (its daily answer lists
 both), so this year so far sets one analysis against the other's neutral
 years. ECMWF's six months are the forecast.
+
+#### El Niño's rain, replayed
+
+What would El Niño's rain be on this street? **Replay El Niño's rain**, in the
+stage's chip, plays it: what each past El Niño actually rained here, day by
+day, against what the neutral years rained, with ECMWF's forecast for the
+season ahead beside them. A replay of the record is the honest simulation a page
+can give of a point: a model run of a street's weather is not something a page
+can do, and a weather generator would be the page's own invention dressed as
+data.
+
+The replay takes the chip's place under the panorama, and on a phone the
+minimap's room too. **Play** runs the days of a six-month window, a week, two
+weeks or a month a second, and the slider, or a click or drag on the chart,
+seeks a day; a finger on the chart seeks where it lifts, or as it drags across,
+and scrolls the panel moving up or down. On Street View the day's rain falls,
+drawn by the page over Google's panorama: nothing under 0.5 mm, and above it,
+with a strength *s* = min(1, √(mm / 50)), 20 + 380 *s* streaks falling
+1 + 1.2 *s* of the view
+a second and the sky dimmed by 0.08 + 0.3 *s*; on a day whose mean temperature
+is at or below 0 °C, 30 + 270 *s* flakes instead. A badge names the day. The
+canvas never takes a pointer, stops 40 px above the panorama's foot, where
+Google's logo and terms are, and fades out above it; it is drawn at the
+device's pixel ratio, two at most, its frames running only while it rains on
+the day shown or Play runs, and under reduced motion each day is drawn once,
+still. Under the slider:
+
+- the day's rain in millimetres and inches, its mean temperature, the rain so
+  far, and the neutral years' mean by the same date with their 10th to 90th
+  percentiles (29 February counted with the 28th);
+- a chart of the rain accumulated over the window: the El Niño chosen bold in
+  El Niño's red, the others faint, each named with its peak and total where the
+  pointer rests on it, the neutral years' mean dashed over the band of their
+  10th to 90th percentiles, ECMWF's forecast for a window not yet begun dashed
+  in blue, this year so far in ink once its window has begun, and the chosen
+  run's rain each day as bars, its numbers in a table;
+- the run's total against the neutral mean, its days of 20 mm or more
+  (ETCCDI's R20mm), its wettest day, its longest dry spell (days running under
+  1 mm, ETCCDI's CDD) and its mean temperature against the neutral years';
+  what the El Niños brought on average and in how many the window was wetter;
+  and what ECMWF's forecast comes to;
+- **Year by year**, every El Niño with RONI's peak in the window's first
+  season, the neutral mean and ECMWF's projection with the same measures, and
+  **Method and sources**.
+
+The choices are the El Niño (each replayable one, newest first, with the
+index's peak in the window's first season, the strongest chosen first; and
+this year, once seven days of its window are on record) and the window (six
+months from any month, from next month at first: in October, November to
+April). ECMWF's forecast reaches that window whole once the month's run is
+out, on the 5th; before then the last month's run reaches five months of it,
+and the key, the words and the table name the months it covers. With nothing
+to replay, the words say whether this year's window has yet to begin or has
+fewer than seven days on record. **Play**, the slider and the choice of El Niño
+wait while a picked point's street is being found.
+
+| What | How |
+|---|---|
+| the days | NASA POWER's daily point API, `PRECTOTCORR` and `T2M` from 1 January 1981 to today, as CSV (342 KB) in one request, asked only when the replay opens |
+| the place | MERRA-2's cell, 0.5° × 0.625°: POWER is sent the cell's grid point, not the place, and a move within the cell asks nothing |
+| a window | six calendar months from the month chosen, named for its year, or for the two it spans ("1997-98") |
+| an El Niño | a window with RONI centred on one of its first three months at +1.0 or more, as the card takes its events: the index as the window opens, as a forecast made then would have it, so a window from spring takes El Niños growing and fading alike; the event under way is this year's, not a past one |
+| a neutral year | a window whose first three months are all strictly within ±0.5 |
+| a window counted | all its days on record but five at most, a day missing counted dry |
+| ECMWF's projection | for each month of a window not yet begun that the forecast reaches, POWER's mean for that calendar month over every complete year since 1981, scaled by ECMWF's forecast against its own climate of past forecasts where that climate is the dry floor, 0.2 mm a day, or more, and with ECMWF's anomaly added below it (the delta method), never under nothing |
+| the band | the neutral years' 10th to 90th percentile of the rain accumulated by each date of the window, 29 February counted with the 28th: on its last day, their totals' |
+
+The days are kept in memory for the last three cells for a day, never in the
+tab's session, where a third of a megabyte each would crowd out the card's
+answers; asked once however many ask while they come; and given up after 20 s
+with **Retry**. **Back to the card**, Esc and Exit close the replay (Esc closes
+it first and leaves the street at a second press); entering another point, by
+**Next street** or the minimap, keeps it open, stopped where it was, on the new
+point's cell, and a run taken in place tells its years again by the new run's
+index, the El Niño and the day shown kept where they still are. A day is the
+cell's mean, smoother than a gauge's, and POWER's
+newest days are NASA's GEOS-IT analysis, not MERRA-2. The rain on Street View
+is the page's drawing, scaled to that number; Google's imagery under it is as
+Google took it.
 
 ### Offline, and what the map is not
 
@@ -1718,7 +1812,7 @@ downloads none of them, and both pages still draw without them (sections 12 and
 | [OpenStreetMap](https://tile.openstreetmap.org/) | the standard map, when the page is served | OSM's tile usage policy; © OpenStreetMap contributors |
 | Google's embed and [Maps URLs](https://developers.google.com/maps/documentation/urls/get-started) | Google's own map, satellite view and Street View of a point, on request; the street stage's panorama | no key; Google's own frame |
 | [FOSSGIS's OSRM](https://routing.openstreetmap.de/) (`routed-car`, `nearest`) | the nearest street to a point picked for Street View | keyless; once a second at most, credited, "fix the map" |
-| [NASA POWER](https://power.larc.nasa.gov/) monthly and daily point APIs | the street card's record: rain and temperature since 1981 | keyless; credited as NASA asks; only on a drop or when asked |
+| [NASA POWER](https://power.larc.nasa.gov/) monthly and daily point APIs | the street card's record and the replay's days: rain and temperature since 1981 | keyless; credited as NASA asks; only on a drop or when asked, the replay's days only when it opens and for the cell's grid point |
 | [Open-Meteo](https://open-meteo.com/) forecast and seasonal APIs | the street card's weather now and ECMWF's next six months | keyless, non-commercial; "Weather data by Open-Meteo.com"; only on a drop or when asked |
 
 ### Gridded and mooring feeds (8)
@@ -1834,13 +1928,14 @@ elnino/worldmap.py       the map: street maps, El Nino's composites and tiles, E
                          what a point is told, Google on request, the geocoder
 elnino/thennow.py        then and now: its sources, every month's RONI season, the events,
                          the bar, and the script that enters a place and compares two dates
-elnino/street.py         Street View: the stage, the nearest street, and the card's record,
-                         composite, forecast and weather for the point dropped into
+elnino/street.py         Street View: the stage, the nearest street and Next street, the
+                         card's record, composite, forecast and weather for the point
+                         dropped into, and the replay of El Niño's rain on it
 elnino/assets.py         the code and data that do not change from run to run, as files
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1406 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1453 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -2077,7 +2172,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1406 tests, no network required. They cover:
+1453 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2420,9 +2515,22 @@ python -m unittest discover -s tests -v
   twenty points, an answer of another shape read as no value and a card that
   cannot be written asking again, the stage over the map with its minimap, its
   chip and its Exit, the loop and Play stopped behind it, a pick going to
-  the nearest street within reach and to where it was made when OSRM does not
-  answer, `#street=` and the API, and the stage and the card kept through a run
-  taken in place and a page loaded again;
+  the nearest named street within a kilometre, else the nearest road within
+  reach, and to where it was made when OSRM does not answer or names no road it
+  can read, Next street's
+  order, wrap and line, `#street=` and the API, and the stage and the card kept
+  through a run taken in place and a page loaded again; the replay's days read
+  from POWER's CSV in either form and any column order and refused when not
+  CSV, asked once a cell and kept for three; its windows across the new year and
+  in leap years, its El Niños, neutral years and this year, its measures, its
+  band by date with 29 February or without, and ECMWF's projection scaled or
+  added to, seven months asked and six on the card; its panel's choices, Play
+  frame by frame, seeking by mouse and by finger, nothing to play while a pick's
+  street is found, words (with nothing to replay, and with ECMWF short of the
+  window), table, chart, failure and Retry, closing and moving, and a run taken
+  in place telling its years again; and the rain over
+  the panorama, its level, its frames stopping on a dry day, on close and on
+  leaving, and drawn still under reduced motion;
 - **the assets**: every page naming the assets it uses, each named for its
   contents, a run writing them before the pages and letting go of those no page
   names, a publish refusing one missing or not the file its name was taken

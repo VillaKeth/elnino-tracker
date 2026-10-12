@@ -4289,6 +4289,8 @@ _JS = r"""
       coastDone = 0; coastD = ""; coastG.innerHTML = "";
       select(BYID[S.selected] ? S.selected : (STORMS[0] ? STORMS[0].id : null));
       showHere();
+      // The replay's years told again by the new run's index.
+      if (S.sim) simRetake();
       ages();
       // Drawn now, keys and all, so the reader's place is put back on the page
       // as it will stand.
