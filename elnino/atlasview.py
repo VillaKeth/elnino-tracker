@@ -51,7 +51,11 @@ the map shares): at each point the cell centres around it, blended by how near
 each is, and coloured in the ramp's eleven steps, so the steps meet along soft
 lines as a filled contour map's do. A 2.5 degree grid painted a square per
 cell read as a mosaic of big pixels. The fade blends too, from a cell that
-passes to one that does not, and a click still reads the whole cell.
+passes to one that does not, and a click still reads the whole cell. Over a
+base the field takes the ramp made for the base's ground - a photograph of
+the Earth is dark whatever the page's theme - and leaves its middle step,
+within ±0.27 mm/day or ±0.15 °C of nothing, clear, so no grey veils what is
+under it; offline, with the photograph gone, the page's own ramp.
 """
 
 from __future__ import annotations
@@ -94,17 +98,20 @@ GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best"
 # ``lag`` is how far behind today to ask for. A daily global mosaic is not
 # complete the moment the day ends, and a tile that does not exist yet is a
 # 400, so the page asks for a day that has certainly finished processing
-# rather than for today and a blank map.
+# rather than for today and a blank map. ``ground`` is the tone of a base's
+# own picture, which the page's theme does not change: a photograph is dark.
+# The relief is drawn in the page's own tones, and the SST anomaly is NASA's
+# scale over the page's sea, so neither has a ground of its own.
 BASEMAPS = (
     {"id": "relief", "label": "Relief", "kind": "relief",
      "credit": "ETOPO1 global relief, NOAA NCEI - vendored, works offline",
      "note": "Land height and sea-floor depth, shaded from the north-west."},
-    {"id": "marble", "label": "Blue Marble", "kind": "gibs", "max": 7,
+    {"id": "marble", "label": "Blue Marble", "kind": "gibs", "max": 7, "ground": "dark",
      "layer": "BlueMarble_ShadedRelief_Bathymetry", "tms": "500m",
      "ext": "jpeg", "lag": None,
      "credit": "NASA Blue Marble, shaded relief and bathymetry (GIBS)",
      "note": "A cloud-free composite, so it is the land itself, not a day."},
-    {"id": "photo", "label": "Satellite", "kind": "gibs", "max": 8,
+    {"id": "photo", "label": "Satellite", "kind": "gibs", "max": 8, "ground": "dark",
      "layer": "VIIRS_SNPP_CorrectedReflectance_TrueColor", "tms": "250m",
      "ext": "jpg", "lag": 2,
      "credit": "VIIRS on Suomi NPP, corrected-reflectance true colour (GIBS)",
@@ -404,6 +411,8 @@ body.atlaspage { height: 100vh; display: flex; flex-direction: column;
 .atlaslegend .steps { display: flex; border-radius: 2px; overflow: hidden;
   border: 1px solid var(--border); }
 .atlaslegend .steps i { width: 17px; height: 11px; display: block; }
+/* The middle step, left clear over a base: an outline, as on the map. */
+.atlaslegend .steps i.clear { box-shadow: inset 0 0 0 1px var(--ink2); }
 .atlaslegend .key[hidden] { display: none; }
 .atlaslegend .key { display: inline-flex; align-items: center; gap: 5px;
   white-space: nowrap; }
@@ -469,6 +478,15 @@ body.atlaspage { height: 100vh; display: flex; flex-direction: column;
 
 
 # --- the composite as a field -----------------------------------------------
+def _ground_ramps() -> str:
+    """The ramp made for a light ground and the one made for a dark, as
+    numbers, whatever the page's theme: FIELD_JS's GROUND_RAMPS."""
+    def rgb(ramp):
+        return [[int(c[i:i + 2], 16) for i in (1, 3, 5)] for c in ramp]
+    return json.dumps({"light": rgb(fields.DIVERGING_LIGHT), "dark": rgb(fields.DIVERGING_DARK)},
+                      separators=(",", ":"))
+
+
 # The page's script and the map's (worldmap.py) take this in at their FIELD
 # markers, so the two draw one field by one rule.
 FIELD_JS = r"""
@@ -533,14 +551,20 @@ FIELD_JS = r"""
   // pixel fieldAt its point, in the ramp's colour for the value - tone.rgb
   // the ramp as numbers, tone.invert and tone.lim the atlas's rampIndex -
   // and clear where no cell near has a record. While tone.mask is on, what
-  // the t test does not pass is drawn at tone.dim of its strength. `into` is
-  // a buffer to fill again. fieldAt's sums, in its order, so a pixel is
-  // exactly it.
+  // the t test does not pass is drawn at tone.dim of its strength. With
+  // tone.clear, for a field over a picture, the middle step is left clear:
+  // within half a step of nothing, grey there only veiled the streets or the
+  // photograph under it. tone.right, {from, rgb}, is a second ramp from
+  // column `from` on: compared, the layer right of the divider is a ground of
+  // its own. `into` is a buffer to fill again. fieldAt's sums, in its order,
+  // so a pixel is exactly it.
   function paintField(g, lons, lats, tone, into) {
     var fw = lons.length, fh = lats.length, n = fw * fh * 4;
     var data = into && into.length === n ? into : new Uint8ClampedArray(n);
     if (data === into) { data.fill(0); }
     var nc = g.nc, val = g.val, sig = g.sig, rgb = tone.rgb, lim = tone.lim, dim = tone.dim;
+    var clear = !!tone.clear, from = tone.right ? tone.right.from : fw;
+    var rgbR = tone.right ? tone.right.rgb : rgb;
     var c0s = new Int32Array(fw), c1s = new Int32Array(fw), fus = new Float64Array(fw), i, j;
     for (i = 0; i < fw; i++) {
       var cl = fieldCol(g, lons[i]);
@@ -562,7 +586,9 @@ FIELD_JS = r"""
         if (w > 0 && v === v) { cover += w; sum += w * v; pass += w * sig[k]; }
         if (!(cover > 0)) { continue; }
         var value = sum / cover, x = tone.invert ? -value : value;
-        var s = Math.floor((x + lim) / (2 * lim) * 11), c = rgb[s < 0 ? 0 : (s > 10 ? 10 : s)];
+        var s = Math.floor((x + lim) / (2 * lim) * 11);
+        if (clear && s === 5) { continue; }
+        var c = (i < from ? rgb : rgbR)[s < 0 ? 0 : (s > 10 ? 10 : s)];
         var a = cover * (tone.mask ? dim + (1 - dim) * (pass / cover) : 1), at = row + i * 4;
         data[at] = c[0]; data[at + 1] = c[1]; data[at + 2] = c[2];
         data[at + 3] = Math.round(a * 255);
@@ -603,7 +629,32 @@ FIELD_JS = r"""
     m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(s);
     return m ? [+m[1], +m[2], +m[3]] : [136, 136, 136];
   }
-"""
+  // -- the ground under the field --------------------------------------------
+  // A base that is someone else's picture keeps its own tones whatever the
+  // page's theme: Esri's street map is light, a photograph of the Earth
+  // dark. Painted in the theme's ramp, the steps nearest nothing - made to
+  // sink into the theme's own ground - stood out of a ground of the other
+  // tone as blocks: grey and brown over the street map in the dark theme,
+  // white over a photograph in the light. So the field takes the ramp made
+  // for its ground; on the page's own (no base, one drawn in the page's
+  // tones, or one mostly clear), `page`, the page's ramp.
+  var GROUND_RAMPS = /*GROUND_RAMPS*/;
+  function groundRamp(ground, page) {
+    return ground === "light" || ground === "dark" ? GROUND_RAMPS[ground] : page;
+  }
+  // A key's eleven swatches in the colours the field is drawn in: its
+  // ground's ramp, else the page's tokens, which follow the theme by
+  // themselves; the middle one an outline where the field leaves it clear.
+  function keySteps(strip, ground, clear) {
+    var rgb = groundRamp(ground, null), steps = strip.children, i;
+    for (i = 0; i < steps.length; i++) {
+      var mid = !!clear && i === 5;
+      steps[i].classList.toggle("clear", mid);
+      steps[i].style.background = mid ? "transparent"
+        : (rgb ? "rgb(" + rgb[i].join(", ") + ")" : "var(--d" + i + ")");
+    }
+  }
+""".replace("/*GROUND_RAMPS*/", _ground_ramps())
 
 
 # --- the page ---------------------------------------------------------------
@@ -860,8 +911,9 @@ _JS = r"""
   // The field over a page w by h css pixels: a point every `step` of them on
   // the lattice fixed at longitude 0 and the equator, at its own longitude
   // and latitude, and nothing beyond the poles, where a plate carree window
-  // taller than the world has only the page. x and y are where it starts.
-  function atlasField(name, sea, mask, w, h, step, rgb, into) {
+  // taller than the world has only the page. x and y are where it starts;
+  // `clear` leaves the middle step clear, for a field over a base.
+  function atlasField(name, sea, mask, w, h, step, rgb, into, clear) {
     var x0 = fieldStart(X(0), step), y0 = fieldStart(Y(0), step);
     var fw = fieldSpan(w, step), fh = fieldSpan(h, step);
     var lons = new Float64Array(fw), lats = new Float64Array(fh), i, j;
@@ -872,10 +924,18 @@ _JS = r"""
     }
     var f = paintField(fieldGrid(name, sea), lons, lats,
       { invert: D.grids[name].invert, lim: LIMIT[name], rgb: rgb, mask: mask,
-        dim: FAINT }, into);
+        dim: FAINT, clear: !!clear }, into);
     f.x = x0;
     f.y = y0;
     return f;
+  }
+
+  // The ground under the field: the base's own, none on the plain page or
+  // the relief, drawn in the page's tones, and none where the imagery cannot
+  // be had, where the page's sea is under the field.
+  function baseGround() {
+    var cfg = BASE[base];
+    return cfg && cfg.ground && !(cfg.kind === "gibs" && imageryFailed) ? cfg.ground : null;
   }
 
   function drawField() {
@@ -894,9 +954,13 @@ _JS = r"""
     var ctx = fieldCanvas.getContext("2d");
     ctx.clearRect(0, 0, cw, ch);
     if (!ramp) { ramp = readRamp(); }
+    // Over a base, the ramp made for its ground and the middle step left
+    // clear; on the plain page, the page's own ramp and every step, the field
+    // the whole picture.
+    var cfg = BASE[base];
     var step = fieldStep(W, H);
-    var f = atlasField(variable, season, fade, W, H, step, ramp,
-                       fieldImage ? fieldImage.data : null);
+    var f = atlasField(variable, season, fade, W, H, step, groundRamp(baseGround(), ramp),
+                       fieldImage ? fieldImage.data : null, !!cfg);
     if (!fieldShot) { fieldShot = document.createElement("canvas"); }
     if (!fieldImage || fieldImage.data !== f.data || fieldImage.width !== f.w) {
       fieldShot.width = f.w;
@@ -1447,7 +1511,9 @@ _JS = r"""
     // rather than left looking at an empty rectangle.
     if (!navigator.onLine && !imageryFailed) {
       imageryFailed = true;
-      describeBase();
+      // The page's sea is under the field now: the page's ramp, and its key.
+      syncBar();
+      schedule();
     }
   }
 
@@ -2066,6 +2132,16 @@ _JS = r"""
     // worse than no legend at all.
     document.getElementById("steps").style.flexDirection =
       v.invert ? "row-reverse" : "row";
+    // The strip and the faded swatch in the colours drawn: over a base, its
+    // ground's ramp, the middle step clear (FIELD_JS's keySteps), and words
+    // for the outline it leaves.
+    var cfg = BASE[base], ground = baseGround(), rgb = groundRamp(ground, null);
+    keySteps(document.getElementById("steps"), ground, !!cfg);
+    document.querySelector("#fadekey i").style.background =
+      rgb ? "rgb(" + rgb[9].join(", ") + ")" : "var(--d9)";
+    var middle = document.getElementById("middle");
+    middle.hidden = !cfg;
+    middle.textContent = ", nothing drawn within ±" + (LIMIT[variable] / 11).toFixed(2);
   }
   document.addEventListener("click", function (ev) {
     var t = ev.target.closest ? ev.target.closest("button") : null;
@@ -2092,7 +2168,11 @@ _JS = r"""
       marked = null;
       panel.innerHTML = HINT;
     } else if (t.id === "theme") {
-      var dark = document.documentElement.getAttribute("data-theme") === "dark";
+      // From the theme shown: with none chosen, the system's own, or the
+      // first press in a dark system set the dark theme already shown.
+      var chosen = document.documentElement.getAttribute("data-theme");
+      var dark = chosen ? chosen === "dark"
+        : !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
       document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
     } else { return; }
     syncBar();
@@ -2170,7 +2250,8 @@ _JS = r"""
     if (D.seasons.indexOf(kept.season) >= 0) { season = kept.season; }
     if (typeof kept.fade === "boolean") { fade = kept.fade; }
     if (typeof kept.composite === "boolean") { composite = kept.composite; }
-    if (typeof kept.base === "string" && own(BASE, kept.base)) { base = kept.base; }
+    // "none", the plain page, is the atlas's own though BASE has no entry for it.
+    if (typeof kept.base === "string" && (kept.base === "none" || own(BASE, kept.base))) { base = kept.base; }
     if (kept.show && typeof kept.show === "object") {
       Object.keys(show).forEach(function (layer) {
         if (typeof kept.show[layer] === "boolean") { show[layer] = kept.show[layer]; }
@@ -2270,7 +2351,8 @@ def _legend() -> str:
     wetter</span>
     <span class="steps" id="steps">{_legend_steps()}</span>
     <span id="limits">&minus;3 to +3</span> <span id="unit">mm/day</span>
-    against a neutral year</span>
+    <span>against a neutral year<span id="middle" hidden>, nothing drawn
+    within &plusmn;0.27</span></span></span>
   <span class="key" id="fadekey"><span class="steps"><i
     style="background:var(--d9); opacity:.16"></i></span> faded: |t| under
     <span id="crit">{atlas.critical("PRECIP", "DJF"):.2f}</span>, the 95% point

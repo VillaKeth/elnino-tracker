@@ -2391,6 +2391,18 @@ console.log(JSON.stringify({view: view, variable: variable, season: season, fade
                                "base": "sst", "composite": False, "marked": [-74, 11], "dossier": 340,
                                "calls": ["clampView", ["pick", -74, 11], "syncBar", "schedule"]})
 
+    def test_the_plain_page_with_no_base_comes_back(self):
+        # "None" is the atlas's own base though BASE has no entry for it: a
+        # reader on the plain page got the relief back when the hour's run came.
+        got = self.page(r"""
+base = "none";
+var kept = JSON.parse(JSON.stringify(keep()));
+base = "relief";
+restore(kept);
+console.log(JSON.stringify(base));
+""")
+        self.assertEqual(got, "none")
+
     def test_a_view_turned_any_number_of_times_comes_back_on_the_world(self):
         # clampView() wraps a longitude a turn at a time: a view handed back
         # turned 1e300 degrees would never be done wrapping, and the tab would hang.

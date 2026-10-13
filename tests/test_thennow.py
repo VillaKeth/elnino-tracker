@@ -550,7 +550,7 @@ ENGINE = ("clamp", "wrap", "rad", "deg", "mx", "my", "lonOf", "latOf", "world", 
           "kms", "nearestPlace", "placeLabel", "pin", "signedText", "classify", "wrap180", "googleZoom",
           "googleLinks", "tileUrl", "xyzUrl", "present", "xyzCells", "source", "timed", "cells",
           "labelled", "labelledBase", "overSpecs", "gotKey", "tilesDown", "look", "covered", "imageOn",
-          "mapDown", "nasaDown", "baseDown", "googleEmbed", "maxZoom", "finite")
+          "mapDown", "nasaDown", "baseDown", "sideDown", "googleEmbed", "maxZoom", "finite")
 
 # The page's payload for the 2014-16 event, built on 29 September 2026, and
 # the street's from the same run.

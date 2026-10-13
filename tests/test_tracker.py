@@ -3865,17 +3865,23 @@ console.log(JSON.stringify(out));
         # names it carries as the base, while the gazetteer's town names stood
         # aside for them there. And the compared layer, under the base, showed
         # through on the base's side wherever the base drew nothing: past an
-        # imager's disc, or a tile not yet come.
+        # imager's disc, or a tile not yet come. Under a dark picture, its
+        # pane is its dark space, on its side; where the picture cannot be
+        # had, the page's plane.
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in (
             "clamp", "world", "origin", "xyzUrl", "present", "xyzCells", "cells", "overSpecs", "tiles",
-            "loopWhenKnown"))
+            "loopWhenKnown", "groundOf", "sideDown", "mapDown"))
         got = _node_json(self, r"""
-var TILE = 256, NODATA = {}, D = {layers: []};
-var LAYERS = {streets: {id: "streets", kind: "map", zoom: 19, tiles: "st/{z}/{y}/{x}"},
-              satellite: {id: "satellite", kind: "map", zoom: 19, tiles: "im/{z}/{y}/{x}",
+var TILE = 256, NODATA = {}, D = {layers: []}, MAPS = {};
+var LAYERS = {streets: {id: "streets", kind: "map", zoom: 19, tiles: "st/{z}/{y}/{x}", ground: "light"},
+              satellite: {id: "satellite", kind: "map", zoom: 19, tiles: "im/{z}/{y}/{x}", ground: "dark",
                           over: ["rd/{z}/{y}/{x}", "pl/{z}/{y}/{x}"]}};
-function pane() { return {el: {style: {clipPath: ""}}, drawn: null}; }
+function nasaDown() { return false; }
+function pane() {
+  var p = {el: {style: {clipPath: ""}, classList: {toggle: function (k, on) { p[k] = on; }}}, drawn: null};
+  return p;
+}
 var panes = {a: pane(), b: pane(), o: pane(), ob: pane(), r: pane(), e: pane()};
 function drawPane(p, specs) {
   p.drawn = specs.map(function (sp) {
@@ -3891,12 +3897,13 @@ var S = {layer: "streets", second: "satellite", compare: true, split: 0.25, w: 8
 function look() {
   tiles(false);
   return ["a", "b", "o", "ob"].map(function (k) { return [panes[k].drawn, panes[k].el.style.clipPath]; })
-    .concat([S.inViewB ? Object.keys(S.inViewB) : null]);
+    .concat([S.inViewB ? Object.keys(S.inViewB) : null, [panes.a.space, panes.b.space]]);
 }
 var out = [look()];
 S.layer = "satellite"; S.second = "streets"; out.push(look());
 S.compare = false; out.push(look());
 S.layer = "streets"; S.second = "satellite"; out.push(look());
+S.layer = "satellite"; MAPS.satellite = {ok: 0, failed: 4}; out.push(look());
 console.log(JSON.stringify(out));
 """)
         left, right = "inset(0 600.0px 0 0)", "inset(0 0 0 200.0px)"
@@ -3904,12 +3911,16 @@ console.log(JSON.stringify(out));
         # A street map as the base, Esri's imagery compared: the imagery and
         # its roads and names right of the divider, nothing of it left.
         self.assertEqual(got[0], [[[["f0", ["st"]]], left], [[["b", ["im"]]], right],
-                                  [[], left], [roads, right], ["satellite"]])
+                                  [[], left], [roads, right], ["satellite"], [False, True]])
         self.assertEqual(got[1], [[[["f0", ["im"]]], left], [[["b", ["st"]]], right],
-                                  [roads, left], [[], right], ["streets"]])
+                                  [roads, left], [[], right], ["streets"], [True, False]])
         # Not compared, the second layer draws nothing, its roads and names included.
-        self.assertEqual(got[2], [[[["f0", ["im"]]], ""], [[], ""], [roads, ""], [[], ""], None])
-        self.assertEqual(got[3], [[[["f0", ["st"]]], ""], [[], ""], [[], ""], [[], ""], None])
+        self.assertEqual(got[2], [[[["f0", ["im"]]], ""], [[], ""], [roads, ""], [[], ""], None,
+                                  [True, False]])
+        self.assertEqual(got[3], [[[["f0", ["st"]]], ""], [[], ""], [[], ""], [[], ""], None,
+                                  [False, False]])
+        # Esri's imagery not answering: the page's plane under the page's coastline.
+        self.assertEqual(got[4][5], [False, False])
 
     def test_a_tile_address_is_z_y_x_as_the_template_orders_it(self):
         self.assertEqual(self.run_page()["url"], "https://x/tile/17/49000/38000")
@@ -4034,9 +4045,10 @@ class TestCompositeOnTheMapRuns(_DeskFixtures, unittest.TestCase):
            "gridPlane", "gridAxes", "nearestAt", "nearestLon", "critOf",
            "cellWeight", "cellPx", "hexRgb", "fieldOf", "fieldGrid", "fieldRow", "fieldCol",
            "fieldAt", "paintField", "compositeField", "fieldStart", "fieldSpan", "fieldStep",
-           "cellFits", "cellAt")
+           "cellFits", "cellAt", "groundRamp", "groundOf", "groundSides", "sideDown", "sameRamp",
+           "drawComposite")
     HARNESS = r"""
-var TILE = 256, GRIDS = {};
+var TILE = 256, GRIDS = {}, RAMP_RGB = [];
 var D = {enso: JSON.parse(require("fs").readFileSync(0, "utf8"))};
 var ATLAS = {grids: D.enso.grids};
 /*MAP*/
@@ -4150,6 +4162,86 @@ out.cleared = reused[0] === 0 && reused[3] === 0;
 out.london = cellAt("AIR", "DJF", -0.13, 51.5);
 out.dateline = [cellAt("AIR", "DJF", 180.9, 65.8), cellAt("AIR", "DJF", -179.5, 65.8),
                 cellAt("AIR", "DJF", 179.1, 65.8)];
+// Compared on two grounds, the field in the right side's ramp from the first
+// point at or right of the divider, x 301 on a view 1024 across, the middle
+// step clear on both sides.
+var RGB2 = [];
+for (var k = 0; k < 11; k++) RGB2.push([k * 20 + 1, 255 - k * 20, 7 * k + 1]);
+function split(name, o, w, h, step, x) {
+  var f = compositeField(name, "DJF", false, o, w, h, step, RGB, D.enso.mask, null, true, {x: x, rgb: RGB2});
+  var g = fieldGrid(name, "DJF"), n = {left: 0, right: 0, middle: 0, bad: 0, first: null};
+  for (var j = 0; j < f.h; j++) for (var i = 0; i < f.w; i++) {
+    var X = (f.x + (i + 0.5) * step - o.left) / o.W, Y = (f.y + (j + 0.5) * step - o.top) / o.W;
+    var k = (j * f.w + i) * 4, want = [0, 0, 0, 0], right = f.x + (i + 0.5) * step >= x;
+    if (Y >= 0 && Y <= 1) {
+      var at = fieldAt(g, lonOf(X), latOf(Y));
+      if (at.cover > 0) {
+        var s = atlasRamp(at.value, name), rgb = (right ? RGB2 : RGB)[s];
+        if (s === 5) n.middle++;
+        else want = [rgb[0], rgb[1], rgb[2], Math.round(at.cover * 255)];
+      }
+    }
+    var got = [f.data[k], f.data[k + 1], f.data[k + 2], f.data[k + 3]];
+    if (want[3] === 0 ? got[3] !== 0 : got.join() !== want.join()) {
+      n.bad++;
+      if (!n.first) n.first = [i, j, got, want];
+    }
+    if (want[3] > 0) n[right ? "right" : "left"]++;
+  }
+  return n;
+}
+out.split = [split("PRECIP", {W: 1024, left: -512, top: -256}, 1024, 512, 2, 301),
+             split("AIR", {W: 1024, left: 0, top: -256}, 1024, 512, 3, 700.5)];
+// A frame drawn as the page draws it, on a canvas that keeps what is asked of
+// it: Esri's street map, light, on the left of the divider, GeoColor, dark, on
+// the right.
+var LIGHT = GROUND_RAMPS.light, DARK = GROUND_RAMPS.dark, THEME = LIGHT, MAPDOWN = {}, calls = [];
+var LAYERS = {streets: {kind: "map", ground: "light"}, geocolor: {kind: "imagery", ground: "dark"}};
+function mapDown(id) { return !!MAPDOWN[id]; }
+function nasaDown(view) { return !!(view && view.down); }
+function readRamp() { RAMP_RGB = THEME; }
+function origin() { return {W: 1024, left: -512, top: -256}; }
+function ImageData(data, w, h) { this.data = data; this.width = w; this.height = h; }
+function record(name) { return function () { calls.push(name); }; }
+var ensoCanvas = {hidden: false, width: 0, height: 0, style: {}};
+var ensoCtx = {clearRect: record("clearRect"), drawImage: record("drawImage"), save: record("save"),
+               restore: record("restore"), beginPath: record("beginPath"), rect: record("rect"),
+               clip: record("clip")};
+var svgEl = {classList: {toggle: function () {}}}, window = {devicePixelRatio: 1};
+var document = {createElement: function () {
+  return {width: 0, height: 0, getContext: function () { return {putImageData: record("putImageData")}; }};
+}};
+var fieldCanvas = null, fieldCtx = null, fieldImage = null;
+var S = {w: 1024, h: 512, then: null, pin: null, layer: "streets", second: "geocolor", compare: true,
+         split: 0.5, imagery: "ok", inView: {}, inViewB: {},
+         enso: {variable: "PRECIP", season: "DJF", mask: false, opacity: 0.58}};
+function same(c, ramp) {
+  for (var s = 0; s < 11; s++) if (c[0] === ramp[s][0] && c[1] === ramp[s][1] && c[2] === ramp[s][2]) return true;
+  return false;
+}
+// Each pixel of the field drawn, sorted by its side of the divider (its
+// point's centre) and by the ramp its colour is a step of.
+function frame() {
+  calls = []; RAMP_RGB = [];
+  drawComposite();
+  var step = fieldStep(S.w, S.h), x0 = fieldStart(origin().left, step), d = fieldImage.data;
+  var n = {calls: calls, left: {light: 0, dark: 0, other: 0}, right: {light: 0, dark: 0, other: 0}};
+  for (var p = 0; p < d.length; p += 4) {
+    if (!d[p + 3]) continue;
+    var i = (p / 4) % fieldImage.width, side = n[x0 + (i + 0.5) * step >= S.split * S.w ? "right" : "left"];
+    var c = [d[p], d[p + 1], d[p + 2]];
+    side[same(c, LIGHT) ? "light" : same(c, DARK) ? "dark" : "other"]++;
+  }
+  return n;
+}
+out.frames = {split: frame()};
+// GeoColor's tiles for the right side's view all failed: the page's plane is
+// under the field there, in the light theme the light ramp.
+S.inViewB = {down: true}; out.frames.downRight = frame();
+// The dark theme, Esri's street map unreachable: the page's dark plane under
+// the field, and the bundled coastline.
+S.inViewB = {}; S.compare = false; THEME = DARK; MAPDOWN.streets = true; out.frames.darkDown = frame();
+MAPDOWN = {}; out.frames.darkUp = frame();
 console.log(JSON.stringify(out));
 """
     _out = None
@@ -4157,8 +4249,11 @@ console.log(JSON.stringify(out));
     def run_page(self):
         if TestCompositeOnTheMapRuns._out is None:
             script = stormdesk.script()
+            ramps = re.search(r"var GROUND_RAMPS = [^\n]*\n", script)
+            self.assertIsNotNone(ramps)
             harness = (self.HARNESS
-                       .replace("/*MAP*/", "\n".join(_js_function(script, n) for n in self.MAP))
+                       .replace("/*MAP*/", ramps.group(0) +
+                                "\n".join(_js_function(script, n) for n in self.MAP))
                        .replace("/*RAMP*/", _js_function(atlasview._JS, "rampIndex")))
             with tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "composite.js"
@@ -4304,6 +4399,265 @@ console.log(JSON.stringify(out));
         self.assertAlmostEqual(london["lon0"], -0.75, places=9)
         self.assertAlmostEqual(london["lon1"], 1.25, places=9)
         self.assertEqual(london["value"], atlas.sample("AIR", "DJF", -0.13, 51.5).value)
+
+    def test_compared_the_right_side_s_ramp_starts_at_the_first_point_past_the_divider(self):
+        for view in self.run_page()["split"]:
+            self.assertEqual(view["bad"], 0, view["first"])
+            self.assertGreater(view["left"], 1000)
+            self.assertGreater(view["right"], 1000)
+            self.assertGreater(view["middle"], 100)
+
+    def test_a_frame_paints_the_field_once_each_side_in_its_ground_s_ramp(self):
+        # Compared on two grounds, the whole lattice was painted twice a
+        # frame, each pass clipped to its side: 11.6 ms a frame against 7.3.
+        frames = self.run_page()["frames"]
+        once = ["clearRect", "putImageData", "drawImage"]
+        split = frames["split"]
+        self.assertEqual(split["calls"], once)
+        self.assertEqual(split["left"]["dark"] + split["left"]["other"], 0)
+        self.assertEqual(split["right"]["light"] + split["right"]["other"], 0)
+        self.assertGreater(split["left"]["light"], 10000)
+        self.assertGreater(split["right"]["dark"], 10000)
+
+    def test_where_a_picture_cannot_be_had_the_field_takes_the_page_s_ramp(self):
+        # The light ramp's pale steps stood over the dark theme's plane where
+        # Esri's street map did not answer, and the dark ramp over the light
+        # theme's where NASA's tiles did not come.
+        frames = self.run_page()["frames"]
+        for name, ramp in (("downRight", "light"), ("darkDown", "dark"), ("darkUp", "light")):
+            frame = frames[name]
+            self.assertEqual(frame["calls"], ["clearRect", "putImageData", "drawImage"], name)
+            drawn = {k: frame["left"][k] + frame["right"][k] for k in ("light", "dark", "other")}
+            self.assertGreater(drawn.pop(ramp), 20000, name)
+            self.assertEqual(sum(drawn.values()), 0, name)
+
+
+class TestCompositeOnItsGround(_DeskFixtures, unittest.TestCase):
+    """The composite in the ramp made for the ground it is drawn on - Esri's
+    or NASA's picture, whose tone the page's theme does not change - with its
+    middle step clear over it. In the theme's ramp, the steps nearest nothing,
+    made to sink into the theme's own ground, stood out of a ground of the
+    other tone as blocks: grey and brown over the street map in the dark
+    theme, white over a photograph of the Earth in the light."""
+
+    def test_every_base_says_its_ground(self):
+        grounds = {l["id"]: l.get("ground") for l in worldmap.MAP_LAYERS}
+        self.assertEqual(grounds, {"streets": "light", "satellite": "dark", "terrain": "light",
+                                   "osm": "light"})
+        imagery = {l["id"]: l.get("ground") for l in stormdesk.LAYERS if l["kind"] == "imagery"}
+        # IMERG's rain rate is clear where it does not rain: the page shows through.
+        self.assertIsNone(imagery.pop("rain"))
+        self.assertEqual(set(imagery.values()), {"dark"})
+        self.assertEqual({l.get("ground") for l in stormdesk.LAYERS if l["kind"] == "overlay"},
+                         {None})
+        # Each layer reaches the map's script with its ground.
+        self.assertEqual(stormdesk._plain_layer(worldmap.MAP_LAYERS[0])["ground"], "light")
+
+    def test_both_ramps_are_the_fields_own(self):
+        # Each page's script holds the two ramps once, as fields.py has them.
+        want = {name: [[int(h[i:i + 2], 16) for i in (1, 3, 5)] for h in ramp]
+                for name, ramp in (("light", fields.DIVERGING_LIGHT), ("dark", fields.DIVERGING_DARK))}
+        for script in (stormdesk.script(), atlasview._JS):
+            found = re.findall(r"var GROUND_RAMPS = (\{[^\n]*\});", script)
+            self.assertEqual(len(found), 1)
+            self.assertEqual(json.loads(found[0]), want)
+
+    def test_the_map_draws_the_field_once_with_the_middle_clear(self):
+        body = _js_function(stormdesk.script(), "drawComposite")
+        self.assertEqual(body.count("compositeField("), 1)
+        self.assertEqual(body.count("putImageData("), 1)
+        self.assertEqual(body.count("drawImage("), 1)
+        self.assertNotIn("clip", body)
+        self.assertNotIn("forEach", body)
+        self.assertIn("var sides = groundSides(), left = groundRamp(sides.left, RAMP_RGB);", body)
+        self.assertIn("fieldImage ? fieldImage.data : null, true, right);", body)
+        self.assertEqual(_js_function(stormdesk.script(), "clipSide"), "")
+
+    def test_where_a_side_s_picture_cannot_be_had_its_ground_is_the_page_s(self):
+        script = stormdesk.script()
+        self.assertIn("return sideDown(S.layer, S.inView);", _js_function(script, "baseDown"))
+        self.assertIn("!sideDown(id, view)", _js_function(script, "groundOf"))
+        sides = _js_function(script, "groundSides")
+        self.assertIn("groundOf(S.layer, S.inView)", sides)
+        self.assertIn("groundOf(S.second, S.inViewB)", sides)
+
+    def test_under_a_dark_picture_the_pane_is_its_dark_space(self):
+        # In the light theme the page's white plane showed between NASA's
+        # disks and swaths, under the field in the dark picture's ramp.
+        body = _js_function(stormdesk.script(), "tiles")
+        a = 'panes.a.el.classList.toggle("space", groundOf(S.layer, S.inView) === "dark");'
+        b = ('panes.b.el.classList.toggle("space", '
+             '!!(S.compare && groundOf(S.second, S.inViewB) === "dark"));')
+        self.assertIn(a, body)
+        self.assertIn(b, body)
+        self.assertGreater(body.index(a), body.index("if (!moving) { S.inView = inView; loopWhenKnown(); }"))
+        self.assertIn("#tiles.space, #tiles-b.space { background: %s; }" % svg.DARK["plane"],
+                      stormdesk.css())
+
+    def test_the_key_shows_the_ramp_as_drawn(self):
+        # The strip was the theme's tokens: over the street map in the dark
+        # theme it showed colours the map did not draw.
+        body = _js_function(stormdesk.script(), "ensoLegend")
+        self.assertIn("var sides = groundSides();", body)
+        self.assertIn('keySteps($("enso-ramp"), sides.left, true);', body)
+        # "Clear" is this key's word for what the t test passes.
+        self.assertIn('", nothing drawn within ±" + (lim / 11).toFixed(2)', body)
+        self.assertNotIn("clear within", body)
+        # Compared on two grounds, the strip is the left side's.
+        self.assertIn('if (!sameRamp(sides.left, sides.right)) ends += "; colours as drawn left of the divider";',
+                      body)
+        self.assertIn("ends, read, sides.left].join", body)
+        self.assertRegex(worldmap.css(), r"\.ensoramp i\.clear \{")
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class TestCompositeOnItsGroundRuns(_DeskFixtures, unittest.TestCase):
+    """The ground's ramp, the clear middle step, each side of the divider and
+    the key's swatches, under node."""
+
+    NAMES = ("hexRgb", "fieldOf", "fieldRow", "fieldCol", "paintField", "groundRamp",
+             "groundOf", "groundSides", "sideDown", "sameRamp", "keySteps")
+    HARNESS = r"""
+var LAYERS = {streets: {kind: "map", ground: "light"}, satellite: {kind: "map", ground: "dark"},
+              geocolor: {kind: "imagery", ground: "dark"}, rain: {kind: "imagery"},
+              terrain: {kind: "map", ground: "light"}};
+var S = {w: 1000, layer: "streets", second: "geocolor", compare: false, split: 0.5, imagery: "ok",
+         inView: {}, inViewB: {}};
+var MAPDOWN = {}, RAMP_RGB = [];
+function mapDown(id) { return !!MAPDOWN[id]; }
+function nasaDown(view) { return !!(view && view.down); }
+/*NAMES*/
+var PAGE = [];
+for (var k = 0; k < 11; k++) PAGE.push([k, k, k]);
+var out = {light: groundRamp("light", PAGE), dark: groundRamp("dark", PAGE),
+           page: groundRamp("page", PAGE) === PAGE, none: groundRamp(undefined, PAGE) === PAGE};
+// One cell at each value, painted with the middle step clear and without.
+var STEP = [];
+for (var k = 0; k < 11; k++) STEP.push([k, 1, 1]);
+out.cells = [];
+for (var v = -5; v <= 5; v += 0.01) {
+  var g = fieldOf([0], [0], [[v]], [[null]], Infinity);
+  var tone = {invert: false, lim: 3, rgb: STEP, mask: false, dim: 0};
+  var clear = {invert: false, lim: 3, rgb: STEP, mask: false, dim: 0, clear: true};
+  out.cells.push([Array.from(paintField(g, [0], [0], tone).data),
+                  Array.from(paintField(g, [0], [0], clear).data)]);
+}
+out.sides = [groundSides()];
+S.compare = true; out.sides.push(groundSides());
+S.second = "terrain"; out.sides.push(groundSides());
+S.layer = "rain"; S.second = "satellite"; S.split = 0.3; out.sides.push(groundSides());
+S.compare = false; S.layer = "satellite"; out.sides.push(groundSides());
+// Where a side's picture cannot be had: every one of Esri's tiles failed,
+// NASA's for the second side's view, GIBS not answering, the page offline,
+// NASA's for the base's view.
+S.layer = "streets"; S.second = "geocolor"; S.compare = true; S.split = 0.5;
+MAPDOWN.streets = true; out.down = [groundSides()];
+MAPDOWN = {}; S.inViewB = {down: true}; out.down.push(groundSides());
+S.inViewB = {}; S.imagery = "unreachable"; out.down.push(groundSides());
+S.imagery = "offline"; out.down.push(groundSides());
+S.imagery = "ok"; S.inView = {down: true}; S.layer = "geocolor"; S.compare = false;
+out.down.push(groundSides());
+out.grounds = [groundOf("streets", {}), groundOf("rain", {}), groundOf("nothing", {})];
+// The page's ramp is the light one in the light theme and the dark in the dark.
+RAMP_RGB = GROUND_RAMPS.light;
+out.same = [sameRamp("page", "light"), sameRamp("page", "dark"), sameRamp("light", "light")];
+RAMP_RGB = GROUND_RAMPS.dark;
+out.same.push(sameRamp("page", "dark"), sameRamp("page", "light"));
+// One cell at +2 mm/day across six columns, the last two in a second ramp.
+var R2 = [];
+for (var k = 0; k < 11; k++) R2.push([k, 2, 2]);
+out.row = Array.from(paintField(fieldOf([0], [0], [[2]], [[null]], Infinity), [0, 0, 0, 0, 0, 0], [0],
+                                {invert: false, lim: 3, rgb: STEP, mask: false, dim: 0, clear: true,
+                                 right: {from: 4, rgb: R2}}).data);
+// A key of eleven swatches, as the map's and the atlas's are.
+function strip() {
+  var kids = [];
+  for (var i = 0; i < 11; i++) kids.push({style: {background: "var(--d" + i + ")"}, cls: {},
+    classList: {toggle: function (name, on) { this.owner.cls[name] = !!on; }}});
+  kids.forEach(function (k) { k.classList.owner = k; });
+  return {children: kids};
+}
+function seen(s) { return s.children.map(function (k) { return [k.style.background, !!k.cls.clear]; }); }
+var a = strip(); keySteps(a, "light", true);
+var b = strip(); keySteps(b, "dark", false);
+var c = strip(); keySteps(c, "page", true);
+var d = strip(); keySteps(d, null, false);
+out.keys = {light: seen(a), dark: seen(b), page: seen(c), plain: seen(d)};
+console.log(JSON.stringify(out));
+"""
+    _out = None
+
+    def run_page(self):
+        if TestCompositeOnItsGroundRuns._out is None:
+            script = stormdesk.script()
+            ramps = re.search(r"var GROUND_RAMPS = [^\n]*\n", script)
+            self.assertIsNotNone(ramps)
+            harness = self.HARNESS.replace(
+                "/*NAMES*/", ramps.group(0) + "\n".join(_js_function(script, n) for n in self.NAMES))
+            TestCompositeOnItsGroundRuns._out = _node_json(self, harness)
+        return TestCompositeOnItsGroundRuns._out
+
+    @staticmethod
+    def rgb(ramp):
+        return [[int(h[i:i + 2], 16) for i in (1, 3, 5)] for h in ramp]
+
+    def test_each_ground_has_its_ramp_and_the_page_its_own(self):
+        out = self.run_page()
+        self.assertEqual(out["light"], self.rgb(fields.DIVERGING_LIGHT))
+        self.assertEqual(out["dark"], self.rgb(fields.DIVERGING_DARK))
+        self.assertTrue(out["page"])
+        self.assertTrue(out["none"])
+
+    def test_over_a_picture_only_the_middle_step_is_left_clear(self):
+        cells = self.run_page()["cells"]
+        middle = 0
+        for painted, cleared in cells:
+            self.assertEqual(painted[3], 255)
+            if painted[0] == 5:
+                middle += 1
+                self.assertEqual(cleared, [0, 0, 0, 0])
+            else:
+                self.assertEqual(cleared, painted)
+        # +-3/11: 0.27 either side of nothing, 55 of the 1001 values.
+        self.assertEqual(middle, 55)
+
+    def test_each_side_of_the_divider_takes_its_own_layer_s_ground(self):
+        out = self.run_page()
+        side = lambda left, right, cut=500: {"left": left, "right": right, "cut": cut}
+        self.assertEqual(out["sides"], [side("light", "light"), side("light", "dark"),
+                                        side("light", "light"), side("page", "dark", 300),
+                                        side("dark", "dark", 300)])
+        self.assertEqual(out["grounds"], ["light", "page", "page"])
+
+    def test_a_side_whose_picture_cannot_be_had_is_on_the_page_s_ground(self):
+        # Offline, a map's server not answering, GIBS not answering or none
+        # of NASA's tiles arriving: what is under the field is the page's plane.
+        side = lambda left, right: {"left": left, "right": right, "cut": 500}
+        self.assertEqual(self.run_page()["down"], [side("page", "dark"), side("light", "page"),
+                                                   side("light", "page"), side("page", "page"),
+                                                   side("page", "page")])
+
+    def test_the_page_s_ramp_is_the_theme_s_own(self):
+        self.assertEqual(self.run_page()["same"], [True, False, True, True, False])
+
+    def test_a_second_ramp_takes_over_from_its_column(self):
+        row = self.run_page()["row"]
+        # +2 of 3 mm/day is step 9.
+        self.assertEqual(row, [9, 1, 1, 255] * 4 + [9, 2, 2, 255] * 2)
+
+    def test_the_key_swatches_are_the_colours_drawn(self):
+        keys = self.run_page()["keys"]
+        light, dark = self.rgb(fields.DIVERGING_LIGHT), self.rgb(fields.DIVERGING_DARK)
+        self.assertEqual(keys["light"], [["transparent", True] if i == 5 else
+                                         ["rgb(%d, %d, %d)" % tuple(light[i]), False]
+                                         for i in range(11)])
+        self.assertEqual(keys["dark"], [["rgb(%d, %d, %d)" % tuple(dark[i]), False]
+                                        for i in range(11)])
+        # On the page's own ground, the theme's tokens, which follow a change
+        # of theme by themselves.
+        self.assertEqual(keys["page"], [["transparent", True] if i == 5 else
+                                        ["var(--d%d)" % i, False] for i in range(11)])
+        self.assertEqual(keys["plain"], [["var(--d%d)" % i, False] for i in range(11)])
 
 class TestEnsoHere(unittest.TestCase):
     """One point, as the map says it: the verdict worded once for every surface."""
@@ -5758,7 +6112,7 @@ console.log(JSON.stringify(out));
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in (
             "labelled", "labelledBase", "mapDown", "nasaWanted", "gotKey", "tilesDown", "nasaDown",
-            "downWord", "baseDown"))
+            "downWord", "baseDown", "sideDown"))
         got = self.run_script(r"""
 var LAYERS = {geocolor: {id: "geocolor", kind: "imagery"}, streets: {id: "streets", kind: "map"},
               satellite: {id: "satellite", kind: "map"}};
@@ -11840,8 +12194,50 @@ class TestAtlasField(unittest.TestCase):
         for script in (atlasview._JS, stormdesk.script()):
             self.assertIn(atlasview.FIELD_JS, script)
             for name in ("fieldOf", "fieldRow", "fieldCol", "fieldAt", "paintField",
-                         "fieldStart", "fieldSpan", "fieldStep", "hexRgb"):
+                         "fieldStart", "fieldSpan", "fieldStep", "hexRgb", "groundRamp",
+                         "keySteps"):
                 self.assertEqual(len(re.findall(r"\bfunction %s\(" % name, script)), 1, name)
+
+    def test_every_base_says_its_ground(self):
+        # A photograph is a dark ground whatever the theme; the relief is
+        # drawn in the page's own tones, and NASA's SST anomaly is its own
+        # scale over the page's sea.
+        self.assertEqual({b["id"]: b.get("ground") for b in atlasview.BASEMAPS},
+                         {"relief": None, "marble": "dark", "photo": "dark", "sst": None})
+        self.assertEqual({b["id"]: b.get("ground") for b in atlasview._bases_payload()},
+                         {"relief": None, "marble": "dark", "photo": "dark", "sst": None})
+
+    def test_over_a_base_the_field_takes_its_ground_s_ramp_and_leaves_the_middle_clear(self):
+        js = atlasview._JS
+        body = _js_function(js, "drawField")
+        self.assertIn("var cfg = BASE[base];", body)
+        self.assertIn("groundRamp(baseGround(), ramp)", body)
+        self.assertIn("fieldImage ? fieldImage.data : null, !!cfg);", body)
+        sync = _js_function(js, "syncBar")
+        self.assertIn("var cfg = BASE[base], ground = baseGround(), rgb = groundRamp(ground, null);", sync)
+        self.assertIn('keySteps(document.getElementById("steps"), ground, !!cfg);', sync)
+        self.assertIn('document.querySelector("#fadekey i")', sync)
+        self.assertRegex(atlasview.css(), r"\.atlaslegend \.steps i\.clear \{")
+
+    def test_where_the_imagery_cannot_be_had_the_field_takes_the_page_s_ramp(self):
+        # Offline over the photograph, the page's sea was under the field in
+        # the photograph's dark ramp.
+        js = atlasview._JS
+        self.assertIn('cfg.kind === "gibs" && imageryFailed', _js_function(js, "baseGround"))
+        miss = _js_function(js, "onTileMiss")
+        self.assertIn("syncBar();", miss)
+        self.assertIn("schedule();", miss)
+
+    def test_the_legend_says_the_middle_step_is_not_drawn_over_a_base(self):
+        # Its outlined swatch had no words; the map's key has them. In one
+        # piece of the key with the words before them: a piece of their own,
+        # they pushed the key 7 px past a phone's 390 and the page scrolled
+        # sideways.
+        self.assertIn('<span>against a neutral year<span id="middle" hidden>', atlasview._legend())
+        sync = _js_function(atlasview._JS, "syncBar")
+        self.assertIn('var middle = document.getElementById("middle");', sync)
+        self.assertIn("middle.hidden = !cfg;", sync)
+        self.assertIn('", nothing drawn within ±" + (LIMIT[variable] / 11).toFixed(2)', sync)
 
     def test_either_theme_switch_reads_the_ramp_again(self):
         # The cells were var(--dN) and re-themed themselves; a canvas does not.
@@ -11850,6 +12246,15 @@ class TestAtlasField(unittest.TestCase):
         self.assertIn("tone = null", body)
         self.assertIn('attributeFilter: ["data-theme"]', atlasview._JS)
         self.assertIn('matchMedia("(prefers-color-scheme: dark)")', atlasview._JS)
+
+    def test_the_theme_button_turns_from_the_theme_shown(self):
+        # With no theme chosen, it read the page as light: in a dark system
+        # its first press set the dark theme already shown, and did nothing.
+        js = atlasview._JS
+        branch = js.split('} else if (t.id === "theme") {', 1)[1].split("} else {", 1)[0]
+        self.assertIn('var chosen = document.documentElement.getAttribute("data-theme");', branch)
+        self.assertIn('window.matchMedia("(prefers-color-scheme: dark)").matches', branch)
+        self.assertIn('setAttribute("data-theme", dark ? "light" : "dark");', branch)
 
     def test_the_page_is_measured_again_whenever_the_map_box_changes(self):
         # A window resize was the only cue: when the bar above re-wrapped, the
@@ -11880,7 +12285,8 @@ class TestAtlasFieldRuns(unittest.TestCase):
 
     NAMES = ("hexRgb", "axis", "plane", "axes", "crit", "rampIndex", "X", "Y", "lonAt",
              "latAt", "offsets", "fieldOf", "fieldRow", "fieldCol", "fieldAt", "paintField",
-             "fieldStart", "fieldSpan", "fieldStep", "fieldGrid", "atlasField", "drawField",
+             "fieldStart", "fieldSpan", "fieldStep", "fieldGrid", "atlasField", "groundRamp",
+             "baseGround", "drawField",
              "drawMark", "preview", "applyComposite", "lon180", "spot", "lift", "remark",
              "startDrag", "grab", "fmtLat", "fmtLon", "readAt")
     HARNESS = r"""
@@ -11888,7 +12294,7 @@ var D = JSON.parse(require("fs").readFileSync(0, "utf8")), gridCache = {};
 var variable = "PRECIP", season = "DJF", marked = null, composite = true, base = "relief";
 var view = {lon: 180, lat: 0, dpp: 360 / 1024}, W = 1024, H = 512;
 var LIMIT = { PRECIP: 3.0, AIR: 1.6 }, FAINT = 0.16;
-var BASE = {relief: {kind: "relief"}, photo: {kind: "gibs"}};
+var BASE = {relief: {kind: "relief"}, photo: {kind: "gibs", ground: "dark"}}, imageryFailed = false;
 var gPick = {innerHTML: ""}, pan = {setAttribute: function (k, v) { this[k] = v; }};
 var reliefCanvas = {style: {}}, tileBox = {style: {}}, fieldCanvas = {style: {}};
 var window = {devicePixelRatio: 2}, fade = true, ramp = null, fieldShot = null, fieldImage = null;
@@ -11900,16 +12306,16 @@ function ImageData(data, w, h) { this.data = data; this.width = w; this.height =
 /*ATLAS*/
 var RGB = [];
 for (var k = 0; k < 11; k++) RGB.push([k * 20, 255 - k * 20, 7 * k]);
-function check(name, mask, v, w, h, step) {
+function check(name, mask, v, w, h, step, clear) {
   view = v; W = w; H = h;
-  var f = atlasField(name, "DJF", mask, w, h, step, RGB), g = fieldGrid(name, "DJF");
+  var f = atlasField(name, "DJF", mask, w, h, step, RGB, null, clear), g = fieldGrid(name, "DJF");
   var n = {w: f.w, h: f.h, drawn: 0, clear: 0, faint: 0, bad: 0, first: null};
   for (var j = 0; j < f.h; j++) for (var i = 0; i < f.w; i++) {
     var lon = lonAt(f.x + (i + 0.5) * step), lat = latAt(f.y + (j + 0.5) * step);
     var at = (j * f.w + i) * 4, want = [0, 0, 0, 0];
     if (lat >= -90 && lat <= 90) {
       var here = fieldAt(g, lon, lat);
-      if (here.cover > 0) {
+      if (here.cover > 0 && !(clear && rampIndex(here.value, name) === 5)) {
         var rgb = RGB[rampIndex(here.value, name)];
         var a = here.cover * (mask ? FAINT + (1 - FAINT) * here.sig : 1);
         want = [rgb[0], rgb[1], rgb[2], Math.round(a * 255)];
@@ -11932,7 +12338,8 @@ out.views = {
   dateline: check("PRECIP", true, {lon: 180, lat: 0, dpp: 360 / 1024}, 1024, 512, 2),
   greenwich: check("AIR", true, {lon: 0, lat: 0, dpp: 360 / 1024}, 1024, 512, 2),
   unmasked: check("PRECIP", false, {lon: 180, lat: 0, dpp: 360 / 1024}, 1024, 512, 3),
-  tall: check("PRECIP", true, {lon: 0, lat: 0, dpp: 360 / 512}, 1024, 512, 2)
+  tall: check("PRECIP", true, {lon: 0, lat: 0, dpp: 360 / 512}, 1024, 512, 2),
+  overbase: check("PRECIP", true, {lon: 180, lat: 0, dpp: 360 / 1024}, 1024, 512, 2, true)
 };
 // The world a pixel to the right and a pixel down: the same field on the
 // same ground, drawn a pixel over.
@@ -12022,7 +12429,31 @@ W = 1024; H = 512; view = {lon: 180, lat: 0, dpp: 360 / 1024};
 drawField();
 out.field = {style: [fieldCanvas.style.width, fieldCanvas.style.height],
              store: [fieldCanvas.width, fieldCanvas.height],
-             image: [fieldImage.width, fieldImage.height], drawn: drawn};
+             image: [fieldImage.width, fieldImage.height], drawn: drawn.slice()};
+// The colours drawn, sorted by the ramp each is a step of: over the
+// photograph, its dark ground's; offline, the page's (RGB here); over the
+// relief, the page's; on the plain page, the page's, every step.
+function ramps() {
+  var d = fieldImage.data, n = {dark: 0, page: 0, other: 0, middle: 0};
+  function step(p, ramp) {
+    for (var s = 0; s < 11; s++) if (d[p] === ramp[s][0] && d[p + 1] === ramp[s][1] && d[p + 2] === ramp[s][2]) return s;
+    return -1;
+  }
+  for (var p = 0; p < d.length; p += 4) {
+    if (!d[p + 3]) continue;
+    var dark = step(p, GROUND_RAMPS.dark), page = step(p, RGB);
+    if (dark >= 0) n.dark++; else if (page >= 0) n.page++; else n.other++;
+    if (dark === 5 || page === 5) n.middle++;
+  }
+  return n;
+}
+out.grounds = [];
+out.ramps = {};
+base = "photo"; out.grounds.push(baseGround()); drawField(); out.ramps.photo = ramps();
+imageryFailed = true; out.grounds.push(baseGround()); drawField(); out.ramps.offline = ramps();
+imageryFailed = false;
+base = "relief"; out.grounds.push(baseGround()); drawField(); out.ramps.relief = ramps();
+base = "none"; out.grounds.push(baseGround()); drawField(); out.ramps.none = ramps();
 console.log(JSON.stringify(out));
 """
     _out = None
@@ -12030,8 +12461,11 @@ console.log(JSON.stringify(out));
     def run_atlas(self):
         if TestAtlasFieldRuns._out is None:
             data = atlasview.payload(SimpleNamespace())
+            ramps = re.search(r"var GROUND_RAMPS = [^\n]*\n", atlasview._JS)
+            self.assertIsNotNone(ramps)
             harness = self.HARNESS.replace(
-                "/*ATLAS*/", "\n".join(_js_function(atlasview._JS, n) for n in self.NAMES))
+                "/*ATLAS*/", ramps.group(0) +
+                "\n".join(_js_function(atlasview._JS, n) for n in self.NAMES))
             with tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "field.js"
                 path.write_text(harness, encoding="utf-8")
@@ -12060,6 +12494,9 @@ console.log(JSON.stringify(out));
         self.assertEqual(views["unmasked"]["faint"], 0)
         # Temperature is land only: the sea is left clear.
         self.assertGreater(views["greenwich"]["clear"], 10000)
+        # Over a base, the middle step is left clear too: nothing drawn where
+        # El Nino's seasons are within 0.27 mm/day of the ordinary ones.
+        self.assertGreater(views["overbase"]["clear"], views["dateline"]["clear"] + 10000)
 
     def test_beyond_the_poles_nothing_is_drawn(self):
         tall = self.run_atlas()["views"]["tall"]
@@ -12139,6 +12576,22 @@ console.log(JSON.stringify(out));
         out = self.run_atlas()
         self.assertEqual(out["over"], ["", "0.58"])
         self.assertEqual(out["off"], "none")
+
+    def test_the_field_is_drawn_in_its_ground_s_ramp_and_the_page_s_where_it_has_none(self):
+        out = self.run_atlas()
+        self.assertEqual(out["grounds"], ["dark", None, None, None])
+        ramps = out["ramps"]
+        for base, ramp in (("photo", "dark"), ("offline", "page"), ("relief", "page"),
+                           ("none", "page")):
+            got = dict(ramps[base])
+            middle = got.pop("middle")
+            self.assertGreater(got.pop(ramp), 20000, base)
+            self.assertEqual(sum(got.values()), 0, base)
+            # Over a base the middle step is clear; on the plain page it is drawn.
+            if base == "none":
+                self.assertGreater(middle, 1000)
+            else:
+                self.assertEqual(middle, 0, base)
 
 
 class TestAtlasDossier(unittest.TestCase):

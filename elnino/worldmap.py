@@ -22,7 +22,9 @@ seasons since 1979 minus the mean of the ordinary ones, per grid cell, drawn
 as the atlas draws them - the same grids, colour ramp, full scale,
 significance mask and fade, and the same field blended between the cell
 centres (``atlasview.FIELD_JS``) - for whichever season is chosen, the one
-containing the build date first.
+containing the build date first. Each map is a picture with a tone of its
+own, light or dark, that the page's theme does not change, so the composite
+takes the ramp made for the ground under it and leaves its middle step clear.
 """
 
 from __future__ import annotations
@@ -36,8 +38,10 @@ ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/"
 _TILE = "/MapServer/tile/{z}/{y}/{x}"
 
 # Credits as each service's own description gave them on 28 September 2026.
+# ``ground`` is the tone of a map's own picture, whatever the page's theme:
+# the composite over it takes the ramp made for that ground.
 MAP_LAYERS = (
-    {"id": "streets", "kind": "map", "name": "Streets",
+    {"id": "streets", "kind": "map", "name": "Streets", "ground": "light",
      "about": "Esri World Street Map: roads, buildings and names down to single streets.",
      "source": "Esri World Street Map", "tiles": ESRI + "World_Street_Map" + _TILE,
      "zoom": 19, "grey": True,
@@ -45,7 +49,7 @@ MAP_LAYERS = (
                 "INCREMENT P, NRCan, Esri Japan, METI, Esri China (Hong Kong), Esri Korea, "
                 "Esri (Thailand), NGCC, (c) OpenStreetMap contributors, and the GIS User "
                 "Community")},
-    {"id": "satellite", "kind": "map", "name": "Satellite",
+    {"id": "satellite", "kind": "map", "name": "Satellite", "ground": "dark",
      "about": ("Esri World Imagery: one metre or better satellite and aerial imagery in "
                "many parts of the world and lower resolution satellite imagery worldwide, "
                "with Esri's roads and place names over it."),
@@ -56,7 +60,7 @@ MAP_LAYERS = (
      "credit": ("Powered by Esri. Source: Esri, Vantor, Earthstar Geographics, and the GIS "
                 "User Community. Roads and names: Esri, HERE, Garmin, (c) OpenStreetMap "
                 "contributors, and the GIS user community")},
-    {"id": "terrain", "kind": "map", "name": "Terrain",
+    {"id": "terrain", "kind": "map", "name": "Terrain", "ground": "light",
      "about": "Esri World Topographic Map: relief, land cover, roads and names.",
      "source": "Esri World Topographic Map", "tiles": ESRI + "World_Topo_Map" + _TILE,
      "zoom": 19, "grey": True,
@@ -64,7 +68,7 @@ MAP_LAYERS = (
                 "GEBCO, USGS, FAO, NPS, NRCAN, GeoBase, IGN, Kadaster NL, Ordnance Survey, "
                 "Esri Japan, METI, Esri China (Hong Kong), (c) OpenStreetMap contributors, "
                 "and the GIS User Community")},
-    {"id": "osm", "kind": "map", "name": "OpenStreetMap",
+    {"id": "osm", "kind": "map", "name": "OpenStreetMap", "ground": "light",
      "about": ("OpenStreetMap's standard map. Offered when the page is served "
                "(python track.py --serve): its servers refuse a page opened from a file."),
      "source": "OpenStreetMap", "tiles": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -447,6 +451,8 @@ def css() -> str:
 .ensoramp { display: inline-flex; border-radius: 3px; overflow: hidden;
   box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
 .ensoramp i { display: block; width: 14px; height: 10px; }
+/* The middle step, left clear over the map: an outline. */
+.ensoramp i.clear { box-shadow: inset 0 0 0 1px var(--ink2); }
 #enso-read { color: var(--ink); flex-basis: 100%; }
 .ensohere { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin: 4px 0 6px; }
 .ensohere th, .ensohere td { text-align: left; vertical-align: top; padding: 5px 6px 5px 0;
@@ -951,8 +957,10 @@ _JS = r"""
   // the lattice fixed at the world's corner, at its centre's longitude and
   // latitude, clear off the top and bottom of the world: `rgb` the ramp as
   // numbers, `dim` the strength of what the t test does not pass while `mask`
-  // is on, `into` a buffer to fill again. x and y are where it starts.
-  function compositeField(name, season, mask, o, w, h, step, rgb, dim, into) {
+  // is on, `into` a buffer to fill again, `clear` the middle step left
+  // clear, and `right`, {x, rgb}, a second ramp from the first point at or
+  // right of x css pixels on. x and y are where it starts.
+  function compositeField(name, season, mask, o, w, h, step, rgb, dim, into, clear, right) {
     var x0 = fieldStart(o.left, step), y0 = fieldStart(o.top, step), fw = fieldSpan(w, step), fh = fieldSpan(h, step);
     var lons = new Float64Array(fw), lats = new Float64Array(fh), i, j;
     for (i = 0; i < fw; i++) lons[i] = lonOf((x0 + (i + 0.5) * step - o.left) / o.W);
@@ -960,14 +968,17 @@ _JS = r"""
       var wy = (y0 + (j + 0.5) * step - o.top) / o.W;
       lats[j] = wy < 0 || wy > 1 ? NaN : latOf(wy);
     }
-    var f = paintField(fieldGrid(name, season), lons, lats,
-                       {invert: D.enso.grids[name].invert, lim: D.enso.limits[name], rgb: rgb, mask: mask, dim: dim}, into);
+    var tone = {invert: D.enso.grids[name].invert, lim: D.enso.limits[name], rgb: rgb, mask: mask, dim: dim,
+                clear: !!clear};
+    if (right) tone.right = {from: Math.max(0, Math.ceil((right.x - x0) / step - 0.5)), rgb: right.rgb};
+    var f = paintField(fieldGrid(name, season), lons, lats, tone, into);
     f.x = x0; f.y = y0;
     return f;
   }
-  // The ramp is the page's own tokens, read again when the theme changes, by
-  // the button or the system's own: read once, the composite stayed in the
-  // light theme's colours under the dark theme's legend.
+  // The page's ramp, for a layer with no ground of its own, is the page's
+  // own tokens, read again when the theme changes, by the button or the
+  // system's own: read once, the composite stayed in the light theme's
+  // colours under the dark theme's legend.
   function readRamp() {
     var cs = getComputedStyle(document.documentElement);
     RAMP_RGB = [];
@@ -984,6 +995,24 @@ _JS = r"""
   }
   var ensoCanvas = $("enso-cells"), ensoCtx = ensoCanvas && ensoCanvas.getContext ? ensoCanvas.getContext("2d") : null;
   var fieldCanvas = null, fieldCtx = null, fieldImage = null;
+  // The ground under a layer, its sources in `view`: the tone of its own
+  // picture. One that says none (IMERG's rain rate, clear where it does not
+  // rain), and one whose picture cannot be had (sideDown: offline, its
+  // server not answering, none of its tiles arriving), is the page's: the
+  // page's plane is what is under the field there.
+  function groundOf(id, view) {
+    var l = LAYERS[id];
+    return l && l.ground && !sideDown(id, view) ? l.ground : "page";
+  }
+  // The ground left of the divider, the base layer's, and right of it, the
+  // compared layer's, or the base's again with nothing compared.
+  function groundSides() {
+    var a = groundOf(S.layer, S.inView);
+    return {left: a, right: S.compare ? groundOf(S.second, S.inViewB) : a, cut: S.split * S.w};
+  }
+  // Whether two grounds take one ramp: the page's is the light ramp in the
+  // light theme and the dark in the dark.
+  function sameRamp(a, b) { return String(groundRamp(a, RAMP_RGB)) === String(groundRamp(b, RAMP_RGB)); }
   function drawComposite() {
     if (!ensoCtx) return;
     // Entered (thennow.py), the composite of today's season stands aside.
@@ -998,8 +1027,15 @@ _JS = r"""
     var o = origin(), step = fieldStep(S.w, S.h);
     var pin = S.pin ? cellAt(name, S.enso.season, S.pin.lon, S.pin.lat) : null;
     svgEl.classList.toggle("bigcell", !!pin && !cellFits(name, o.W, S.w, S.h, pin));
-    var f = compositeField(name, S.enso.season, S.enso.mask, o, S.w, S.h, step, RAMP_RGB, D.enso.mask,
-                           fieldImage ? fieldImage.data : null);
+    // The field in the ramp made for the ground under it, the middle step
+    // left clear: the map is always over a picture, or the page's plane.
+    // Compared on two grounds, the right side's ramp from the divider on,
+    // in the one pass: the lattice is painted once a frame, whatever is
+    // compared.
+    var sides = groundSides(), left = groundRamp(sides.left, RAMP_RGB);
+    var right = sameRamp(sides.left, sides.right) ? null : {x: sides.cut, rgb: groundRamp(sides.right, RAMP_RGB)};
+    var f = compositeField(name, S.enso.season, S.enso.mask, o, S.w, S.h, step, left, D.enso.mask,
+                           fieldImage ? fieldImage.data : null, true, right);
     if (!fieldCanvas) { fieldCanvas = document.createElement("canvas"); fieldCtx = fieldCanvas.getContext("2d"); }
     if (!fieldImage || fieldImage.data !== f.data || fieldImage.width !== f.w) {
       fieldCanvas.width = f.w; fieldCanvas.height = f.h; fieldImage = new ImageData(f.data, f.w, f.h);
@@ -1050,13 +1086,21 @@ _JS = r"""
     }
     var ends = name === "PRECIP" ? "−" + lim + " " + g.unit + " drier to +" + lim + " wetter"
              : "−" + lim + " " + g.unit + " cooler to +" + lim + " warmer";
+    // "Clear" is this key's word for what the t test passes: the middle
+    // step is "nothing drawn". Compared on two grounds, the strip is the
+    // left side's.
+    ends += ", nothing drawn within ±" + (lim / 11).toFixed(2);
+    var sides = groundSides();
+    if (!sameRamp(sides.left, sides.right)) ends += "; colours as drawn left of the divider";
     if (S.enso.mask) ends += "; faint where |t| is under " + (isFinite(crit) ? crit.toFixed(2) : "any value") + ", not told apart from an ordinary year";
-    var said = [g.label + ", " + D.enso.season_label[season] + ": El Niño minus ordinary years", ends, read].join("|");
+    var said = [g.label + ", " + D.enso.season_label[season] + ": El Niño minus ordinary years", ends, read, sides.left].join("|");
     if (said === ensoSaid) return;
     ensoSaid = said;
     $("enso-name").textContent = g.label + ", " + D.enso.season_label[season] + ": El Niño minus ordinary years";
     // Rainfall reads the ramp backwards, so its strip is turned round, as the atlas turns it.
     $("enso-ramp").style.flexDirection = g.invert ? "row-reverse" : "row";
+    // Its swatches in the colours drawn, the base's ground's (keySteps).
+    keySteps($("enso-ramp"), sides.left, true);
     $("enso-ends").textContent = ends;
     $("enso-read").textContent = read;
     holdHeight($("enso-read"));

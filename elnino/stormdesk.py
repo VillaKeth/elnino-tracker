@@ -25,7 +25,7 @@ from types import SimpleNamespace
 from . import (alerts, assets, coastline, cyclones, exposure, fields, live, outlook, sitenav,
                street, thennow, worldmap)
 from .storms import NEUTRAL, STORM_HUES
-from .svg import esc, table
+from .svg import DARK, esc, table
 
 SCHEMA = 1
 
@@ -35,22 +35,29 @@ SCHEMA = 1
 # ----------------------------------------------------------------------------
 GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best"
 
+# ``ground`` is the tone of a layer's own picture, whatever the page's theme:
+# every photograph of the Earth, by day or by night, is dark, and where a dark
+# picture has no tile - between the geostationary disks, past their edges,
+# between the swaths - the map shows its dark space. IMERG's rain rate is
+# clear where it does not rain and has none: the page shows through, as it
+# does wherever a layer's picture cannot be had. The map's El Nino composite
+# takes the ramp made for the ground under it.
 LAYERS = (
-    {"id": "geocolor", "kind": "imagery", "name": "GeoColor",
+    {"id": "geocolor", "kind": "imagery", "name": "GeoColor", "ground": "dark",
      "about": "True colour by day, multispectral infrared with city lights by night.",
      "satellites": {"GOES-East": "GOES-East_ABI_GeoColor",
                     "GOES-West": "GOES-West_ABI_GeoColor",
                     "Himawari": None},
      "tms": "GoogleMapsCompatible_Level7", "zoom": 7, "format": "png",
      "step": "PT10M", "pixel_km": 1.0},
-    {"id": "visible", "kind": "imagery", "name": "Visible",
+    {"id": "visible", "kind": "imagery", "name": "Visible", "ground": "dark",
      "about": "Red visible band, 0.64 micrometres: cloud texture by day, dark at night.",
      "satellites": {"GOES-East": "GOES-East_ABI_Band2_Red_Visible_1km",
                     "GOES-West": "GOES-West_ABI_Band2_Red_Visible_1km",
                     "Himawari": "Himawari_AHI_Band3_Red_Visible_1km"},
      "tms": "GoogleMapsCompatible_Level7", "zoom": 7, "format": "png",
      "step": "PT10M", "pixel_km": 1.0},
-    {"id": "infrared", "kind": "imagery", "name": "Infrared",
+    {"id": "infrared", "kind": "imagery", "name": "Infrared", "ground": "dark",
      "about": ("Clean longwave window, 10.3 micrometres: cloud-top temperature "
                "day and night."),
      "satellites": {"GOES-East": "GOES-East_ABI_Band13_Clean_Infrared",
@@ -58,7 +65,7 @@ LAYERS = (
                     "Himawari": "Himawari_AHI_Band13_Clean_Infrared"},
      "tms": "GoogleMapsCompatible_Level6", "zoom": 6, "format": "png",
      "step": "PT10M", "pixel_km": 2.0},
-    {"id": "airmass", "kind": "imagery", "name": "Air mass",
+    {"id": "airmass", "kind": "imagery", "name": "Air mass", "ground": "dark",
      "about": "Water vapour and ozone channels: dry air and jet-stream intrusions.",
      "satellites": {"GOES-East": "GOES-East_ABI_Air_Mass",
                     "GOES-West": "GOES-West_ABI_Air_Mass",
@@ -70,19 +77,19 @@ LAYERS = (
      "global": "IMERG_Precipitation_Rate_30min",
      "tms": "GoogleMapsCompatible_Level6", "zoom": 6, "format": "png",
      "step": "PT30M", "pixel_km": 11.0, "credit": "IMERG: NASA GPM."},
-    {"id": "truecolor", "kind": "imagery", "name": "True colour (daily)",
+    {"id": "truecolor", "kind": "imagery", "name": "True colour (daily)", "ground": "dark",
      "about": "NOAA-20 VIIRS, one daytime pass a day, with gaps between swaths.",
      "global": "VIIRS_NOAA20_CorrectedReflectance_TrueColor",
      "tms": "GoogleMapsCompatible_Level9", "zoom": 9, "format": "jpeg",
      "step": "P1D", "pixel_km": None, "credit": "VIIRS: NASA and NOAA."},
-    {"id": "bluemarble", "kind": "imagery", "name": "Blue Marble",
+    {"id": "bluemarble", "kind": "imagery", "name": "Blue Marble", "ground": "dark",
      "about": "Cloud-free relief and sea floor, for orientation: not today's weather.",
      "global": "BlueMarble_ShadedRelief_Bathymetry",
      "tms": "GoogleMapsCompatible_Level8", "zoom": 8, "format": "jpeg",
      "step": None, "pixel_km": None, "credit": "Blue Marble: NASA Earth Observatory."},
     # Harmonized Landsat and Sentinel-2: a day's passes, swath by swath, drawn
     # one over the other for the day with an image at the centre of the view.
-    {"id": "detail", "kind": "imagery", "name": "Detail (30 m)",
+    {"id": "detail", "kind": "imagery", "name": "Detail (30 m)", "ground": "dark",
      "about": ("Landsat 8/9 and Sentinel-2, 30 m pixels: fields, runways, reservoirs "
                "and the outline of a town, not streets. One day's passes, clouds as seen."),
      "stack": ("HLS_L30_Nadir_BRDF_Adjusted_Reflectance",
@@ -90,7 +97,7 @@ LAYERS = (
      "tms": "GoogleMapsCompatible_Level12", "zoom": 12, "format": "png",
      "step": "P1D", "pixel_km": 0.03,
      "credit": "HLS: NASA, from USGS Landsat and ESA Copernicus Sentinel-2."},
-    {"id": "lights", "kind": "imagery", "name": "Night lights",
+    {"id": "lights", "kind": "imagery", "name": "Night lights", "ground": "dark",
      "about": ("VIIRS Black Marble 2016: a year of cloud-free nights, 500 m pixels. "
                "Where people live, not today's power."),
      "global": "VIIRS_Black_Marble", "time": "2016-01-01",
@@ -1496,6 +1503,9 @@ body.deskpage {{ background: var(--plane); }}
    controls. */
 #tiles-b {{ z-index: 1; }}
 #tiles {{ z-index: 2; }}
+/* A dark picture's own space, between its disks or swaths: the dark plane
+   its ramp is made for. */
+#tiles.space, #tiles-b.space {{ background: {DARK['plane']}; }}
 #refs {{ z-index: 3; }}
 #enso-tiles {{ z-index: 4; opacity: 0.8; }}
 #over, #over-b {{ z-index: 6; }}
@@ -2538,6 +2548,12 @@ _JS = r"""
     // NASA's ocean and flood tiles, over the whole map, both sides of the divider.
     drawPane(panes.e, ensoTileSpecs(), moving);
     if (!moving) { S.inView = inView; loopWhenKnown(); }
+    // Under a dark picture, its own dark space where it has no tile: the
+    // page's plane showed there, white in the light theme, under the El Nino
+    // composite in the dark picture's ramp. Where the picture cannot be had
+    // at all, the page's plane, under the page's coastline.
+    panes.a.el.classList.toggle("space", groundOf(S.layer, S.inView) === "dark");
+    panes.b.el.classList.toggle("space", !!(S.compare && groundOf(S.second, S.inViewB) === "dark"));
   }
 
   // ---- drawing in world units -------------------------------------------------
@@ -2649,10 +2665,13 @@ _JS = r"""
   // The page's own coastline, drawn only when what lies under the marks cannot
   // be had: offline, the map's service not answering, or, under a NASA layer,
   // GIBS not answering or none of its tiles arriving.
-  function baseDown() {
+  function baseDown() { return sideDown(S.layer, S.inView); }
+  // Whether a layer's picture cannot be had, its sources in `view`: either
+  // side of the divider, as baseDown says of the base.
+  function sideDown(id, view) {
     if (S.imagery === "offline") return true;
-    var l = LAYERS[S.layer];
-    return l && l.kind === "map" ? mapDown(S.layer) : S.imagery === "unreachable" || nasaDown(S.inView);
+    var l = LAYERS[id];
+    return l && l.kind === "map" ? mapDown(id) : S.imagery === "unreachable" || nasaDown(view);
   }
   // It runs from 0 to 1 in x and moves whole worlds with the view (placeWorld),
   // so it is drawn again as many worlds either side as half the view is wide.

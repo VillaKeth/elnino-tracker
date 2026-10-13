@@ -1018,7 +1018,15 @@ stay on one another when the bar above the map wraps to another line.
   whole cell. The land-only temperature grid fades out over the cell past the
   coast. The map draws the same field with the same code.
 - **Colour** is the diverging ramp, inverted for rainfall so the dry end reads
-  warm; the legend strip turns round with it.
+  warm; the legend strip turns round with it. Over a base the field takes the
+  ramp made for the base's ground (a photograph of the Earth is dark whatever
+  the page's theme; the relief is drawn in the page's own tones) and leaves
+  the middle step, within ±0.27 mm/day or ±0.15 °C of nothing, clear, so no
+  grey veils the relief or the photograph; on the plain page every step is
+  drawn, the field the whole picture. The strip shows the colours drawn, the
+  middle step an outline where it is clear, with "nothing drawn within ±0.27"
+  beside it. Offline, the photograph gone, the page's sea is under the field,
+  and it takes the page's ramp.
 - **Cells that fail the significance test** keep their hue and lose their
   weight, drawn at a sixth of the opacity, the fade blending from a cell that
   passes to one that does not. Colouring them confidently would claim a
@@ -1324,8 +1332,27 @@ out every two CSS pixels on a lattice fixed to the world, so the steps' edges
 hold still as the map pans (coarser on a screen so big that would be more than
 a quarter of a million points a frame), and drawn up with the browser's
 smoothing on a canvas under the map's names and marks, across the date line and
-Greenwich without a seam, in the ramp of the theme on the page, whichever switch
-changed it. A tap still reads the whole cell, and the outline of the cell under
+Greenwich without a seam. Each map is a picture with a tone of its own that the
+page's theme does not change, so the composite takes the ramp made for the ground
+under it: the light ramp over Esri's street map, terrain and OpenStreetMap, the
+dark over Esri's satellite imagery and NASA's, by day or by night, and the page's
+own, whichever switch changed it, over IMERG's rain rate, which is clear where it
+does not rain, and wherever a layer's picture cannot be had (offline, its server
+not answering, none of its tiles arriving), where the page's plane is under the
+field and the page's coastline is drawn. Where a dark picture has no tile, between
+the geostationary disks, past their edges and between the swaths, the map shows
+its dark space, as NASA's own viewers do, not the page's plane, white in the light
+theme. Its middle step, within half a step of nothing (±0.27 mm/day, ±0.15 °C),
+is left clear. In the theme's ramp, the steps nearest nothing, made to
+sink into the theme's own ground, stood out of a map of the other tone as blocks,
+grey and brown over the street map in the dark theme and white over satellite
+imagery in the light, most of them cells the *t* test passes on a difference near
+nothing, at the poles and over the deserts. Compared, each side of the divider
+takes its own layer's ground, the right side's ramp from the first point of the
+lattice at or past the divider, in the one pass: the field is still worked out
+once a frame. The key's strip shows the colours drawn under the base layer, the
+middle step an outline, "nothing drawn within ±0.27" beside it, and says when
+the other side's colours differ. A tap still reads the whole cell, and the outline of the cell under
 the pin is hidden once the cell is wider or taller than the view: Mercator draws
 a cell at 60° N twice as tall as it is wide. The El Niño
 menu picks rainfall, temperature or neither, the season (the one containing the
@@ -1935,7 +1962,7 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1453 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1476 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -2172,7 +2199,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1453 tests, no network required. They cover:
+1476 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2307,7 +2334,11 @@ python -m unittest discover -s tests -v
   view pans, is held to the size the map was measured at, moves with the
   ground under a gesture and gives way over imagery; the page is measured again
   whenever the map's box changes; a press on +, − or Fit is the button's, not
-  the start of a drag; and either theme switch reads the ramp again;
+  the start of a drag; either theme switch reads the ramp again, and the Theme
+  button turns from the theme shown, the system's where none is chosen; and over a
+  base the field takes the ramp made for its ground, the page's where the
+  imagery cannot be had, the middle step left clear and said in words, and
+  the key shows the colours drawn;
 - **the physical tier**: the relief PNG is two stacked eight-bit planes of
   exactly the declared size, the grid decodes to one elevation a cell, its
   extremes are the ones the generator recorded, and eight spot checks land in
@@ -2387,7 +2418,11 @@ python -m unittest discover -s tests -v
   are drawn as a field, every pixel the blend of the cell centres around it in
   the atlas's colour step, worked out on no more than a quarter of a million
   points on a lattice that holds still on the ground as the view pans, in the
-  theme's ramp after either switch, and read back as `atlas.sample` does at 798
+  ramp made for the ground under each side of the divider, painted once a frame,
+  the right side's ramp from the first point past the divider (the theme's,
+  after either switch, on the page's own and wherever a side's picture cannot
+  be had; under a dark picture, its pane its dark space), the middle step clear
+  and the key's swatches the colours drawn, and read back as `atlas.sample` does at 798
   points, verdict and percentage included;
   NASA's SST and flood tiles read back through NASA's own colour maps; the Niño
   boxes cross the date line the short way; `#at=` and `#view=` accept a place
@@ -2502,8 +2537,8 @@ python -m unittest discover -s tests -v
   looked for again, Esri's captures kept, and menus the new build left as they
   were not written again); the dashboard's run time ageing, and its body named
   to the follower, every part of it wearing an id of its own; the atlas's view
-  and layers kept, junk refused and a view turned any number of times put back
-  on the world; and the hourly run's schedule, token, state, remote, keep-alive,
+  and layers kept, the plain page with no base among them, junk refused and a
+  view turned any number of times put back on the world; and the hourly run's schedule, token, state, remote, keep-alive,
   time limit and actions pinned to commits, no pull request starting it, and the
   suite's Python and node, read as text, and its second chance at 42 past, whose
   check runs under bash against a gh that answers or fails;
