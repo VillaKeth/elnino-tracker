@@ -10780,9 +10780,10 @@ class TestEndToEnd(unittest.TestCase):
                                    ("map", stormdesk.page(self.state, focus="world"), assets.desk())):
             with self.subTest(name):
                 self.assertEqual(_named_run(html), self.state.run_at)
-                # The follower is the first of the code the page names and its
+                # The follower is the first of the code the page runs and its
                 # own the last, which follows the site once.
-                self.assertEqual(assets.page_assets(html)[-2:], [assets.follower().file, engine.file])
+                scripts = re.findall(r'<script defer src="assets/([^"]+)"></script>', html)
+                self.assertEqual(scripts[-2:], [assets.follower().file, engine.file])
                 self.assertEqual(engine.text.count("elninoLive.follow("), 1)
                 self.assertNotIn("elninoLive.follow(", html)
                 # The theme a page loading again hands over is set before it is styled.
@@ -10861,8 +10862,12 @@ class TestEndToEnd(unittest.TestCase):
             for file in named:
                 self.assertEqual((out / "assets" / file).read_bytes(), assets.made(file).text.encode("utf-8"))
         # The follower is all four pages', the gazetteer and the grids the
-        # desk's, the map's and the atlas's.
-        self.assertEqual(len(named), 9)
+        # desk's, the map's and the atlas's; the storm tracks, loaded only when
+        # the street's panel asks, the desk's and the map's.
+        self.assertEqual(len(named), 10)
+        from elnino import streetstorms
+        self.assertEqual([file for file in named if file.startswith("tracks.")],
+                         [streetstorms.asset(self.state).file])
 
     def test_the_dashboard_names_its_run_and_is_dated_by_it(self):
         html = dashboard.render(self.state)

@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from elnino import atlas, stormdesk, street, thennow, worldmap  # noqa: E402
+from elnino import atlas, stormdesk, street, streetstorms, thennow, worldmap  # noqa: E402
 from elnino.svg import esc  # noqa: E402
 # The helpers only: importing a TestCase class here would run it twice.
 from test_thennow import EVENT, MANAUS, MODIS_DAYS, SCREEN, _run, seasons_from, state_with  # noqa: E402
@@ -255,10 +255,13 @@ class TestStreetStageMarkup(_DeskFixtures, unittest.TestCase):
 
     def test_the_chip_holds_the_card_s_first_lines_and_goes_to_the_rest(self):
         stage = street.map_parts()
-        self.assertIn('<div class="streetchip" id="street-chip"><div class="streetchiphead" id="street-chip-head"><b>El '
-                      'Ni\u00f1o on this street</b><button type="button" class="toolbtn streetreplay" '
-                      'id="street-replay">Replay El Ni\u00f1o\u2019s rain</button><button type="button" '
-                      'class="streetmore" id="street-more">The whole card \u2193</button></div>', stage)
+        # Under the live storms' line, which shows with a storm near; the
+        # storm panel's button after the replay's.
+        self.assertIn('<div class="streetchip" id="street-chip">' + streetstorms.chip_line() +
+                      '<div class="streetchiphead" id="street-chip-head"><b>El Ni\u00f1o on this street</b><button '
+                      'type="button" class="toolbtn streetreplay" id="street-replay">Replay El Ni\u00f1o\u2019s rain'
+                      "</button>" + streetstorms.button() + '<button type="button" class="streetmore" '
+                      'id="street-more">The whole card \u2193</button></div>', stage)
         self.assertIn('<p class="streetchipsaid" id="street-chip-said"></p>', stage)
         # The panorama is between the bar and the strip under it, so nothing
         # of the page sits on Google's own controls and credit.
@@ -315,17 +318,19 @@ class TestStreetStageMarkup(_DeskFixtures, unittest.TestCase):
         self.assertIn('<p class="streetcredit" id="street-sim-credit" hidden>Daily rain: <a '
                       'href="https://power.larc.nasa.gov/" target="_blank" rel="noopener">NASA POWER</a>, NASA Langley '
                       "Research Center.</p>", stage)
-        # Open, the chip stands taller and, on a phone, takes the minimap's
-        # room; a finger across the chart seeks, and up and down scrolls.
+        # Open, as the storm panel open, the chip stands taller and, on a
+        # phone, takes the minimap's room; a finger across the chart seeks,
+        # and up and down scrolls.
         css = street.css()
-        self.assertIn(".streetstage.simon .streetchip { max-height: none; }", css)
-        self.assertIn("@media (max-width: 899px) { .streetstage.simon .streetmini { display: none; } }", css)
+        self.assertIn(".streetstage.simon .streetchip, .streetstage.tcon .streetchip { max-height: none; }", css)
+        self.assertIn("@media (max-width: 899px) { .streetstage.simon .streetmini, .streetstage.tcon .streetmini "
+                      "{ display: none; } }", css)
         # On a phone the stage stands taller while it is open, so the
         # panorama, where the rain falls, keeps its room.
         # (of the viewport as it is with the browser's bars shown, where the
         # browser knows it).
-        self.assertIn("@media (max-width: 899px) { #map.streeton:has(.streetstage.simon) { height: 92vh; height: 92svh; } }",
-                      css)
+        self.assertIn("@media (max-width: 899px) {\n  #map.streeton:has(.streetstage.simon), "
+                      "#map.streeton:has(.streetstage.tcon) { height: 92vh; height: 92svh; }\n}", css)
         self.assertIn(".streetsimchart { position: relative; min-height: 170px; touch-action: pan-y;", css)
 
     def test_the_chart_s_line_rules_leave_its_labels_seen(self):

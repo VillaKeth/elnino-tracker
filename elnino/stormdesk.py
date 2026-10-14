@@ -23,7 +23,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from . import (alerts, assets, coastline, cyclones, exposure, fields, live, outlook, sitenav,
-               street, thennow, worldmap)
+               street, streetstorms, thennow, worldmap)
 from .storms import NEUTRAL, STORM_HUES
 from .svg import DARK, esc, table
 
@@ -241,8 +241,8 @@ ACTIONS_NOTE = (
 # ----------------------------------------------------------------------------
 METHODS = {
     "path": ("Derived here: the analysed track, then the official forecast hour by "
-             "hour, centre and wind radii interpolated linearly between forecast "
-             "times. Never extended past the last forecast point."),
+             "hour, centre, wind and wind radii interpolated linearly between "
+             "forecast times. Never extended past the last forecast point."),
     "exposure": ("Derived here: when each wind threshold first reaches a place if "
                  "the storm follows the official forecast track exactly. A "
                  "threshold is evaluated only where the forecast carries radii for "
@@ -257,8 +257,8 @@ METHODS = {
                "between the last two analysed fixes."),
     "category": ("Saffir-Simpson category from the one-minute sustained wind; for "
                  "JTWC's storms the equivalent category."),
-    "here": ("Derived here from each storm's official forecast, hour by hour, centre "
-             "and wind radii interpolated linearly between forecast times: the "
+    "here": ("Derived here from each storm's official forecast, hour by hour, centre, "
+             "wind and wind radii interpolated linearly between forecast times: the "
              "timeline the exposure table is computed from, under the same rules, so "
              "a radius the forecast does not give is not forecast, never zero. "
              "Distances are great-circle. The cone, the surge areas and the formation "
@@ -1759,6 +1759,7 @@ def page(state, focus: str = "storms") -> str:
     del data["coast"], data["enso"]["grids"]
     data["then"] = thennow.payload(state)
     data["street"] = street.payload(state)
+    data["tc"] = streetstorms.payload(state)
     data["focus"] = focus
     enso = thennow.enter_button() + worldmap.controls(focus, data["enso"]["now"],
                                                         data["enso"]["next"])
@@ -1767,6 +1768,8 @@ def page(state, focus: str = "storms") -> str:
     # script element or open a comment inside it.
     raw = json.dumps(data, separators=(",", ":")).replace("<", "\\u003c")
     built = _time(data["built"]) if data["built"] else "unknown"
+    # The scripts the page runs, then those it loads only when asked.
+    named = "\n".join(filter(None, (assets.tags(_assets()), assets.lazy_tags(_later(state)))))
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1775,8 +1778,8 @@ def page(state, focus: str = "storms") -> str:
 {live.head(getattr(state, "run_at", None))}
 {sitenav.ICON}
 <title>{esc(words["title"])}</title>
-<style>{shell_css()}{fields.ramp_css()}{css()}{worldmap.css()}{thennow.css()}{street.css()}</style>
-{assets.tags(_assets())}
+<style>{shell_css()}{fields.ramp_css()}{css()}{worldmap.css()}{thennow.css()}{street.css()}{streetstorms.css()}</style>
+{named}
 </head>
 <body class="deskpage">
 {sitenav.bar(words["page"], carry=(words["other"],))}
@@ -1808,12 +1811,20 @@ def _assets() -> tuple:
     return (assets.places(), assets.grids(), assets.coast(), assets.follower(), assets.desk())
 
 
+def _later(state) -> tuple:
+    """The assets the page loads only when asked: the street's storm tracks,
+    when the run has them."""
+    return tuple(item for item in (streetstorms.asset(state),) if item is not None)
+
+
 def script() -> str:
-    """The page's script: the desk's, with the map's and the then-and-now
-    view's taken in at their markers."""
+    """The page's script: the desk's, with the map's, the then-and-now
+    view's, the street's and the street's storm panel's taken in at their
+    markers."""
     return (_JS.replace("  /*WORLDMAP*/\n", worldmap._JS)
             .replace("  /*THENNOW*/\n", thennow._JS)
-            .replace("  /*STREET*/\n", street._JS))
+            .replace("  /*STREET*/\n", street._JS)
+            .replace("  /*STREETSTORMS*/\n", streetstorms._JS))
 
 
 _JS = r"""
@@ -3906,9 +3917,8 @@ _JS = r"""
     }
     var h = hereFor(S.here.lon, S.here.lat), html = [], place = h.place;
     html.push('<h2 class="panelhead" id="here-title">Here: ' + esc(S.here.label) + "</h2>");
-    var facts = [where(h.lon, h.lat)];
-    if (place && place.km <= 25 && place.population) facts.push(peopleFact(S.here.label, place));
-    else if (place && place.km <= 400) facts.push(kms(place.km) + " from " + esc(place.name));
+    var facts = [where(h.lon, h.lat)], fact = placeFact(h.lon, h.lat, S.here.label);
+    if (fact) facts.push(fact);
     html.push('<p class="herewhere">' + facts.join(" \u00b7 ") + "</p>");
     html.push('<div class="herebtns"><button type="button" class="toolbtn" data-here="show">Show on map</button>' +
               '<button type="button" class="toolbtn" data-here="street">Street View here</button>' +
@@ -3970,11 +3980,39 @@ _JS = r"""
     var line = $("here-said");
     if (line && line.textContent !== words) line.textContent = words;
   }
-  // A point named: the town it is in, the distance from the nearest, or its
-  // latitude and longitude. Here's name for it, and an entered place's.
+  // How far a town's people reach, km: as far as a disc of them at 2,000 a
+  // square kilometre would, from 1.5 to 30 km. Natural Earth's are an urban
+  // area's people: New York's 19 million reach 30 km, Newark's 280,123 people
+  // 6.7 km.
+  function placeReach(people) { return clamp(Math.sqrt((people || 0) / (Math.PI * 2000)), 1.5, 30); }
+  // The town a point is in: the nearest of those whose people reach it, or
+  // null. Only a town within 30 km, the farthest any reaches, can.
+  function placeIn(lon, lat) {
+    var best = null;
+    for (var i = 0; i < PLACES.length; i++) {
+      var p = PLACES[i];
+      if (Math.abs(p[5] - lat) > 0.3) continue;
+      if (Math.abs(((p[4] - lon + 540) % 360) - 180) * Math.cos(rad(lat)) > 0.3) continue;
+      var d = km(lon, lat, p[4], p[5]);
+      if (d <= placeReach(p[3]) && (!best || d < best.km)) best = {km: d, p: p};
+    }
+    return best;
+  }
+  // A point named: the town it is in, the distance from the nearest place
+  // within 400 km, or its latitude and longitude. Here's name for it, and an
+  // entered place's.
   function placeLabel(lon, lat) {
-    var p = nearestPlace(lon, lat);
-    return p && p.km <= 25 ? named(p.p) : p && p.km <= 400 ? kms(p.km) + " from " + named(p.p) : where(lon, lat);
+    var inside = placeIn(lon, lat), p = inside || nearestPlace(lon, lat);
+    if (inside) return named(inside.p);
+    return p && p.km <= 400 ? kms(p.km) + " from " + named(p.p) : where(lon, lat);
+  }
+  // What Here's line says after the position, as its name does: the people
+  // of the town the point is in, or how far the nearest place within 400 km
+  // is.
+  function placeFact(lon, lat, label) {
+    var inside = placeIn(lon, lat), p = inside ? null : nearestPlace(lon, lat);
+    if (inside) return inside.p[3] ? peopleFact(label, {name: inside.p[0], population: inside.p[3]}) : "";
+    return p && p.km <= 400 ? kms(p.km) + " from " + esc(p.p[0]) : "";
   }
   function hereAt(lon, lat, label) {
     lon = wrap(lon); lat = clamp(lat, -85, 85);
@@ -4308,8 +4346,10 @@ _JS = r"""
       coastDone = 0; coastD = ""; coastG.innerHTML = "";
       select(BYID[S.selected] ? S.selected : (STORMS[0] ? STORMS[0].id : null));
       showHere();
-      // The replay's years told again by the new run's index.
+      // The replay's years told again by the new run's index; the storm line
+      // and panel written from its storms.
       if (S.sim) simRetake();
+      tcRetake();
       ages();
       // Drawn now, keys and all, so the reader's place is put back on the page
       // as it will stand.
@@ -4454,6 +4494,7 @@ _JS = r"""
   /*WORLDMAP*/
   /*THENNOW*/
   /*STREET*/
+  /*STREETSTORMS*/
   // ---- start ------------------------------------------------------------------
   prepare();
   unserved();
@@ -4499,6 +4540,7 @@ _JS = r"""
     leave: function () { return thenLeave(); },
     street: function (lon, lat) { return streetEnter(lon, lat); },
     leaveStreet: function () { return streetLeave(); },
+    streetStorms: function (open) { if (open === true) tcOpen(); else if (open === false) tcClose(); return tcView(); },
     view: function () {
       var st = BYID[S.selected], b = st ? base(st) : null;
       return {lon: wrap(lonOf(S.x)), lat: latOf(S.y), zoom: S.z, layer: S.layer,

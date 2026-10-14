@@ -48,6 +48,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field as dc_field, replace
+from datetime import datetime
 
 from .coastline import COASTLINE
 
@@ -1274,6 +1275,10 @@ class CycloneState:
     alerts: list = dc_field(default_factory=list)
     outlook: list = dc_field(default_factory=list)
     outlook_issued: dict = dc_field(default_factory=dict)
+    # HURDAT2's best tracks from 1950, by basin ("AL", "EP"), and the file
+    # each came from: the street's storms since then (elnino/streetstorms.py).
+    tracks: dict = dc_field(default_factory=dict)
+    track_files: dict = dc_field(default_factory=dict)
 
     @property
     def available(self) -> bool:
@@ -1477,6 +1482,105 @@ def _blank(seasons: dict, year: int) -> dict:
     keys = [f + suffix for f in FIELDS for suffix in ("", "_todate")]
     return seasons.setdefault(year, {k: 0.0 if k.startswith("ace") else 0
                                      for k in keys})
+
+
+# A HURDAT2 fix: date, time, record identifier (L for a landfall), status,
+# latitude and longitude, then the numbers. The position is read by its own
+# pattern rather than by counting commas: the Atlantic file's line for 29
+# September 1969 06 UTC reads "63.3N    7.5E", with no comma between.
+HURDAT_FIX = re.compile(
+    r"^\s*(\d{8})\s*,\s*(\d{4})\s*,\s*([A-Z]?)\s*,\s*([A-Z]{2})\s*,"
+    r"\s*(\d{1,2}\.\d)([NS])\s*,?\s*(\d{1,3}\.\d)([EW])\s*,(.*)$")
+
+
+@dataclass(frozen=True)
+class BestFix:
+    """One fix of a HURDAT2 best track.
+
+    ``radii`` is the twelve radii the file gives, nautical miles: 34, 50 and
+    64 kt, each NE, SE, SW and NW; a radius HURDAT2 does not know (-999) is
+    None, and ``radii`` is None when it knows none of them, as before 2004.
+    A wind it does not know (-99) is None too.
+    """
+
+    when: datetime
+    lat: float
+    lon: float
+    wind: int | None
+    status: str
+    radii: tuple | None
+
+
+@dataclass(frozen=True)
+class BestTrack:
+    """A storm's best track: its HURDAT2 id ("AL182012"), name and fixes."""
+
+    id: str
+    name: str
+    fixes: tuple
+
+    @property
+    def year(self) -> int:
+        return int(self.id[4:8])
+
+    @property
+    def peak(self) -> int | None:
+        """The strongest wind on the track, None if it gives none."""
+        return max((f.wind for f in self.fixes if f.wind is not None), default=None)
+
+
+def _fix(line: str) -> BestFix | None:
+    """A HURDAT2 data line as a fix, or None for one that cannot be read."""
+    m = HURDAT_FIX.match(line)
+    if not m:
+        return None
+    day, clock, _, status, lat, ns, lon, ew, rest = m.groups()
+    try:
+        when = datetime.strptime(day + clock, "%Y%m%d%H%M")
+        numbers = [int(x) for x in rest.split(",") if x.strip()]
+    except ValueError:
+        return None
+    if not numbers:
+        return None
+    radii = None
+    if len(numbers) >= 14:
+        given = tuple(r if r >= 0 else None for r in numbers[2:14])
+        if any(r is not None for r in given):
+            radii = given
+    return BestFix(when=when, lat=float(lat) if ns == "N" else -float(lat),
+                   lon=-float(lon) if ew == "W" else float(lon),
+                   wind=numbers[0] if numbers[0] >= 0 else None, status=status, radii=radii)
+
+
+def hurdat_tracks(text: str, first: int = 1950) -> list[BestTrack]:
+    """Every storm's best track in a HURDAT2 file from the year ``first``.
+
+    As in ``hurdat_seasons``, a line that starts with a basin code is a header
+    and the count it carries is trusted for nothing; a line that cannot be
+    read as a fix is skipped, and a storm with no fix is not a track.
+    """
+    tracks: list[BestTrack] = []
+    storm, fixes = None, []
+
+    def close():
+        if storm is not None and fixes:
+            tracks.append(BestTrack(id=storm[0], name=storm[1], fixes=tuple(fixes)))
+
+    for line in text.splitlines():
+        header = HURDAT_HEADER.match(line)
+        if header:
+            close()
+            fixes = []
+            year = int(header.group(3))
+            name = line.split(",")[1].strip() if line.count(",") >= 2 else ""
+            storm = (header.group(1) + header.group(2) + header.group(3), name) if year >= first else None
+            continue
+        if storm is not None:
+            fix = _fix(line)
+            if fix is not None:
+                fixes.append(fix)
+    close()
+    return tracks
 
 
 def merge_seasons(*tables: dict) -> dict:
@@ -1751,6 +1855,10 @@ def build(fetched: dict, index=None, fetcher=None, today=None) -> CycloneState:
                              through=cutoff)
             if parsed:
                 archive[basin] = parsed
+            tracks = attempt(f"HURDAT2 {basin} tracks", hurdat_tracks, raw)
+            if tracks:
+                state.tracks[basin] = tuple(tracks)
+                state.track_files[basin] = filename
 
     # --- this season's storms, from the decks
     live = set(active_ids(current))

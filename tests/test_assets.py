@@ -48,6 +48,14 @@ class TestAnAsset(unittest.TestCase):
                                             f'<script src="https://elsewhere/{one.file}"></script></body>'),
                          [one.file, two.file])
 
+    def test_a_page_names_one_to_load_only_when_asked_as_a_link_no_browser_fetches(self):
+        one, later, two = (assets.Asset("probe", "var x = 4;\n"), assets.Asset("later", "var z = 1;\n"),
+                           assets.Asset("other", "var y = 4;\n"))
+        self.assertEqual(later.lazy_tag(), f'<link rel="elnino-lazy" href="assets/{later.file}">')
+        self.assertEqual(assets.lazy_tags((later, one)), later.lazy_tag() + "\n" + one.lazy_tag())
+        self.assertEqual(assets.page_assets(f"<head>{one.tag()}\n{later.lazy_tag()}\n{two.tag()}</head>"),
+                         [one.file, later.file, two.file])
+
     def test_a_name_is_one_plain_word(self):
         for bad in ("", "Probe", "two words", "../up", "probe.js", "1st"):
             with self.subTest(bad), self.assertRaises(ValueError):
@@ -101,6 +109,17 @@ class TestWritingAssets(unittest.TestCase):
         self.assertEqual(sorted(assets.prune(self.out, [kept.file])), ["desk.abcdef0123.js", "probe.0123456789.js"])
         self.assertEqual(sorted(p.name for p in folder.iterdir()),
                          sorted([kept.file, "desk.abc.js", "mine.js", "notes.txt"]))
+
+    def test_one_loaded_only_when_asked_is_written_kept_and_published(self):
+        import publish
+
+        later = assets.data("later", {"storms": [1, 2]})
+        html = f"<head>{later.lazy_tag()}</head>"
+        named = assets.page_assets(html)
+        self.assertEqual(assets.write(self.out, named), [self.out / "assets" / later.file])
+        self.assertEqual(assets.prune(self.out, named), [])
+        self.assertEqual(publish._read_assets(self.out, {"storms.html": html.encode("utf-8")}),
+                         {later.file: later.text.encode("utf-8")})
 
     def test_with_no_folder_there_is_nothing_to_let_go(self):
         self.assertEqual(assets.prune(self.out, []), [])

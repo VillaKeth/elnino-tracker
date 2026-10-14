@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from elnino import parsers, stormdesk, street, thennow, worldmap  # noqa: E402
+from elnino import parsers, stormdesk, street, streetstorms, thennow, worldmap  # noqa: E402
 from elnino.parsers import SeasonValue  # noqa: E402
 # The helpers only: importing a TestCase class here would run it twice.
 from test_tracker import _DeskFixtures, _js_function, _node_json  # noqa: E402
@@ -542,26 +542,40 @@ function cellAt(name, season, lon, lat) { return {value: LAND[Math.round(lon) + 
 // A box written again as the page's retake writes it: whole.
 function retake(box, html) { box.innerHTML = html; }
 var COMPASS8 = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+var COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+// Here's thresholds and order of watches, as the page has them, and the live
+// storms: none, unless a test takes some.
+var THRESHOLDS = ["34", "50", "64"];
+var ORDER = ["Tropical Storm Watch", "Tropical Storm Warning", "Hurricane Watch", "Hurricane Warning"];
+var STORMS = [], BYID = Object.create(null);
 """
 
 # The page's functions the script calls, as the page's script has them.
 ENGINE = ("clamp", "wrap", "rad", "deg", "mx", "my", "lonOf", "latOf", "world", "origin", "near",
           "toWorld", "km", "pad2", "dayZ", "stamp", "shiftDay", "dayText", "esc", "named", "where",
-          "kms", "nearestPlace", "placeLabel", "pin", "signedText", "classify", "wrap180", "googleZoom",
+          "kms", "nearestPlace", "placeReach", "placeIn", "placeLabel", "people", "peopleFact", "placeFact",
+          "pin", "signedText", "classify", "wrap180", "googleZoom",
           "googleLinks", "tileUrl", "xyzUrl", "present", "xyzCells", "source", "timed", "cells",
           "labelled", "labelledBase", "overSpecs", "gotKey", "tilesDown", "look", "covered", "imageOn",
-          "mapDown", "nasaDown", "baseDown", "sideDown", "googleEmbed", "maxZoom", "finite")
+          "mapDown", "nasaDown", "baseDown", "sideDown", "googleEmbed", "maxZoom", "finite",
+          # Here, which the street's storm panel reads.
+          "bearing", "utc", "frameLon", "within", "insideAt", "inRing", "toLine", "fold", "soon", "pct",
+          "hereFor", "nearHere", "stormHere")
 
 # The page's payload for the 2014-16 event, built on 29 September 2026, and
 # the street's from the same run.
 THEN = thennow.payload(state_with(EVENT, run_at="2026-09-29T12:00:00+00:00"))
 STREET = street.payload(state_with(EVENT, run_at="2026-09-29T12:00:00+00:00"))
+TC = streetstorms.payload(state_with(EVENT, run_at="2026-09-29T12:00:00+00:00"))
 
 
 def _d(then) -> dict:
-    """The page's data as the script reads it: the then-and-now and street
-    payloads and GIBS's addresses, with test hosts."""
-    return {"then": then, "street": STREET, "enso": {"now": "SON", "hide_above": 12}, "layers": [],
+    """The page's data as the script reads it: the then-and-now, street and
+    storm panel payloads, no live storm, and GIBS's addresses, with test
+    hosts."""
+    return {"then": then, "street": STREET, "tc": TC, "storms": [], "outlook": [],
+            "style": {"hues": {}, "products": dict(stormdesk.PRODUCT_COLOURS)},
+            "enso": {"now": "SON", "hide_above": 12}, "layers": [],
             "gibs": {"domains": "https://gibs/{layer}/{tms}/{start}--{end}.xml",
                      "tiles": "https://gibs/{layer}/{time}/{tms}/{z}/{y}/{x}.{ext}",
                      "static": "https://gibs/{layer}/{tms}/{z}/{y}/{x}.{ext}",
@@ -570,12 +584,12 @@ def _d(then) -> dict:
 
 
 def _run(case, body: str, then=None, extra: str = ""):
-    """What an async body prints as JSON, run after then-and-now's script and
-    the street's, taken in as the page takes them."""
+    """What an async body prints as JSON, run after then-and-now's script, the
+    street's and its storm panel's, taken in as the page takes them."""
     js = stormdesk.script()
     functions = "\n".join(_js_function(js, name) for name in ENGINE)
     script = ('(function () {\n"use strict";\n' + PRELUDE + "var D = " + json.dumps(_d(then or THEN)) + ";\n"
-              + functions + "\n" + extra + "\n" + thennow._JS + "\n" + street._JS
+              + functions + "\n" + extra + "\n" + thennow._JS + "\n" + street._JS + "\n" + streetstorms._JS
               + "\n(async function () {\n  try {\n" + body + "\n  } catch (err) {\n"
               "    console.log(JSON.stringify({error: String(err && err.stack || err)}));\n  }\n})();\n})();\n")
     return _node_json(case, script)

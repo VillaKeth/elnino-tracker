@@ -105,6 +105,7 @@ number is how people get surprised.
 | What has it *actually done* here before? | The atlas: measured composite for that cell, with Welch's t |
 | What does that look like, street by street? | The map: the composites, today's ocean and floods, and the impact regions, over street maps and satellite |
 | What would El Niño's rain be on my street? | Drop into Street View and replay it: each past El Niño's days there, against neutral years and ECMWF's forecast, falling over the panorama |
+| What would a hurricane do on my street? | Drop into Street View: what the live storms' official forecasts bring there, a forecast or a past storm's wind replayed hour by hour over the panorama, and the storms that passed since 1950 by El Niño's phase |
 | What is spinning right now? | Every live cyclone, ATCF best track + official forecast |
 | Is the ENSO storm signal verifying? | Season ACE against date-matched climatology, scored in public |
 
@@ -1539,11 +1540,11 @@ link**, **Google Maps ↗** (the panorama's documented Maps URL) and **Exit** (E
 too). A strip under it holds a **minimap** of the map's own street tiles about
 the point, with a pin, its own + and − (zoom 3 to 18, opening at 15), Esri's
 credit, and a tap on it moving Street View there; and beside it the first lines
-of the card, with **Replay El Niño's rain** (below), **The whole card ↓** and
-Open-Meteo's credit for the forecast they quote. Nothing of the page sits on
-Google's frame, whose controls, logo and terms are its own, but the replay's
-rain and the badge naming its day, which never take a pointer and stay clear
-of its foot. *Here* moves to the point,
+of the card, with **Replay El Niño's rain** and **Hurricanes here** (below),
+**The whole card ↓** and Open-Meteo's credit for the forecast they quote.
+Nothing of the page sits on Google's frame, whose controls, logo and terms are
+its own, but the replays' rain or wind and the badge naming its day or hour,
+which never take a pointer and stay clear of its foot. *Here* moves to the point,
 with the card at its top. **Exit** puts the map back on the point at zoom 16 or
 deeper, as deep as the layer goes. While the stage is open the map's scrubber
 and key are hidden, every control that changes the map (a layer, the
@@ -1749,6 +1750,88 @@ newest days are NASA's GEOS-IT analysis, not MERRA-2. The rain on Street View
 is the page's drawing, scaled to that number; Google's imagery under it is as
 Google took it.
 
+#### Hurricanes on the street
+
+What would a hurricane do on this street? Where a live storm's official
+forecast comes near the stage's point, by *Here*'s own rule (the forecast
+within 1,500 km of it; with no forecast this run, the storm that close now; or
+the point in its peak storm surge area or within 300 km of a coast under its
+watch or warning), a line atop the chip says what the official forecasts of
+the two nearest bring: the first of each one's winds to come here and the
+strongest after it, how close it comes, the most severe watch or warning on
+the coast near, and the surge area the point is in. Beside **Replay El Niño's
+rain**, **Hurricanes here** (**Typhoons here** in the north-west Pacific,
+**Cyclones here** in the north Indian Ocean and south of the equator, as the
+warning centres there name them) opens a panel in the chip's place, as the El
+Niño replay does, with **Back to the card**:
+
+- **Live storms**, as *Here* lists them.
+- **Replay**: a storm's wind here, hour by hour. **Storm** offers the official
+  forecast of each live storm near, from the analysis on, opening at the hour
+  now; and the storms since 2004, the first season HURDAT2 gives wind radii,
+  whose 34-kt wind came here or whose centre passed within the history's
+  distance, newest first, opening at their first hour of 34-kt wind here, or
+  at their closest where it never came - each named with the month and year
+  it came nearest and the strongest wind it brings here. **Play** runs the
+  hours, 3, 6 or 12 a second, and the slider, or a click or drag on the
+  chart, seeks one. Each hour says
+  where the centre is and its wind, the wind the point is in (under 34 kt,
+  34–49 kt, 50–63 kt, or 64 kt or more), the next threshold said not
+  forecast, or for a past storm not known, where no radius gives it, and,
+  inside the gales, where the wind here comes from. On Street View the hour's
+  wind is drawn as the El Niño replay's rain is, on the same canvas, clear of
+  Google's foot: 160, 260 or 380 streaks from 34, 50 and 64 kt, each faster,
+  darker and leaning further, gusting at 64 kt, with a badge naming the hour;
+  under reduced motion each hour is drawn once, still. The chart draws the
+  centre's distance from here and a strip for each threshold, filled in the
+  storm's colour where that wind is here and hatched where it is not known,
+  with now on a forecast; the words say when each wind comes and goes, for
+  how long, where one that never comes is known not to and where no radius
+  says, and how near the centre comes, and, where the warning centre's
+  wind speed probabilities name the town, its own chance there; **Hour by
+  hour** has every third hour in a table.
+- **Since 1950**: the storms whose tracks passed within 50, 100 or 200
+  nautical miles of here (100 at first) with 34 kt or more while within that
+  distance, whatever their status, counted by their season's phase on the
+  run's index (its ASO value as CPC prints it: El Niño at +0.5 or more, La
+  Niña at −0.5 or less): the seasons and storms in each phase and a season's
+  rate, and how often chance alone splits El Niño's count from La Niña's as
+  unevenly, by the exact two-sided binomial test, which takes the storms as
+  independent though they cluster within seasons, so it understates how often
+  chance alone does that; **Storm by storm**, newest first, with each one's
+  closest approach, its time, its wind and its status there, and its
+  strongest wind within the distance where that was more. HURDAT2 holds the
+  North Atlantic's storms and the eastern and central North Pacific's, east
+  of 180°, where storms are hurricanes; of the north-west Pacific's it holds
+  only the few that crossed 180° from the east. A point outside those basins
+  (south of the equator, or north of it between 30°E and 180°) is not
+  counted, whatever crossed into it, nor is one in them that none of its
+  storms came within 1,000 km of, and the panel says which rather than "no
+  storms". A run that could not read one basin's file says so first, and
+  that basin's storms are not counted.
+- **Method and sources**.
+
+| What | How |
+|---|---|
+| the tracks | HURDAT2's best tracks, which the cyclone tier reads every run: each storm from 1950 that reached 34 kt, a fix every six hours with its wind, its status and, from 2004, its 34-, 50- and 64-kt radii by quadrant; sent as an asset of 1.8 MB (280 KB as GitHub Pages compresses it) that the page loads only when the panel first opens |
+| a storm passing here | its track, drawn straight from fix to fix, within the distance chosen, with its wind, interpolated between the fixes, 34 kt or more somewhere within it; listed at its closest approach, with its strongest wind within where that was more |
+| a past storm's hours | its fixes made hourly by the exposure table's rules: the centre and its wind interpolated between fixes, a radius known where the file gives one, zero where the wind is under its threshold and unknown otherwise, interpolated only between two known ends; replayed over the hours its centre is within 1,000 km of here or its 34-kt wind is over here, six hours either side |
+| a forecast's hours | *Here*'s own path of the official forecast, hour by hour by the same rules, from the analysis on |
+| the wind here | the strongest threshold whose radius in the point's quadrant reaches it; a radius is that wind's furthest reach anywhere in its quadrant, so the wind at the point may be lower |
+| where it comes from | worked out here, not forecast: round the centre, anticlockwise north of the equator and clockwise south of it, 20° in towards it, a typical inflow angle near the surface over the sea (larger over land, where the wind blows more nearly towards the centre); not given within 10 km of the centre |
+
+While the tracks load the panel says so; if they cannot be read it says why,
+with **Retry**, and the live storms and their replays go on without them. A
+run that sent none, HURDAT2 unread when it was made, says that instead, with
+no Retry, which could not bring them.
+Moving the street stops the replay where it was, and a run taken in place
+keeps the storm and its hour, by time, while the storm is still offered,
+else shows the first. The replay follows the official track and radii
+exactly; the cone and the chances carry the forecast's uncertainty, and it
+shows neither. The streaks illustrate the wind: they are not a rain forecast,
+and they do not turn when Google's view is turned, which the page cannot see.
+HURDAT2 is credited in the stage's strip while the panel is open.
+
 ### Offline, and what the map is not
 
 Offline, the page still draws the coastline, every storm, the composites, the
@@ -1834,7 +1917,7 @@ storm — and which storms exist is not known until the first wave lands.
 |---|---|
 | [NHC active cyclones](https://www.nhc.noaa.gov/CurrentStorms.json) | which systems are live right now, with their ATCF ids and their products' links |
 | [ATCF best-track listing](https://ftp.nhc.noaa.gov/atcf/btk/) | the directory, so a storm that has dropped off the active list is still reachable |
-| [HURDAT2](https://www.nhc.noaa.gov/data/hurdat/) | the 1851- best-track archive, for date-matched climatology and the El Niño composite |
+| [HURDAT2](https://www.nhc.noaa.gov/data/hurdat/) | the 1851- best-track archive, for date-matched climatology and the El Niño composite; on the street, the storms that passed a point since 1950 and the past storms replayed there |
 | NHC outlook, [Atlantic](https://www.nhc.noaa.gov/xgtwo/gtwo_atl.kmz) / [east Pacific](https://www.nhc.noaa.gov/xgtwo/gtwo_pac.kmz) / [central Pacific](https://www.nhc.noaa.gov/xgtwo/gtwo_cpac.kmz) | the formation areas and their 2- and 7-day chances |
 | [JTWC RSS](https://www.metoc.navy.mil/jtwc/rss/jtwc.rss) | JTWC's live warnings, and the links to their `.tcw` files |
 | JTWC significant tropical weather, [west Pacific](https://www.metoc.navy.mil/jtwc/products/abpwweb.txt) / [Indian Ocean](https://www.metoc.navy.mil/jtwc/products/abioweb.txt) | disturbances and their 24-hour potential |
@@ -2026,11 +2109,14 @@ elnino/thennow.py        then and now: its sources, every month's RONI season, t
 elnino/street.py         Street View: the stage, the nearest street and Next street, the
                          card's record, composite, forecast and weather for the point
                          dropped into, and the replay of El Niño's rain on it
+elnino/streetstorms.py   hurricanes on the street: the stage's storm line and panel, the
+                         replay of a forecast or a past storm, the storms since 1950,
+                         and HURDAT2's tracks as an asset loaded when asked
 elnino/assets.py         the code and data that do not change from run to run, as files
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1578 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1665 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -2198,7 +2284,10 @@ much more than an hour, plus GitHub's queue, behind the feeds
   lakes, the relief), are not in the pages but beside them, in
   `assets/<name>.<the first ten hex digits of its SHA-256>.js`, named in each
   page's head and loaded as deferred scripts, so they work from a page opened
-  as a file as well as served. A file's name changes only when its contents
+  as a file as well as served. HURDAT2's tracks, for the street's storm panel,
+  are named by a link of a relation no browser fetches (`rel="elnino-lazy"`)
+  and loaded as a classic script only when the panel first opens: 1.8 MB, 280
+  KB as GitHub Pages compresses them. A file's name changes only when its contents
   do, so a copy kept is that file for good, across runs and across the pages
   that share it. GitHub Pages sends every file again after each publish, with a
   new date and tag on each (`curl -I` across one, 9 October 2026), so a browser
@@ -2279,7 +2368,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1578 tests, no network required. They cover:
+1665 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column

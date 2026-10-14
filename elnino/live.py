@@ -556,8 +556,9 @@ SCRIPT = r"""var elninoLive = (function () {
   }
   // Whether a page read from the site was written by this page's own code and
   // names the same assets, the code and data that are the same from run to
-  // run (elnino/assets.py): only then are its markup and data this page's to
-  // take in place.
+  // run (elnino/assets.py), both those it runs and those it loads only when
+  // the reader asks: only then are its markup and data this page's to take
+  // in place.
   function code(doc) {
     var m = doc.querySelector('meta[name="elnino-code"]');
     return m ? m.getAttribute("content") : null;
@@ -567,9 +568,15 @@ SCRIPT = r"""var elninoLive = (function () {
       return s.getAttribute("src");
     }).join(" ");
   }
+  function lazyOf(doc) {
+    return [].map.call(doc.querySelectorAll('link[rel="elnino-lazy"]'), function (l) {
+      return l.getAttribute("href");
+    }).join(" ");
+  }
   function sameCode(doc) {
     var mine = code(document);
-    return mine !== null && mine === code(doc) && assetsOf(document) === assetsOf(doc);
+    return mine !== null && mine === code(doc) && assetsOf(document) === assetsOf(doc) &&
+      lazyOf(document) === lazyOf(doc);
   }
 
   return {follow: follow, shows: shows, sameCode: sameCode, hold: hold};

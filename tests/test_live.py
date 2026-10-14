@@ -172,7 +172,7 @@ Object.defineProperty(El.prototype, "textContent", {
   set: function (text) { this.own = String(text); this.children = []; }
 });
 
-var MARK = null, CODEMARK = null, ASSETS = [], SUMMARIES = [], LISTENING = {};
+var MARK = null, CODEMARK = null, ASSETS = [], LAZY = [], SUMMARIES = [], LISTENING = {};
 function listen(name, fn) { (LISTENING[name] = LISTENING[name] || []).push(fn); }
 function fire(name, said) {
   var e = Object.assign({type: name}, said || {});
@@ -193,6 +193,7 @@ var document = {
   querySelectorAll: function (sel) {
     if (sel === "details > summary") return SUMMARIES;
     if (sel === 'script[src^="assets/"]') return ASSETS;
+    if (sel === 'link[rel="elnino-lazy"]') return LAZY;
     throw new Error("no fake for " + sel);
   },
   addEventListener: function (type, fn) { listen("document:" + type, fn); }
@@ -418,6 +419,22 @@ console.log(JSON.stringify([REGISTERED, POSTED]));
         self.assertEqual(got, [["sw.js"], [{"keep": [
             "https://villaketh.github.io/elnino-tracker/assets/follower.0123456789.js",
             "https://villaketh.github.io/elnino-tracker/assets/dashboard.abcdef0123.js"]}]])
+
+    def test_the_worker_is_told_only_the_scripts_and_not_what_loads_when_asked(self):
+        # The storm tracks, 1.8 MB, are fetched when a reader opens the
+        # street's storm panel, and by no visit before.
+        got = self.page(self.WORKER + r"""
+SITE = {run_at: RUN0};
+window.isSecureContext = true;
+ASSETS = [script("assets/follower.0123456789.js")];
+var link = new El("link");
+link.setAttribute("href", "assets/tracks.abcdef0123.js");
+LAZY = [link];
+load(RUN0);
+await settled();
+console.log(JSON.stringify(POSTED));
+""")
+        self.assertEqual(got, [{"keep": ["https://villaketh.github.io/elnino-tracker/assets/follower.0123456789.js"]}])
 
     def test_a_page_from_a_file_or_an_insecure_origin_or_refused_a_worker_goes_on_without_one(self):
         got = self.page(self.WORKER + r"""
@@ -947,6 +964,7 @@ function doc(code, files) {
   return {querySelector: function (sel) { return sel === 'meta[name="elnino-code"]' ? codeMark(code) : null; },
           querySelectorAll: function (sel) {
             if (sel === 'script[src^="assets/"]') return named(files);
+            if (sel === 'link[rel="elnino-lazy"]') return [];
             throw new Error("no fake for " + sel);
           }};
 }
@@ -960,6 +978,32 @@ console.log(JSON.stringify([
   page.sameCode(doc("abc123", []))]));
 """)
         self.assertEqual(got, [True, False, False, False])
+
+    def test_a_page_naming_other_assets_to_load_when_asked_is_not_its_code_s_to_take(self):
+        # The storm tracks are loaded only when the street's panel asks
+        # (elnino/streetstorms.py): a page naming others was written for
+        # other tracks, so the page loads again for it instead.
+        got = self.page(r"""
+function codeMark(code) { var m = new El("meta"); m.setAttribute("content", code); return m; }
+function links(files) {
+  return files.map(function (file) { var l = new El("link"); l.setAttribute("href", "assets/" + file); return l; });
+}
+function doc(files) {
+  return {querySelector: function (sel) { return sel === 'meta[name="elnino-code"]' ? codeMark("abc123") : null; },
+          querySelectorAll: function (sel) {
+            if (sel === 'script[src^="assets/"]') return [];
+            if (sel === 'link[rel="elnino-lazy"]') return links(files);
+            throw new Error("no fake for " + sel);
+          }};
+}
+var page = load(RUN0, {take: function () { return Promise.resolve(); }});
+CODEMARK = codeMark("abc123");
+LAZY = links(["tracks.0123456789.js"]);
+console.log(JSON.stringify([page.sameCode(doc(["tracks.0123456789.js"])),
+                            page.sameCode(doc(["tracks.abcdef0123.js"])),
+                            page.sameCode(doc([]))]));
+""")
+        self.assertEqual(got, [True, False, False])
 
     def test_a_run_that_never_comes_is_gone_for_again_after_growing_pauses(self):
         got = self.page(r"""
@@ -1503,6 +1547,7 @@ var geoDirty = false;
 function retake(box, html, keep) { note("retake " + box.id + (keep ? " around " + keep.id : "")); box.innerHTML = html; }
 function select() { note("select"); }
 function showHere() { note("showHere"); }
+function tcRetake() { note("tcRetake"); }
 function ages() { note("ages"); }
 function dirty() { note("dirty"); }
 var SAME = true;
@@ -1610,6 +1655,9 @@ refresh().then(function () {
         # The El Nino controls in the new panel (a region's Show) are as the
         # reader set them.
         self.assertLess(calls.index("retake panel around here"), calls.index("ensoControls"))
+        # The street's storm line and panel are written from the new run's
+        # storms.
+        self.assertLess(calls.index("prepare"), calls.index("tcRetake"))
 
     def test_the_reader_s_place_is_held_until_the_new_run_is_drawn(self):
         got = self.refresh(r"""
@@ -1618,7 +1666,7 @@ refresh().then(function () { console.log(JSON.stringify({calls: CALLS, geo: geoD
         calls = got["calls"]
         # Drawn at once, keys and all, so the place is put back on the page as
         # it will stand; then the run is named.
-        for step in ("showHere", "ages", "render"):
+        for step in ("showHere", "tcRetake", "ages", "render"):
             self.assertLess(calls.index("hold"), calls.index(step))
             self.assertLess(calls.index(step), calls.index("put back"))
         self.assertEqual(calls[-2:], ["put back", "shows"])

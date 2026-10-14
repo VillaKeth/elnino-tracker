@@ -7,7 +7,9 @@ in files named by their contents, ``assets/<name>.<sha256[:10]>.js``, which a
 page names in its head as deferred classic scripts. A file's name changes only
 when its text does, so a browser keeps each one across runs and across the
 pages that share it; classic scripts load from a page opened as a file as
-well as from one served.
+well as from one served. One that a page needs only when a reader asks for
+it, the street's storm tracks, it names instead with a link no browser
+fetches (``Asset.lazy_tag``), and its own code loads it then.
 
 The data set properties of one global, ``ELNINO``; the code is the follower
 (elnino/live.py) and each page's own. A run writes the assets its pages name
@@ -34,7 +36,8 @@ from pathlib import Path
 FOLDER = "assets"
 _NAME = re.compile(r"[a-z][a-z0-9]*")
 _FILE = re.compile(r"[a-z][a-z0-9]*\.[0-9a-f]{10}\.js")
-_TAG = re.compile(r'<script defer src="assets/([a-z][a-z0-9]*\.[0-9a-f]{10}\.js)"></script>')
+_TAG = re.compile(r'<script defer src="assets/([a-z][a-z0-9]*\.[0-9a-f]{10}\.js)"></script>'
+                  r'|<link rel="elnino-lazy" href="assets/([a-z][a-z0-9]*\.[0-9a-f]{10}\.js)">')
 # Every asset this process has made, by file: what a run writes is the text
 # its pages were written against, never a file read back from anywhere.
 _MADE: dict[str, Asset] = {}
@@ -63,15 +66,27 @@ class Asset:
         it; relative, so it is found beside the page wherever that is."""
         return f'<script defer src="{FOLDER}/{self.file}"></script>'
 
+    def lazy_tag(self) -> str:
+        """How a page names it to load only when its own code asks: a link of
+        a relation no browser knows, which no browser fetches, where the
+        page's code finds it to load it as a classic script when wanted."""
+        return f'<link rel="elnino-lazy" href="{FOLDER}/{self.file}">'
+
 
 def tags(items) -> str:
     """The tags naming these assets, in their order, one a line."""
     return "\n".join(item.tag() for item in items)
 
 
+def lazy_tags(items) -> str:
+    """The links naming these assets to load when asked, in their order, one a line."""
+    return "\n".join(item.lazy_tag() for item in items)
+
+
 def page_assets(html: str) -> list[str]:
-    """The asset files a page names, in the order it names them."""
-    return _TAG.findall(html)
+    """The asset files a page names, in the order it names them: those it
+    runs and those it loads only when asked."""
+    return [run or later for run, later in _TAG.findall(html)]
 
 
 def made(file: str) -> Asset:

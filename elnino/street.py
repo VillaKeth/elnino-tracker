@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from . import atlas, classify, worldmap
+from . import atlas, classify, streetstorms, worldmap
 from .svg import esc
 
 # The first month the card's record may read: the atlas composites from 1979,
@@ -179,13 +179,14 @@ def _sim_panel() -> str:
 def map_parts() -> str:
     """The stage, on the map and over it while a point is dropped into: a bar
     with the place and the ways on, Google's panorama, and under it a strip
-    with the minimap and the card's first lines, or the replay of El Nino's
-    rain in their place, so nothing of the page sits on Google's own controls
-    and credit; the replay's rain and the badge naming its day lie over the
+    with the minimap and the card's first lines under the live storms' line,
+    or the replay of El Nino's rain or the storm panel (streetstorms.py) in
+    their place, so nothing of the page sits on Google's own controls and
+    credit; the replay's rain and the badge naming its day lie over the
     panorama, clear of its foot and never taking a pointer. The minimap's
-    tiles, the nearest street, the forecast the chip quotes and the replay's
-    record are credited beside them. The stage takes the focus a pick gives
-    it."""
+    tiles, the nearest street, the forecast the chip quotes, the replay's
+    record and the storm panel's tracks are credited beside them. The stage
+    takes the focus a pick gives it."""
     return ('<section class="streetstage ui" id="street-stage" aria-label="Street View" tabindex="-1" hidden>'
             '<div class="streetbar">'
             '<p class="streetplace" id="street-place" aria-live="polite"></p>'
@@ -216,16 +217,18 @@ def map_parts() -> str:
             '<button type="button" id="street-mini-in" aria-label="Zoom the minimap in">+</button>'
             '<button type="button" id="street-mini-out" aria-label="Zoom the minimap out">&minus;</button>'
             "</div></div>"
-            '<div class="streetchip" id="street-chip"><div class="streetchiphead" id="street-chip-head"><b>El '
-            'Ni\u00f1o on this street</b><button type="button" class="toolbtn streetreplay" id="street-replay">'
-            'Replay El Ni\u00f1o\u2019s rain</button><button type="button" class="streetmore" id="street-more">The '
-            "whole card \u2193</button></div>"
+            '<div class="streetchip" id="street-chip">' + streetstorms.chip_line() +
+            '<div class="streetchiphead" id="street-chip-head"><b>El Ni\u00f1o on this street</b>'
+            '<button type="button" class="toolbtn streetreplay" id="street-replay">Replay El Ni\u00f1o\u2019s rain'
+            "</button>" + streetstorms.button() +
+            '<button type="button" class="streetmore" id="street-more">The whole card \u2193</button></div>'
             '<p class="streetchipsaid" id="street-chip-said"></p>'
-            + _sim_panel() +
+            + _sim_panel() + streetstorms.panel() +
             '<p class="streetcredit">ECMWF\u2019s forecast: <a href="https://open-meteo.com/" target="_blank" '
             'rel="noopener">Weather data by Open-Meteo.com</a></p>'
             '<p class="streetcredit" id="street-sim-credit" hidden>Daily rain: <a href="https://power.larc.nasa.gov/" '
             'target="_blank" rel="noopener">NASA POWER</a>, NASA Langley Research Center.</p>'
+            + streetstorms.credit() +
             f'<p class="streetcredit">Minimap: {esc(_STREETS["credit"])}</p>'
             '<p class="streetcredit">Nearest street: <a href="https://project-osrm.org/" target="_blank" '
             'rel="noopener">OSRM</a> or <a href="https://valhalla.github.io/valhalla/" target="_blank" '
@@ -1384,8 +1387,9 @@ _JS = r"""
       streetCard(lon, lat, true);
     }
     // The replay stays open on the new point, stopped where it was, on the
-    // record of its cell.
+    // record of its cell; the storm panel stays open, for the new point.
     if (S.sim) { simPlay(false); simLoad(); }
+    tcMoved();
     streetDraw();
     return true;
   }
@@ -1398,6 +1402,7 @@ _JS = r"""
     if (!st) return false;
     var focused = !!on && !!stage.contains && stage.contains(on);
     simClose(true);
+    tcClose(true);
     S.street = null;
     clearTimeout(snapTimer);
     cancelAnimationFrame(anim); anim = 0;
@@ -1423,7 +1428,7 @@ _JS = r"""
     var st = S.street, pano = $("street-pano");
     setHidden($("street-stage"), !st);
     map.classList.toggle("streeton", !!st);
-    if (!st) { STREET_SRC = ""; pano.innerHTML = ""; return; }
+    if (!st) { STREET_SRC = ""; pano.innerHTML = ""; tcDraw(); return; }
     if (st.finding) {
       STREET_SRC = "";
       pano.innerHTML = '<p class="streetfinding">' + FINDING + "</p>";
@@ -1444,6 +1449,7 @@ _JS = r"""
     miniDraw();
     streetChip();
     simDraw();
+    tcDraw();
   }
   // For the page's API: where the street is.
   function streetView() {
@@ -1740,10 +1746,12 @@ _JS = r"""
   S.sim = null;
   var SIM_SPEEDS = [7, 14, 30], SIM_HELD = 250, SIM_SLOP = 8;
   var SIM_LOADING = "Reading NASA POWER\u2019s days for this place, every one since 1981\u2026";
-  // The replay opened on the stage's point at next month's window, its
-  // record asked if it has not got the cell's, the focus on the panel.
+  // The replay opened on the stage's point at next month's window, the storm
+  // panel closed first, its record asked if it has not got the cell's, the
+  // focus on the panel.
   function simOpen() {
     if (!S.street) return false;
+    if (S.tc) tcClose();
     if (!S.sim) {
       var start = new Date(Date.now()).getUTCMonth() + 2;
       S.sim = {start: start > 12 ? start - 12 : start, tag: null, day: 0, pos: 0, speed: SIM_SPEEDS[0],
@@ -1752,6 +1760,7 @@ _JS = r"""
     }
     simLoad();
     simDraw();
+    tcDraw();
     var panel = $("street-sim");
     if (panel.focus) panel.focus({preventScroll: true});
     return true;
@@ -1766,6 +1775,7 @@ _JS = r"""
     if (sim.frame) cancelAnimationFrame(sim.frame);
     S.sim = null;
     simDraw();
+    tcDraw();
     if (inside && !leaving && opener.focus) opener.focus({preventScroll: true});
     return true;
   }
@@ -1860,12 +1870,13 @@ _JS = r"""
   // The panel as S.sim has it, in the chip's place, with the rain over the
   // panorama, or the card's chip back.
   function simDraw() {
-    var sim = S.sim, on = !!sim && !!S.street;
+    var sim = S.sim, on = !!sim && !!S.street, covered = on || !!S.tc && !!S.street;
     $("street-stage").classList.toggle("simon", on);
     setHidden($("street-sim"), !on);
     setHidden($("street-sim-credit"), !on);
-    setHidden($("street-chip-head"), on);
-    setHidden($("street-chip-said"), on);
+    // The chip's head and sentence give their place to either panel.
+    setHidden($("street-chip-head"), covered);
+    setHidden($("street-chip-said"), covered);
     if (!on) { rainDay(""); return; }
     var m = sim.model, run = simChosen(), live = simLive(), pick = $("street-sim-event"), slider = $("street-sim-day");
     setValue($("street-sim-start"), String(sim.start));
@@ -1988,6 +1999,39 @@ _JS = r"""
     S.sim.seeking = true;
     try { if (e.pointerId !== undefined) e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* seeks while over it */ }
     return true;
+  }
+  // A replay's chart sought by its pointers (box), the replay's state as
+  // panel() has it, null while it is closed. A mouse or pen down on the chart
+  // seeks (seekFrom), and seeks as it moves until it is let go. A finger
+  // seeks where it is lifted, or once it goes across (SIM_SLOP) and on as it
+  // moves; moving up or down first, it scrolls the panel (pan-y, the
+  // browser's) and seeks nothing.
+  function simPointers(box, panel, seek, seekFrom) {
+    box.addEventListener("pointerdown", function (e) {
+      var p = panel();
+      if (!p || (e.button !== undefined && e.button !== 0)) return;
+      if (e.pointerType === "touch") p.touch = {id: e.pointerId, x: e.clientX, y: e.clientY};
+      else seekFrom(e);
+    });
+    box.addEventListener("pointermove", function (e) {
+      var p = panel(), t = p && p.touch;
+      if (p && p.seeking) { seek(e.clientX); return; }
+      if (!t || t.id !== e.pointerId) return;
+      var across = Math.abs(e.clientX - t.x), up = Math.abs(e.clientY - t.y);
+      if (across > SIM_SLOP && across > up) { p.touch = null; seekFrom(e); }
+      else if (up > SIM_SLOP) p.touch = null;
+    });
+    box.addEventListener("pointerup", function (e) {
+      var p = panel();
+      if (!p) return;
+      if (p.touch && p.touch.id === e.pointerId) seek(e.clientX);
+      p.touch = null;
+      p.seeking = false;
+    });
+    box.addEventListener("pointercancel", function () {
+      var p = panel();
+      if (p) { p.touch = null; p.seeking = false; }
+    });
   }
   // The chart drawn at the width it has, and the playhead on the day shown.
   function simChartDraw() {
@@ -2288,7 +2332,8 @@ _JS = r"""
             speed: Math.round((snow ? 0.12 + 0.12 * s : 1 + 1.2 * s) * 1000) / 1000};
   }
   // A streak is as long as its drop falls in RAIN_BLUR seconds, and leans
-  // RAIN_SLANT across for each pixel down, as its drop drifts on the wind.
+  // RAIN_SLANT across for each pixel down, as its drop drifts on the wind -
+  // or as far as the storm replay's band leans it (streetstorms.py).
   var RAIN_BLUR = 0.03, RAIN_SLANT = 0.12, RAIN_STILL = null;
   // Whether the reader asks for less motion, asked of the browser once.
   function rainStill() {
@@ -2297,40 +2342,53 @@ _JS = r"""
     }
     return !!(RAIN_STILL && RAIN_STILL.matches);
   }
-  // Whether rain falls on the day the replay shows, to be drawn frame by frame.
+  // What is drawn over the panorama: the El Nino replay's rain for its day,
+  // or the storm replay's wind for its hour (streetstorms.py); the two
+  // panels are never open together.
+  function rainNow() { return (S.sim && S.sim.rain) || (S.tc && S.tc.rain) || null; }
+  // Whether drops fall, to be drawn frame by frame.
   function rainOn() {
-    var rain = S.sim && S.sim.rain;
+    var rain = rainNow();
     return !!rain && rain.drops > 0 && !rainStill();
   }
   // The rain for the day the replay shows, and the badge naming it (when, in
-  // the slider's words): both hidden, and the canvas let go, while the replay
-  // shows no day or the street is being found. The canvas is shown only while
-  // it rains: one cleared and drawn on no more can go on showing what it drew
-  // last (Chrome, 12 October 2026). The drops are kept while the day's kind
-  // of rain is, as many as the day asks; a wet day is drawn at once, and the
+  // the slider's words), while the replay shows a day of a street found; the
   // frames run while it rains, unless the reader asks for less motion.
   function rainDay(when) {
-    var sim = S.sim, run = simChosen(), st = S.street, canvas = $("street-rain"), badge = $("street-day");
-    var on = !!run && !!st && !st.finding, level = on ? rainLevel(run.p[sim.day], run.t[sim.day]) : null;
-    setHidden(canvas, !(level && level.drops));
-    setHidden(badge, !on);
-    if (!on) {
+    var sim = S.sim, run = simChosen(), st = S.street, on = !!run && !!st && !st.finding;
+    rainSet(sim, on ? rainLevel(run.p[sim.day], run.t[sim.day]) : null, when);
+    simFrame();
+  }
+  // What a replay (holder: S.sim, or S.tc for the storm replay) draws over
+  // the panorama at a level, and the badge naming its moment (when). With
+  // no level both are hidden and the canvas let go, unless the other replay
+  // draws. The canvas is shown only while drops fall: one cleared and drawn
+  // on no more can go on showing what it drew last (Chrome, 12 October
+  // 2026). The drops are kept while their kind is, as many as the level
+  // asks, and drawn at once; the holder asks for its frames.
+  function rainSet(holder, level, when) {
+    var canvas = $("street-rain"), badge = $("street-day");
+    if (holder && !level) holder.rain = null;
+    if (!level) {
+      if (rainNow()) return;
+      setHidden(canvas, true);
+      setHidden(badge, true);
       if (canvas.width) { canvas.width = 0; canvas.height = 0; }
-      if (sim && sim.rain) { sim.rain = null; simFrame(); }
       return;
     }
+    setHidden(canvas, !level.drops);
+    setHidden(badge, false);
     setText(badge, when);
-    var key = when + "|" + level.kind + "|" + level.drops, was = sim.rain;
+    var key = when + "|" + level.kind + "|" + level.drops, was = holder.rain;
     if (was && was.key === key) return;
     var drops = was && was.kind === level.kind ? was.parts : [];
     while (drops.length > level.drops) drops.pop();
     while (drops.length < level.drops) {
       drops.push({x: Math.random(), y: Math.random(), z: 0.4 + 0.6 * Math.random(), w: Math.random() * 2 * Math.PI});
     }
-    sim.rain = {key: key, kind: level.kind, drops: level.drops, gloom: level.gloom, speed: level.speed, parts: drops,
-                last: was ? was.last : 0};
+    holder.rain = {key: key, kind: level.kind, drops: level.drops, gloom: level.gloom, speed: level.speed,
+                   slant: level.slant || RAIN_SLANT, gusts: !!level.gusts, parts: drops, last: was ? was.last : 0};
     if (level.drops) rainPaint(0);
-    simFrame();
   }
   // The canvas sized to its box at the device's pixel ratio, two at most.
   function rainSize(canvas) {
@@ -2344,14 +2402,15 @@ _JS = r"""
   // left where it was: the drops moved on by the time since the last frame,
   // the sky dimmed, and each drop drawn at one of three depths, the nearer
   // faster, bigger and brighter - rain as streaks leaning with the wind, as
-  // long as they are fast; snow as flakes swaying as they fall - a path a
-  // depth.
+  // long as they are fast, a storm's gusting at hurricane force; snow as
+  // flakes swaying as they fall - a path a depth.
   function rainPaint(ts) {
-    var rain = S.sim && S.sim.rain, canvas = $("street-rain");
+    var rain = rainNow(), canvas = $("street-rain");
     var ctx = rain && canvas.getContext ? canvas.getContext("2d") : null;
     if (!ctx) return false;
     var box = rainSize(canvas), w = box.w, h = box.h, snow = rain.kind === "snow", sway = (ts || rain.last) / 1000;
     var dt = ts && rain.last ? Math.min(ts - rain.last, SIM_HELD) / 1000 : 0, depths = [[], [], []];
+    var gust = rain.gusts ? rainGust(sway) : 1, slant = rain.slant * Math.sqrt(gust);
     if (ts) rain.last = ts;
     ctx.setTransform(box.dpr, 0, 0, box.dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
@@ -2359,9 +2418,9 @@ _JS = r"""
     ctx.fillStyle = "rgba(14, 22, 33, " + rain.gloom + ")";
     ctx.fillRect(0, 0, w, h);
     rain.parts.forEach(function (d) {
-      var v = rain.speed * d.z;
+      var v = rain.speed * d.z * gust;
       d.y += v * dt;
-      if (!snow) d.x += RAIN_SLANT * v * dt * h / w;
+      if (!snow) d.x += slant * v * dt * h / w;
       if (d.y > 1.08) { d.y -= 1.16; d.x = Math.random(); }
       d.x -= Math.floor(d.x);
       depths[d.z < 0.6 ? 0 : d.z < 0.8 ? 1 : 2].push(d);
@@ -2377,9 +2436,9 @@ _JS = r"""
           ctx.moveTo(x + r, y);
           ctx.arc(x, y, r, 0, 2 * Math.PI);
         } else {
-          var len = rain.speed * d.z * h * RAIN_BLUR;
+          var len = rain.speed * gust * d.z * h * RAIN_BLUR;
           ctx.moveTo(x, y);
-          ctx.lineTo(x - RAIN_SLANT * len, y - len);
+          ctx.lineTo(x - slant * len, y - len);
         }
       });
       if (snow) {
@@ -2393,6 +2452,9 @@ _JS = r"""
     });
     return true;
   }
+  // A storm's gusts at hurricane force: its wind's strength, 1 to 1.6,
+  // rising and falling on two slow beats a few seconds long.
+  function rainGust(s) { return 1 + 0.3 * Math.max(0, Math.sin(s * 1.7) + Math.sin(s * 0.63 + 1.3)); }
   $("street-exit").addEventListener("click", function () { streetLeave(); });
   $("street-next").addEventListener("click", function () { streetNext(); });
   $("street-find").addEventListener("click", function () { streetFind(); });
@@ -2410,10 +2472,7 @@ _JS = r"""
   // A wheel over the stage is the stage's (the chip scrolls), not the map's.
   $("street-stage").addEventListener("wheel", function (e) { e.stopPropagation(); }, {passive: true});
   if (window.ResizeObserver) new ResizeObserver(function () { if (S.street) miniDraw(); }).observe($("street-mini"));
-  // The replay's controls. A mouse or pen down on the chart seeks, and seeks
-  // as it moves until it is let go. A finger seeks where it is lifted, or
-  // once it goes across (SIM_SLOP) and on as it moves; moving up or down
-  // first, it scrolls the panel (pan-y, the browser's) and seeks nothing.
+  // The replay's controls, and its chart's pointers (simPointers).
   $("street-replay").addEventListener("click", function () { simOpen(); });
   $("street-sim-back").addEventListener("click", function () { simClose(); });
   $("street-sim-retry").addEventListener("click", function () { simRetry(); });
@@ -2425,27 +2484,7 @@ _JS = r"""
     if (S.sim && SIM_SPEEDS.indexOf(v) >= 0) S.sim.speed = v;
   });
   $("street-sim-day").addEventListener("input", function (e) { simSeekDay(+e.target.value); });
-  $("street-sim-chart").addEventListener("pointerdown", function (e) {
-    if (!S.sim || (e.button !== undefined && e.button !== 0)) return;
-    if (e.pointerType === "touch") S.sim.touch = {id: e.pointerId, x: e.clientX, y: e.clientY};
-    else simSeekFrom(e);
-  });
-  $("street-sim-chart").addEventListener("pointermove", function (e) {
-    var sim = S.sim, t = sim && sim.touch;
-    if (sim && sim.seeking) { simSeek(e.clientX); return; }
-    if (!t || t.id !== e.pointerId) return;
-    var across = Math.abs(e.clientX - t.x), up = Math.abs(e.clientY - t.y);
-    if (across > SIM_SLOP && across > up) { sim.touch = null; simSeekFrom(e); }
-    else if (up > SIM_SLOP) sim.touch = null;
-  });
-  $("street-sim-chart").addEventListener("pointerup", function (e) {
-    var sim = S.sim;
-    if (!sim) return;
-    if (sim.touch && sim.touch.id === e.pointerId) simSeek(e.clientX);
-    sim.touch = null;
-    sim.seeking = false;
-  });
-  $("street-sim-chart").addEventListener("pointercancel", function () { if (S.sim) { S.sim.touch = null; S.sim.seeking = false; } });
+  simPointers($("street-sim-chart"), function () { return S.sim; }, simSeek, simSeekFrom);
   if (window.ResizeObserver) new ResizeObserver(function () {
     var sim = S.sim;
     if (sim && sim.geo && Math.round($("street-sim-chart").getBoundingClientRect().width) !== sim.geo.width) {
@@ -2454,19 +2493,20 @@ _JS = r"""
     }
   }).observe($("street-sim-chart"));
   // The rain drawn again at the canvas's new size.
-  if (window.ResizeObserver) new ResizeObserver(function () { if (S.sim && S.sim.rain) rainPaint(0); })
+  if (window.ResizeObserver) new ResizeObserver(function () { if (rainNow()) rainPaint(0); })
     .observe($("street-rain"));
-  // Esc closes the replay, and leaves the street when it is closed, unless
-  // then-and-now's keys took it first (to stop the map waiting for a tap);
-  // keys typed into a field are its own, but for the replay's own controls.
+  // Esc closes the replay or the storm panel, and leaves the street when
+  // neither is open, unless then-and-now's keys took it first (to stop the
+  // map waiting for a tap); keys typed into a field are its own, but for the
+  // panels' own controls.
   document.addEventListener("keydown", function (e) {
-    var t = e.target, tag = t && t.tagName, mine = !!S.sim && !!(t && t.closest && t.closest("#street-sim"));
+    var t = e.target, tag = t && t.tagName;
+    function inPart(sel) { return !!(t && t.closest && t.closest(sel)); }
+    var mine = !!S.sim && inPart("#street-sim") || !!S.tc && inPart("#street-tc");
     if (e.defaultPrevented || e.key !== "Escape" || !S.street) return;
-    if (!mine && (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || (t && t.closest && t.closest("#findform")))) {
-      return;
-    }
+    if (!mine && (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || inPart("#findform"))) return;
     e.preventDefault();
-    if (S.sim) simClose(); else streetLeave();
+    if (S.sim) simClose(); else if (S.tc) tcClose(); else streetLeave();
   });
 """
 
@@ -2543,15 +2583,18 @@ def css() -> str:
   .streetmini { width: 220px; height: 165px; }
   .streetchip { max-height: 165px; }
 }
-/* The replay, in the chip's place: the chip stands taller and, on a phone,
-   takes the minimap's room, and the stage stands taller, so the panorama,
-   where the rain falls, keeps its room; its chart is drawn to the width it
-   has, a finger across it seeking and up and down scrolling. */
+/* The replay, or the storm panel (streetstorms.py), in the chip's place: the
+   chip stands taller and, on a phone, takes the minimap's room, and the stage
+   stands taller, so the panorama, where the rain falls, keeps its room; the
+   replay's chart is drawn to the width it has, a finger across it seeking and
+   up and down scrolling. */
 .streetreplay { min-height: 32px; padding: 0 10px; font-size: 0.76rem; }
-.streetstage.simon .streetfoot { max-height: 52%; }
-.streetstage.simon .streetchip { max-height: none; }
-@media (max-width: 899px) { .streetstage.simon .streetmini { display: none; } }
-@media (max-width: 899px) { #map.streeton:has(.streetstage.simon) { height: 92vh; height: 92svh; } }
+.streetstage.simon .streetfoot, .streetstage.tcon .streetfoot { max-height: 52%; }
+.streetstage.simon .streetchip, .streetstage.tcon .streetchip { max-height: none; }
+@media (max-width: 899px) { .streetstage.simon .streetmini, .streetstage.tcon .streetmini { display: none; } }
+@media (max-width: 899px) {
+  #map.streeton:has(.streetstage.simon), #map.streeton:has(.streetstage.tcon) { height: 92vh; height: 92svh; }
+}
 .streetsim { display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px; }
 .streetsim:focus { outline: none; }
 .streetsimbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
