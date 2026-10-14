@@ -1838,15 +1838,15 @@ console.log(JSON.stringify([tabbed, moved, gone, document.activeElement === inHe
 function here(words, pressed, frame) {
   return [h("h2", {id: "here-title"}, words),
           h("div", {"class": "herebtns"}, h("button", {"data-google": "map", "aria-pressed": "false"}, "Map"),
-            h("button", {"data-google": "street", "aria-pressed": pressed ? "true" : "false"}, "Street View")),
+            h("button", {"data-google": "satellite", "aria-pressed": pressed ? "true" : "false"}, "Satellite")),
           frame ? h("div", {id: "google-frame", "class": "gframe"}, frame) : h("div", {id: "google-frame", "class": "gframe", hidden: ""}),
           h("p", {"class": "links"}, "Google Maps")];
 }
-var frame = h("iframe", {src: "https://maps.google.com/maps?layer=c&cbll=-12.05,-77.04&output=svembed"});
+var frame = h("iframe", {src: "https://maps.google.com/maps?q=-12.05,-77.04&t=k&z=15&output=embed"});
 var box = new El("section", {id: "here"}, here("Here: Lima", true, frame));
 ROOT = h("body", {}, h("aside", {id: "panel"}, box));
 S.here = {lon: -77.04, lat: -12.05, label: "Lima"};
-S.google = {kind: "street", lon: -77.04, lat: -12.05};
+S.google = {kind: "satellite", lon: -77.04, lat: -12.05};
 MARKUP["Here, run b"] = function () { return here("Here: Lima, run b", false, null); };
 hereWrite(box, "Here, run b");
 var kept = [$("google-frame").childNodes[0] === frame, $("google-frame").hidden, $("here-title").textContent,
@@ -1857,7 +1857,7 @@ S.here = {lon: -70.0, lat: -15.0, label: "Puno"};
 hereWrite(box, "Here, run b");
 console.log(JSON.stringify([kept, ROOT.contains(frame), $("google-frame").hidden, S.google]));
 """)
-        self.assertEqual(got, [[True, False, "Here: Lima, run b", ["false", "true"], "street"], False, True, None])
+        self.assertEqual(got, [[True, False, "Here: Lima, run b", ["false", "true"], "satellite"], False, True, None])
 
     def test_here_written_in_a_take_keeps_its_tables_and_the_focus(self):
         # As takeRun does it: the panel taken around Here, then Here written
@@ -1871,12 +1871,12 @@ function here(words, frame) {
           h("details", {}, h("summary", {}, "Events sampled")),
           frame ? h("div", {id: "google-frame"}, frame) : h("div", {id: "google-frame", hidden: ""})];
 }
-var frame = h("iframe", {src: "https://maps.google.com/maps?layer=c&cbll=-12.05,-77.04&output=svembed"});
+var frame = h("iframe", {src: "https://maps.google.com/maps?q=-12.05,-77.04&t=k&z=15&output=embed"});
 var box = new El("section", {id: "here"}, here("Here: Lima", frame));
 var panel = h("aside", {id: "panel"}, box, storm("a"));
 ROOT = h("body", {}, panel);
 S.here = {lon: -77.04, lat: -12.05, label: "Lima"};
-S.google = {kind: "street", lon: -77.04, lat: -12.05};
+S.google = {kind: "satellite", lon: -77.04, lat: -12.05};
 box.querySelector("details").open = true;
 document.activeElement = box.querySelector('[data-here="show"]');
 MARKUP["run b"] = function () { return [h("section", {id: "here", hidden: ""}), storm("a")]; };
@@ -1888,6 +1888,32 @@ console.log(JSON.stringify([box.querySelector("details").open,
                             $("google-frame").childNodes[0] === frame, $("here-title").textContent]));
 """)
         self.assertEqual(got, [True, True, True, "Here: Lima, run b"])
+
+    def test_the_focus_on_google_s_street_view_stays_there_and_not_on_street_view_here(self):
+        # Both drop into the street, each known by its own row: Google's
+        # carries data-row, so the focus is not moved to Here's own.
+        got = self.run_js(r"""
+function here(words) {
+  return [h("h2", {id: "here-title"}, words),
+          h("div", {"class": "herebtns"}, h("button", {"data-here": "street"}, "Street View here")),
+          h("div", {"class": "herebtns"}, h("button", {"data-google": "map"}, "Map"),
+            h("button", {"data-here": "street", "data-row": "google"}, "Street View")),
+          h("div", {id: "google-frame", hidden: ""})];
+}
+var box = new El("section", {id: "here"}, here("Here: Lima"));
+var panel = h("aside", {id: "panel"}, box, storm("a"));
+ROOT = h("body", {}, panel);
+S.here = {lon: -77.04, lat: -12.05, label: "Lima"};
+var google = box.querySelector('[data-row="google"]');
+document.activeElement = google;
+MARKUP["run b"] = function () { return [h("section", {id: "here", hidden: ""}), storm("a")]; };
+MARKUP["Here, run b"] = function () { return here("Here: Lima, run b"); };
+retake(panel, "run b", box);
+hereWrite(box, "Here, run b");
+var now = document.activeElement;
+console.log(JSON.stringify([now && now.getAttribute("data-row"), now && now.textContent]));
+""")
+        self.assertEqual(got, ["google", "Street View"])
 
     def test_here_is_said_once_for_each_place(self):
         got = self.run_js(r"""
@@ -2007,7 +2033,7 @@ function tick() {}
 S.x = mx(-77.04); S.y = my(-12.05); S.z = 9; S.layer = "satellite"; S.compare = true; S.second = "geocolor";
 S.split = 0.4; S.scrub = 12; S.selected = "ep152026"; S.day = "2026-09-28"; S.dayStepped = true;
 S.show.rings = false; S.loop = true;
-S.here = {lon: -77.04, lat: -12.05, label: "Lima, Peru"}; S.google = {kind: "street", lon: -77.04, lat: -12.05};
+S.here = {lon: -77.04, lat: -12.05, label: "Lima, Peru"}; S.google = {kind: "satellite", lon: -77.04, lat: -12.05};
 // As the follower hands it over: written as JSON.
 function kept() {
   var k = JSON.parse(JSON.stringify(keepPlace()));
@@ -2030,7 +2056,7 @@ console.log(JSON.stringify([plain, unstepped, kept()]));
                  "show": {"cones": True, "rings": False}, "refs": {"tropics": False},
                  "enso": {"variable": "PRECIP", "season": "SON", "mask": True, "opacity": 0.6, "tileOpacity": 0.8,
                           "tiles": {}, "regions": False, "boxes": True, "shown": None},
-                 "here": {"lon": -77.04, "lat": -12.05, "label": "Lima, Peru"}, "google": "street", "then": None,
+                 "here": {"lon": -77.04, "lat": -12.05, "label": "Lima, Peru"}, "google": "satellite", "then": None,
                  "street": None, "thenLast": None,
                  "storm": "ep152026", "tabs": {"storm-ep152026": "forecast", "storm-al092026": "now"},
                  "loop": True}
@@ -2050,7 +2076,7 @@ restorePlace({view: {lon: -77.04, lat: -12.05, z: 9}, layer: "satellite", second
               show: {cones: true, rings: false, gone: true}, refs: {tropics: true},
               enso: {variable: "AIR", season: "DJF", mask: false, opacity: 0.5, tileOpacity: 0.9,
                      tiles: {sst: true}, regions: false, boxes: true, shown: "Coastal Peru and Ecuador"},
-              here: {lon: -77.04, lat: -12.05, label: "Lima, Peru"}, google: "street",
+              here: {lon: -77.04, lat: -12.05, label: "Lima, Peru"}, google: "satellite",
               then: {lon: -77.04, lat: -12.05, label: "Lima, Peru", source: "modis", preset: "now",
                      a: "2025-10-01", b: "2026-10-01", names: false, split: 0.7},
               storm: "ep152026", tabs: {"storm-ep152026": "forecast", "storm-al092026": "now"}, loop: true});
@@ -2063,7 +2089,7 @@ console.log(JSON.stringify({calls: CALLS, second: [S.second, COMPARE.value], scr
             'enso {"variable":"AIR","season":"DJF","mask":false,"regions":false,"boxes":true,"opacity":0.5,'
             '"tileOpacity":0.9,"tiles":{"sst":true,"floods":false},"shown":"Coastal Peru and Ecuador"}',
             "select ep152026", "tab storm-ep152026 forecast", "tab storm-al092026 now",
-            "here -77.04 -12.05 Lima, Peru", "google street at 9",
+            "here -77.04 -12.05 Lima, Peru", "google satellite at 9",
             'enter [-77.04,-12.05,"Lima, Peru",{"source":"modis","preset":"now","a":"2025-10-01",'
             '"b":"2026-10-01","names":false,"instant":true}]', "split 0.7",
             "view -77.04 -12.05 9"])
@@ -2107,13 +2133,23 @@ restorePlace({view: {lon: "x", lat: NaN, z: 9}, layer: "constructor", second: "t
 var first = CALLS.slice();
 CALLS = [];
 // Here's name, when it is not words, is the page's own for the point.
-restorePlace({here: {lon: -77.04, lat: -12.05, label: {}}, google: "street"});
+restorePlace({here: {lon: -77.04, lat: -12.05, label: {}}, google: "map"});
 console.log(JSON.stringify({first: first, then: CALLS, second: [S.second, COMPARE.value], scrub: S.scrub,
                             day: S.day}));
 """)
         self.assertEqual(got, {"first": [self.TOGGLES, 'enso {"tiles":{"sst":false,"floods":false}}'],
-                               "then": [self.TOGGLES, "here -77.04 -12.05 ", "google street at 3"],
+                               "then": [self.TOGGLES, "here -77.04 -12.05 ", "google map at 3"],
                                "second": ["infrared", "infrared"], "scrub": 0, "day": None})
+
+    def test_google_s_street_view_kept_by_an_older_page_is_not_opened_again(self):
+        # Street View is no longer one of Google's frames in Here but a pick
+        # into the street, which goes to the nearest street first: a frame of
+        # it kept by a page from before is let go.
+        got = self.run_js(r"""
+restorePlace({here: {lon: -77.04, lat: -12.05, label: "Lima, Peru"}, google: "street"});
+console.log(JSON.stringify(CALLS));
+""")
+        self.assertEqual(got, [self.TOGGLES, "here -77.04 -12.05 Lima, Peru"])
 
     def test_a_place_the_reader_had_left_is_left_however_the_page_opened(self):
         got = self.run_js(r"""

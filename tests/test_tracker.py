@@ -2915,6 +2915,8 @@ class TestStormDeskPage(_DeskFixtures, unittest.TestCase):
         "geocode.arcgis.com",               # a place typed in the search
         "routing.openstreetmap.de",         # the nearest street, by OSRM
         "project-osrm.org",                 # its credit
+        "valhalla1.openstreetmap.de",       # the nearest street when OSRM does not answer, by Valhalla
+        "valhalla.github.io",               # its credit
         "power.larc.nasa.gov",              # the street's record, NASA POWER
         "api.open-meteo.com",               # the weather there now
         "seasonal-api.open-meteo.com",      # ECMWF's months ahead
@@ -5170,7 +5172,9 @@ class TestGoogleHereRuns(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "g.js"
             path.write_text(script, encoding="utf-8")
-            done = subprocess.run(["node", str(path)], capture_output=True, text=True, timeout=60)
+            # Node writes UTF-8 whatever the console's code page.
+            done = subprocess.run(["node", str(path)], capture_output=True, text=True, encoding="utf-8",
+                                  timeout=60)
         self.assertEqual(done.returncode, 0, done.stderr[-2000:])
         return json.loads(done.stdout)
 
@@ -5202,9 +5206,26 @@ class TestGoogleHereRuns(unittest.TestCase):
     def test_nothing_is_asked_of_google_until_a_button_is_pressed(self):
         html = self.run_page("googleHtml(-12.0464, -77.0428, 15)")
         self.assertNotIn("<iframe", html)
-        self.assertIn('data-google="street"', html)
+        self.assertIn('data-google="satellite"', html)
         self.assertIn("&amp;basemap=satellite", html)
         self.assertIn("iframe", _js_function(worldmap._JS, "googleFrame"))
+
+    def test_street_view_in_google_s_row_drops_into_the_nearest_street(self):
+        # Google's frame at the point as tapped showed "No Street View
+        # available." or a photo someone took inside for six of sixteen taps
+        # over New York on 14 October 2026, five of eight in Midtown: Street
+        # View in Google's row is a pick, as the figure's is, and goes to the
+        # nearest street first.
+        html = self.run_page("googleHtml(40.7480, -73.9860, 14)")
+        self.assertNotIn('data-google="street"', html)
+        self.assertIn('<button type="button" class="toolbtn" data-google="map" aria-pressed="false">Map</button>'
+                      '<button type="button" class="toolbtn" data-google="satellite" aria-pressed="false">Satellite'
+                      '</button><button type="button" class="toolbtn" data-here="street" data-row="google">'
+                      'Street View</button>', html)
+        # The point goes to FOSSGIS first, to find its street.
+        self.assertIn("Street View drops into the nearest street, found by FOSSGIS\u2019s OSRM or Valhalla, as "
+                      "the figure does.", html)
+        self.assertNotIn("which can be some way off", html)
 
 
 class TestTwoPages(_DeskFixtures, unittest.TestCase):

@@ -4384,7 +4384,9 @@ _JS = r"""
     if (seen) look();
     if (point(h)) {
       hereAt(h.lon, h.lat, typeof h.label === "string" ? h.label : "");
-      if (k.google === "map" || k.google === "satellite" || k.google === "street") googleFrame(k.google);
+      // Street View, once one of Google's frames here, is a pick into the
+      // street now: a frame of it kept by a page from before is let go.
+      if (k.google === "map" || k.google === "satellite") googleFrame(k.google);
     } else if (h === null && S.here) clearHere();
     if (point(t) && thenSrc(t.source)) {
       thenEnter(t.lon, t.lat, typeof t.label === "string" && t.label ? t.label : null,

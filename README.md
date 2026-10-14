@@ -1313,9 +1313,10 @@ divider onto it.
 
 **Google is here, but never under the page's own layers.** Google's terms forbid
 drawing its tiles inside another map, and its own embed gives the same data
-legitimately. *Here* has Map, Satellite and Street View buttons that load
-Google's embed (`maps.google.com/maps?q=…&output=embed`, and `output=svembed`
-for Street View) in a frame beneath; nothing is requested from Google until one
+legitimately. *Here* has Map and Satellite buttons that load Google's embed
+(`maps.google.com/maps?q=…&output=embed`) in a frame beneath, and a Street
+View button that drops into the street stage at the nearest street, as the
+figure does (*Street View*, below); nothing is requested from Google until one
 is pressed. Beside them, links open Google Maps, Street View and Google Earth at
 the point, by Google's documented Maps URLs. Neither needs a key.
 
@@ -1555,13 +1556,20 @@ the map. Street View and then and
 now are two views of an entered place, and one gives way to the other: the
 stage's **Then and now** enters the same point, coming back to the source and
 dates last used, and the then-and-now bar's **Street View** goes the other way.
-*Here* offers **Street View here** and **Then and now here**.
+*Here* offers **Street View here** and **Then and now here**, and the Street
+View in its row of Google's buttons is the same pick.
 
 A point the reader picks (the figure let go, the minimap tapped, *Here*'s and
 then and now's Street View) goes first to the nearest street, as Google Maps'
 figure goes to its blue lines: Google's embed looks only some tens of metres
 about a point, and on 9 October 2026 a point in a block in Lima found no
-panorama and one in São Paulo a café's inside. FOSSGIS's OSRM
+panorama and one in São Paulo a café's inside. Every Street View the page
+shows is a pick (the links beside *Here*'s buttons open Google Maps itself,
+which finds its own). On 14 October 2026 the one that was not, *Here*'s frame
+of Google's at the point as tapped, showed "No Street View available." or a
+photo someone took inside for six of sixteen taps over New York (five of eight
+in Midtown), where thirty-one picks of thirty-one, in Chrome, Firefox and
+WebKit, found Google's own panorama. FOSSGIS's OSRM
 (`routing.openstreetmap.de`, its `routed-car` profile's `nearest`, 100
 waypoints) names the nearest stretches of the roads a car may take on
 OpenStreetMap, and the pick goes to the nearest **named** road within a
@@ -1573,14 +1581,24 @@ named road found a panorama, and eight of the thirteen that went to an unnamed
 way, a driveway or a service road. **Next street** in the bar goes down the
 other named roads within 5 km, nearest first, six roads in all, then back to
 the point as picked, and round again; the line under the bar says which road
-the stage is on, how far from the pick, and where Next street goes. OSRM is
-asked once a second at most, the latest pick winning, and credited under the
-minimap as its operator asks; a pick it has not answered within 2.5 s opens
-where it was made. An address, `#street=` and the page's API open exactly where
-they say. Street View shows Google's panorama nearest the stage's point; where
-Google has none at all its frame says "No Street View available", and **Next
-street** tries the others; the minimap and the card are the point's either way,
-as the note under the bar says.
+the stage is on, how far from the pick, and where Next street goes, asking "No
+panorama of it?" first: a named road can still be one Google's car never
+drove, as Windham Loop on Staten Island was, 6 m from a pick on 14 October
+2026, with Rumson Road 72 m on. OSRM is asked once a second at most, the latest
+pick winning, and credited under the minimap as its operator asks. When it has
+not answered in 2.5 s, or fails, FOSSGIS's Valhalla
+(`valhalla1.openstreetmap.de`, its `locate` within 100 m, else the nearest,
+for roads of a residential street's class or over and in no tunnel or ferry:
+at the Battery its nearest was the Brooklyn-Battery Tunnel, 38 m under the
+pick) is asked as well, once a second at most too and only for the pick the
+stage still has, and the first list either gives is taken; each waits 6 s at
+most. Neither giving a
+road, the stage opens where the pick was made, says the nearest street could
+not be found, and **Find the street** asks again. An address, `#street=` and
+the page's API open exactly where they say. Street View shows Google's panorama
+nearest the stage's point; where Google has none at all its frame says "No
+Street View available.", and **Next street** tries the others; the minimap and
+the card are the point's either way, as the note under the bar says.
 
 `map.html#street=LAT,LON` opens the stage (**Copy link** writes it); like
 every address the desk, the map and the atlas read, it opens all the same when
@@ -1839,6 +1857,7 @@ downloads none of them, and both pages still draw without them (sections 12 and
 | [OpenStreetMap](https://tile.openstreetmap.org/) | the standard map, when the page is served | OSM's tile usage policy; © OpenStreetMap contributors |
 | Google's embed and [Maps URLs](https://developers.google.com/maps/documentation/urls/get-started) | Google's own map, satellite view and Street View of a point, on request; the street stage's panorama | no key; Google's own frame |
 | [FOSSGIS's OSRM](https://routing.openstreetmap.de/) (`routed-car`, `nearest`) | the nearest street to a point picked for Street View | keyless; once a second at most, credited, "fix the map" |
+| [FOSSGIS's Valhalla](https://valhalla1.openstreetmap.de/) (`locate`) | the nearest street when OSRM has not answered in 2.5 s or fails | keyless; once a second at most, credited, "fix the map" |
 | [NASA POWER](https://power.larc.nasa.gov/) monthly and daily point APIs | the street card's record and the replay's days: rain and temperature since 1981 | keyless; credited as NASA asks; only on a drop or when asked, the replay's days only when it opens and for the cell's grid point |
 | [Open-Meteo](https://open-meteo.com/) forecast and seasonal APIs | the street card's weather now and ECMWF's next six months | keyless, non-commercial; "Weather data by Open-Meteo.com"; only on a drop or when asked |
 
@@ -1962,7 +1981,7 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1476 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1485 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -2199,7 +2218,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1476 tests, no network required. They cover:
+1485 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2551,8 +2570,13 @@ python -m unittest discover -s tests -v
   cannot be written asking again, the stage over the map with its minimap, its
   chip and its Exit, the loop and Play stopped behind it, a pick going to
   the nearest named street within a kilometre, else the nearest road within
-  reach, and to where it was made when OSRM does not answer or names no road it
-  can read, Next street's
+  reach, Valhalla asked when OSRM fails or has not answered in 2.5 s, once a
+  second at most and never for a pick replaced or left, and its road taken,
+  OSRM's taken when it answers after, to where it was made, saying so, when
+  neither names a road it can read, and Find the street asking again with the
+  focus kept in the stage, Street View in *Here*'s row of
+  Google's buttons a pick and a frame of it kept by an older page let go, Next
+  street's
   order, wrap and line, `#street=` and the API, and the stage and the card kept
   through a run taken in place and a page loaded again; the replay's days read
   from POWER's CSV in either form and any column order and refused when not

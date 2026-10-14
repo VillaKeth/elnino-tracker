@@ -13,8 +13,14 @@ panorama and one in Sao Paulo a cafe's inside. FOSSGIS's OSRM names the
 nearest roads a car may take on OpenStreetMap, asked once a second at most and
 credited as its operator asks; the pick goes to the nearest named one within a
 kilometre, as unnamed ways (driveways, service roads) are where Google's car
-did not go, and Next street goes down the rest. An address or the page's API
-opens exactly where it says.
+did not go, and Next street goes down the rest. FOSSGIS's Valhalla, over the
+same map, is asked as well when OSRM has not answered in 2.5 seconds, or at
+once when it fails; neither giving a road, the stage says so and Find the
+street asks again. Every Street View the page offers is a pick: on 14 October
+2026 Here's own frame of Google's, at the point as tapped, showed "No Street
+View available." or a photo someone took inside for six of sixteen taps over
+New York, where picks found Google's own panorama for thirty-one of
+thirty-one. An address or the page's API opens exactly where it says.
 
 That is the street's own record, not the atlas's 2.5 degree cell: the point's
 monthly rainfall and temperature since 1981 from NASA POWER, composited in the
@@ -90,6 +96,13 @@ SOURCES = {
 # it is, the point written in at {lon} and {lat}.
 ROADS = "https://routing.openstreetmap.de/routed-car/nearest/v1/driving/{lon},{lat}?number=100"
 
+# Where a pick's street is asked when OSRM does not answer, as FOSSGIS's
+# Valhalla answered on 14 October 2026: the roads a car may take within a
+# radius of the point, or the nearest, each with its names and how far it
+# is (28 KB within 100 m of Fifth Avenue), the question written in as JSON
+# at {json}.
+LOCATE = "https://valhalla1.openstreetmap.de/locate?json={json}"
+
 
 def months(series) -> dict:
     """The index by centre month, as CPC prints it, from its first season on
@@ -114,12 +127,13 @@ def payload(state) -> dict:
     """What the card needs from the run: the index month by month, the atlas
     composite's rules, the atlas's dry floor (under it, rain is given in
     millimetres alone, never as a percentage), the sources' addresses and
-    where a picked point's street is asked."""
+    the two places a picked point's street is asked."""
     assessment = getattr(state, "assessment", None)
     series = list(getattr(assessment, "index_series", None) or [])
     return {"index": getattr(assessment, "index_name", None) or "RONI", "months": months(series),
             "warm": WARM, "neutral": NEUTRAL, "min_events": MIN_EVENTS, "min_years": MIN_YEARS,
-            "t975": list(T975), "dry_floor": atlas.DRY_FLOOR, "sources": dict(SOURCES), "roads": ROADS}
+            "t975": list(T975), "dry_floor": atlas.DRY_FLOOR, "sources": dict(SOURCES), "roads": ROADS,
+            "locate": LOCATE}
 
 
 # The minimap's tiles are the map's own street layer's, and its credit goes
@@ -176,16 +190,19 @@ def map_parts() -> str:
             '<div class="streetbar">'
             '<p class="streetplace" id="street-place" aria-live="polite"></p>'
             '<button type="button" class="toolbtn" id="street-next" hidden>Next street</button>'
+            '<button type="button" class="toolbtn" id="street-find" hidden>Find the street</button>'
             '<button type="button" class="toolbtn" id="street-then">Then and now</button>'
             '<button type="button" class="toolbtn" id="street-copy">Copy link</button>'
             '<a class="toolbtn" id="street-gmaps" href="https://www.google.com/maps" target="_blank" '
             'rel="noopener">Google Maps \u2197</a>'
             '<button type="button" class="toolbtn" id="street-exit">Exit</button>'
-            '<p class="streetroads" id="street-roads"></p>'
-            '<p class="streetnote">Street View shows Google\u2019s panorama nearest the stage\u2019s point; where '
-            "Google has none it says \u201cNo Street View available\u201d. A point picked (the figure dropped, or "
-            "the minimap tapped) goes to the nearest named street within a kilometre, else the nearest road within "
-            "reach, and Next street tries the others. The minimap and the card are this point\u2019s either way.</p>"
+            '<p class="streetroads" id="street-roads" aria-live="polite"></p>'
+            '<p class="streetnote">Street View shows Google\u2019s panorama nearest the stage\u2019s point. A point '
+            "picked (the figure dropped, the minimap tapped, or Street View pressed in Here or in then and now) goes "
+            "to the nearest named street within a kilometre, else the nearest road within reach. Where Google has no "
+            "panorama of it, it "
+            "says \u201cNo Street View available.\u201d, and where its nearest is a photo someone took inside, it "
+            "shows that: Next street tries the next. The minimap and the card are this point\u2019s either way.</p>"
             '<p class="streetlink" id="street-link" role="status"></p></div>'
             '<div class="streetview"><div class="streetpano" id="street-pano"></div>'
             '<canvas class="streetrain" id="street-rain" aria-hidden="true" hidden></canvas>'
@@ -211,7 +228,8 @@ def map_parts() -> str:
             'target="_blank" rel="noopener">NASA POWER</a>, NASA Langley Research Center.</p>'
             f'<p class="streetcredit">Minimap: {esc(_STREETS["credit"])}</p>'
             '<p class="streetcredit">Nearest street: <a href="https://project-osrm.org/" target="_blank" '
-            'rel="noopener">OSRM</a> by FOSSGIS over <a href="https://www.openstreetmap.org/copyright" '
+            'rel="noopener">OSRM</a> or <a href="https://valhalla.github.io/valhalla/" target="_blank" '
+            'rel="noopener">Valhalla</a> by FOSSGIS over <a href="https://www.openstreetmap.org/copyright" '
             'target="_blank" rel="noopener">\u00a9 OpenStreetMap contributors</a>; <a '
             'href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">fix the map</a>.</p>'
             "</div></div></section>")
@@ -1340,7 +1358,9 @@ _JS = r"""
   // stage shows the point while Here, the card and Google's frame wait.
   // Entered on a pick's street, it keeps the pick's list (opts.roads, the
   // entry it is on, opts.road, and the point picked, opts.picked) for Next
-  // street; entered any other way, it has none.
+  // street; entered any other way, it has none. Entered on a pick whose
+  // street was not found, it keeps the pick's zoom (opts.unfound) for Find
+  // the street.
   function streetEnter(lon, lat, label, opts) {
     opts = opts || {};
     lon = lonIn(lon); lat = clamp(lat, -85, 85);
@@ -1357,7 +1377,8 @@ _JS = r"""
     S.street = {lon: lon, lat: lat, label: label || placeLabel(lon, lat),
                 mini: finite(opts.mini) ? clamp(Math.round(opts.mini), MINI_MIN, MINI_MAX) : was ? was.mini : MINI_Z,
                 box: null, link: "", finding: !!opts.find, back: back, roads: opts.roads || null,
-                road: opts.roads ? opts.road || 0 : 0, picked: opts.roads ? opts.picked : null};
+                road: opts.roads ? opts.road || 0 : 0, picked: opts.roads ? opts.picked : null,
+                unfound: finite(opts.unfound) ? opts.unfound : null};
     if (!opts.find) {
       hereAt(lon, lat, S.street.label);
       streetCard(lon, lat, true);
@@ -1416,6 +1437,7 @@ _JS = r"""
     }
     setText($("street-place"), st.label);
     setHidden($("street-next"), !(st.roads && st.roads.length > 1));
+    setHidden($("street-find"), !finite(st.unfound));
     setText($("street-roads"), roadsLine(st));
     $("street-gmaps").setAttribute("href", googleLinks(st.lat, st.lon, S.z).street);
     setText($("street-link"), st.link);
@@ -1501,12 +1523,17 @@ _JS = r"""
   // on 12 October 2026, eight of the thirteen that went to an unnamed way (a
   // driveway, a service road) found a panorama, and fourteen of the fifteen
   // that went to a named road. Next street goes down the other named roads,
-  // to SNAP_FAR, and to the point as picked. No answer within SNAP_WAIT, and
-  // the point stays as picked. OSRM is asked once a second at most, as its
-  // operator asks: a pick made meanwhile replaces the one waiting, and an
-  // answer for a stage since moved or left is dropped.
-  var SNAP_PX = 24, SNAP_NEAR = 250, SNAP_FAR = 5000, SNAP_WAIT = 2500, SNAP_GAP = 1000, SNAP_NAMED = 1000;
-  var SNAP_ROADS = 6, FINDING = "Finding the nearest street\u2026", snapAt = -Infinity, snapTimer = 0;
+  // to SNAP_FAR, and to the point as picked. OSRM not answering within
+  // SNAP_HEDGE, or failing, Valhalla is asked too, and the first list either
+  // gives is taken; each waits SNAP_WAIT at most, and neither giving one, the
+  // point stays as picked, the stage says so and Find the street asks again.
+  // Each is asked once a second at most, as their operator asks: a pick made
+  // meanwhile replaces the one waiting for OSRM, Valhalla is asked only for
+  // the pick the stage still has, and an answer for a stage since moved or
+  // left is dropped.
+  var SNAP_PX = 24, SNAP_NEAR = 250, SNAP_FAR = 5000, SNAP_WAIT = 6000, SNAP_HEDGE = 2500, SNAP_GAP = 1000;
+  var SNAP_NAMED = 1000, SNAP_ROADS = 6, SNAP_RADIUS = 100, FINDING = "Finding the nearest street\u2026";
+  var snapAt = -Infinity, locateAt = -Infinity, snapTimer = 0;
   function streetPick(lon, lat, z, label) {
     var fresh = !S.street, stage = $("street-stage");
     streetEnter(lon, lat, label, {find: true});
@@ -1518,10 +1545,10 @@ _JS = r"""
     snapTimer = setTimeout(function () {
       if (S.street !== st) return;
       snapAt = Date.now();
-      snapRoads(st.lon, st.lat, snapReach(z, st.lat)).then(function (roads) {
+      snapStreet(st.lon, st.lat, snapReach(z, st.lat), function () { return S.street === st; }).then(function (roads) {
         if (S.street !== st) return;
         var picked = {lon: st.lon, lat: st.lat, label: st.label}, e = roads && roads[0];
-        if (!e) streetEnter(st.lon, st.lat, st.label);
+        if (!e) streetEnter(st.lon, st.lat, st.label, {unfound: z});
         else streetEnter(e.lon, e.lat, roadLabel(e, picked), {roads: roads, road: 0, picked: picked});
       });
     }, Math.max(0, snapAt + SNAP_GAP - Date.now()));
@@ -1532,34 +1559,90 @@ _JS = r"""
   function snapReach(z, lat) {
     return clamp(SNAP_PX * CIRCUMFERENCE * 1000 * Math.cos(rad(lat)) / (TILE * Math.pow(2, z)), SNAP_NEAR, SNAP_FAR);
   }
-  // Where a picked point may go, by OSRM's nearest roads a car may take, as a
-  // list of {lon, lat, name, d (metres from the point), point}: first where
-  // the pick goes - the nearest named road within SNAP_NAMED or the reach,
-  // whichever is further, else the nearest road of any name within reach -
-  // then the other named roads to SNAP_FAR, each name once at its nearest
-  // stretch, nearest first, SNAP_ROADS roads in all; and the point as picked,
-  // last, or first when no road is taken. Null for no answer, or one not
-  // understood or with no road in it that can be read.
+  // The list a pick goes down (roadList) from the first street finder to
+  // give one: OSRM; and Valhalla too once OSRM has had SNAP_HEDGE, or as
+  // soon as OSRM fails, while live() says the pick is still the stage's, a
+  // second at least after Valhalla was last asked. Null when neither gives
+  // one, or the pick has gone before Valhalla's turn.
+  function snapStreet(lon, lat, reach, live) {
+    return new Promise(function (resolve) {
+      var asked = 1, failed = 0, done = false, hedge = 0, gap = 0;
+      function finish(list) { done = true; clearTimeout(hedge); clearTimeout(gap); resolve(list); }
+      function second() {
+        asked = 2;
+        var wait = locateAt + SNAP_GAP - Date.now();
+        if (wait > 0) gap = setTimeout(locate, wait); else locate();
+      }
+      function locate() {
+        if (done) return;
+        if (!live()) { finish(null); return; }
+        locateAt = Date.now();
+        snapLocate(lon, lat, reach).then(end);
+      }
+      function end(list) {
+        if (done) return;
+        if (list) finish(list);
+        else if (++failed === 2) finish(null);
+        else if (asked === 1) { clearTimeout(hedge); second(); }
+      }
+      snapRoads(lon, lat, reach).then(end);
+      hedge = setTimeout(function () { if (!done && asked === 1) second(); }, SNAP_HEDGE);
+    });
+  }
+  // OSRM's nearest roads a car may take, as roadList's list; null for no
+  // answer, or one not understood.
   function snapRoads(lon, lat, reach) {
     var url = D.street.roads.replace("{lon}", lon.toFixed(6)).replace("{lat}", lat.toFixed(6));
     return streetFetch(url, SNAP_WAIT).then(function (json) {
       if (!json || json.code !== "Ok" || !Array.isArray(json.waypoints)) return null;
-      var named = {}, any = null;
-      json.waypoints.forEach(function (w) {
+      return roadList(json.waypoints.map(function (w) {
         var at = w && Array.isArray(w.location) ? w.location : [];
-        if (!finite(at[0]) || !finite(at[1]) || !finite(w.distance) || w.distance < 0) return;
-        var r = {lon: lonIn(at[0]), lat: clamp(at[1], -85, 85), name: typeof w.name === "string" ? w.name.trim() : "",
-                 d: w.distance, point: false};
-        if (!any || r.d < any.d) any = r;
-        if (r.name && r.d <= SNAP_FAR && !(named[r.name] && named[r.name].d <= r.d)) named[r.name] = r;
-      });
-      if (!any) return null;
-      var list = Object.keys(named).map(function (k) { return named[k]; }).sort(function (a, b) { return a.d - b.d; });
-      var first = list.length && list[0].d <= Math.max(reach, SNAP_NAMED) ? list[0] : any && any.d <= reach ? any : null;
-      var rest = list.filter(function (r) { return r !== first; }), point = {lon: lon, lat: lat, name: "", d: 0, point: true,
-                                                                            reach: reach};
-      return first ? [first].concat(rest.slice(0, SNAP_ROADS - 1), [point]) : [point].concat(rest.slice(0, SNAP_ROADS));
+        return {lon: at[0], lat: at[1], name: w && w.name, d: w && w.distance};
+      }), lon, lat, reach);
     }, function () { return null; });
+  }
+  // Valhalla's roads a car may take within SNAP_RADIUS of the point (else
+  // its nearest), of a residential street's class or over and in no tunnel
+  // or ferry, as roadList's list: a service road, a driveway or a car park's
+  // aisle is where Google's car seldom went, and at the Battery on 14 October
+  // 2026 the nearest road was the Brooklyn-Battery Tunnel, 38 m under the
+  // pick. Null for no answer, or one not understood.
+  function snapLocate(lon, lat, reach) {
+    var ask = {locations: [{lat: +lat.toFixed(6), lon: +lon.toFixed(6), radius: SNAP_RADIUS,
+                            search_filter: {min_road_class: "residential", exclude_tunnel: true, exclude_ferry: true}}],
+               costing: "auto", verbose: true};
+    return streetFetch(D.street.locate.replace("{json}", encodeURIComponent(JSON.stringify(ask))), SNAP_WAIT)
+      .then(function (json) {
+        var edges = Array.isArray(json) && json[0] && Array.isArray(json[0].edges) ? json[0].edges : null;
+        return edges && roadList(edges.map(function (e) {
+          var names = e && e.edge_info && Array.isArray(e.edge_info.names) ? e.edge_info.names : [];
+          return {lon: e && e.correlated_lon, lat: e && e.correlated_lat, name: names[0], d: e && e.distance};
+        }), lon, lat, reach);
+      }, function () { return null; });
+  }
+  // Where a picked point may go, from a street finder's roads ({lon, lat,
+  // name, d}: d in metres from the point), as a list of {lon, lat, name, d,
+  // point}: first where the pick goes - the nearest named road within
+  // SNAP_NAMED or the reach, whichever is further, else the nearest road of
+  // any name within reach - then the other named roads to SNAP_FAR, each
+  // name once at its nearest stretch, nearest first, SNAP_ROADS roads in all;
+  // and the point as picked, last, or first when no road is taken. Null when
+  // no road can be read.
+  function roadList(roads, lon, lat, reach) {
+    var named = {}, any = null;
+    roads.forEach(function (w) {
+      if (!finite(w.lon) || !finite(w.lat) || !finite(w.d) || w.d < 0) return;
+      var r = {lon: lonIn(w.lon), lat: clamp(w.lat, -85, 85), name: typeof w.name === "string" ? w.name.trim() : "",
+               d: w.d, point: false};
+      if (!any || r.d < any.d) any = r;
+      if (r.name && r.d <= SNAP_FAR && !(named[r.name] && named[r.name].d <= r.d)) named[r.name] = r;
+    });
+    if (!any) return null;
+    var list = Object.keys(named).map(function (k) { return named[k]; }).sort(function (a, b) { return a.d - b.d; });
+    var first = list.length && list[0].d <= Math.max(reach, SNAP_NAMED) ? list[0] : any && any.d <= reach ? any : null;
+    var rest = list.filter(function (r) { return r !== first; }), point = {lon: lon, lat: lat, name: "", d: 0, point: true,
+                                                                          reach: reach};
+    return first ? [first].concat(rest.slice(0, SNAP_ROADS - 1), [point]) : [point].concat(rest.slice(0, SNAP_ROADS));
   }
   // An entry of a pick's list by name, as the stage's bar names it.
   function roadLabel(e, picked) { return e.point ? picked.label : (e.name ? e.name + ", " : "") + placeLabel(e.lon, e.lat); }
@@ -1570,9 +1653,14 @@ _JS = r"""
     return r < 1000 ? r + " m" : (m / 1000).toFixed(1).replace(/\.0$/, "") + " km";
   }
   // The line about a pick: where the stage is against the point picked, and
-  // where Next street goes from it. Nothing for a point entered exactly.
+  // where Next street goes from it, or that its street was not found.
+  // Nothing for a point entered exactly.
   function roadsLine(st) {
     var list = st && st.roads;
+    if (st && finite(st.unfound)) {
+      return "The nearest street could not be found: this is Google\u2019s panorama nearest the point as picked, " +
+             "if it has one.";
+    }
     if (!list) return "";
     var k = st.road, e = list[k], n = list.length, said;
     if (e.point) {
@@ -1581,7 +1669,8 @@ _JS = r"""
            : named > e.reach ? ": no named street within " + roadDistance(named) + ", nor any road within " +
                                roadDistance(e.reach) : ": no road within " + roadDistance(e.reach)) + ".";
     } else if (k === 0) {
-      said = (e.name ? "The nearest named street, " : "The nearest road, ") + roadDistance(e.d) + " from the point picked.";
+      said = (e.name ? "The nearest named street, " : "The nearest road, ") + roadDistance(e.d) + " from the point picked." +
+             (n > 1 ? " No panorama of it?" : "");
     } else {
       said = (e.name || "An unnamed road") + ", " + roadDistance(e.d) + " from the point picked (" + (k + 1) + " of " + n + ").";
     }
@@ -1599,6 +1688,15 @@ _JS = r"""
     if (!st || !st.roads || st.roads.length < 2) return false;
     var k = (st.road + 1) % st.roads.length, e = st.roads[k];
     return streetEnter(e.lon, e.lat, roadLabel(e, st.picked), {roads: st.roads, road: k, picked: st.picked});
+  }
+  // Find the street: a pick whose street was not found, asked again. Its
+  // button goes as the search begins, and the focus on it goes to the stage,
+  // as a pick's does.
+  function streetFind() {
+    var st = S.street, button = $("street-find"), stage = $("street-stage");
+    if (!st || !finite(st.unfound)) return false;
+    if (document.activeElement === button && stage.focus) stage.focus({preventScroll: true});
+    return streetPick(st.lon, st.lat, st.unfound, st.label);
   }
   // The figure let go over the map, or a tap or Enter while it waits: a pick.
   function figureLand(lon, lat) { return streetPick(lon, lat, S.z); }
@@ -2297,6 +2395,7 @@ _JS = r"""
   }
   $("street-exit").addEventListener("click", function () { streetLeave(); });
   $("street-next").addEventListener("click", function () { streetNext(); });
+  $("street-find").addEventListener("click", function () { streetFind(); });
   $("street-then").addEventListener("click", function () { streetThen(); });
   $("street-copy").addEventListener("click", function () { streetCopy(); });
   $("street-more").addEventListener("click", function () { streetMore(); });

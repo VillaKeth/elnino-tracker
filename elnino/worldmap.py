@@ -642,16 +642,24 @@ _JS = r"""
             earth: "https://earth.google.com/web/@" + at + ",0a," +
                    Math.round(591657550.5 / Math.pow(2, zoom)) + "d,35y,0h,0t,0r"};
   }
+  // Street View is a pick, as the figure's is (streetPick): Google's frame at
+  // the point as tapped found "No Street View available." or a photo someone
+  // took inside for six of sixteen taps over New York on 14 October 2026.
+  // Its button's data-row tells it from Here's own Street View here, which
+  // does the same, so the focus on it is found on it again as Here is
+  // rewritten.
   function googleHtml(lat, lon, z) {
     var l = googleLinks(lat, lon, z);
-    var kinds = [["map", "Map"], ["satellite", "Satellite"], ["street", "Street View"]];
+    var kinds = [["map", "Map"], ["satellite", "Satellite"]];
     return "<h4>Google Maps here</h4>" +
       '<div class="herebtns">' + kinds.map(function (k) {
         return '<button type="button" class="toolbtn" data-google="' + k[0] + '" aria-pressed="false">' + k[1] + "</button>";
-      }).join("") + "</div>" +
+      }).join("") + '<button type="button" class="toolbtn" data-here="street" data-row="google">Street View' +
+      "</button></div>" +
       '<div id="google-frame" class="gframe" hidden></div>' +
       '<p class="method">Nothing goes to Google until a button is pressed; then Google’s own map loads here and ' +
-      "Google receives this position. Street View opens on the nearest imagery Google has, which can be some way off.</p>" +
+      "Google receives this position. Street View drops into the nearest street, found by FOSSGIS’s OSRM or " +
+      "Valhalla, as the figure does.</p>" +
       '<p class="links">' + [["map", "Google Maps"], ["satellite", "Google satellite"], ["street", "Street View"],
                              ["earth", "Google Earth"]].map(function (k) {
         return '<a href="' + esc(l[k[0]]) + '" target="_blank" rel="noopener" data-glink="' + k[0] + '">' + k[1] + " ↗</a>";
@@ -681,8 +689,8 @@ _JS = r"""
     if (closing) { S.google = null; box.hidden = true; return; }
     S.google = {kind: kind, lon: S.here.lon, lat: S.here.lat};
     var frame = document.createElement("iframe");
-    frame.setAttribute("title", {map: "Google Maps", satellite: "Google Maps satellite view",
-                                 street: "Google Street View"}[kind] + " of " + S.here.label);
+    frame.setAttribute("title", {map: "Google Maps", satellite: "Google Maps satellite view"}[kind] +
+                                " of " + S.here.label);
     frame.setAttribute("loading", "lazy");
     frame.setAttribute("referrerpolicy", "no-referrer-when-downgrade");
     frame.setAttribute("allowfullscreen", "");

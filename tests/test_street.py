@@ -106,6 +106,14 @@ class TestStreetPayload(unittest.TestCase):
         self.assertEqual(street.payload(state_with(EVENT))["roads"],
                          "https://routing.openstreetmap.de/routed-car/nearest/v1/driving/{lon},{lat}?number=100")
 
+    def test_a_pick_osrm_does_not_answer_is_asked_of_valhalla(self):
+        # FOSSGIS's Valhalla over the same map, as it answered on 14 October
+        # 2026: the roads a car may take within the radius, or the nearest,
+        # each with its names and how far it is; sent with
+        # Access-Control-Allow-Origin: *.
+        self.assertEqual(street.payload(state_with(EVENT))["locate"],
+                         "https://valhalla1.openstreetmap.de/locate?json={json}")
+
 
 class TestStreetOnThePage(_DeskFixtures, unittest.TestCase):
     """The desk's page, written as the map or the desk, carries the street."""
@@ -199,17 +207,21 @@ class TestStreetStageMarkup(_DeskFixtures, unittest.TestCase):
         # the line saying where the stage is against the pick.
         self.assertIn('<p class="streetplace" id="street-place" aria-live="polite"></p>'
                       '<button type="button" class="toolbtn" id="street-next" hidden>Next street</button>'
+                      '<button type="button" class="toolbtn" id="street-find" hidden>Find the street</button>'
                       '<button type="button" class="toolbtn" id="street-then">Then and now</button>', stage)
-        self.assertIn('<p class="streetroads" id="street-roads"></p><p class="streetnote">', stage)
+        self.assertIn('<p class="streetroads" id="street-roads" aria-live="polite"></p><p class="streetnote">',
+                      stage)
 
     def test_what_google_shows_is_said_before_it_is_met(self):
         # Shown while no pick's line is - a point entered exactly, or its
         # street still being found - it says what a pick does.
-        self.assertIn('<p class="streetnote">Street View shows Google\u2019s panorama nearest the stage\u2019s point; '
-                      "where Google has none it says \u201cNo Street View available\u201d. A point picked (the figure "
-                      "dropped, or the minimap tapped) goes to the nearest named street within a kilometre, else the "
-                      "nearest road within reach, and Next street tries the others. The minimap and the card are this "
-                      "point\u2019s either way.</p>", street.map_parts())
+        self.assertIn('<p class="streetnote">Street View shows Google\u2019s panorama nearest the stage\u2019s point. '
+                      "A point picked (the figure dropped, the minimap tapped, or Street View pressed in Here or in "
+                      "then and now) goes to the nearest named street within a kilometre, else the nearest road within "
+                      "reach. Where Google "
+                      "has no panorama of it, it says \u201cNo Street View available.\u201d, and where its nearest is a "
+                      "photo someone took inside, it shows that: Next street tries the next. The minimap and the card "
+                      "are this point\u2019s either way.</p>", street.map_parts())
         # The line about the pick, once there is one, says it for this point:
         # the note gives it the room.
         css = street.css()
@@ -218,7 +230,8 @@ class TestStreetStageMarkup(_DeskFixtures, unittest.TestCase):
 
     def test_the_nearest_street_is_credited_as_its_operator_and_openstreetmap_ask(self):
         self.assertIn('<p class="streetcredit">Nearest street: <a href="https://project-osrm.org/" target="_blank" '
-                      'rel="noopener">OSRM</a> by FOSSGIS over <a href="https://www.openstreetmap.org/copyright" '
+                      'rel="noopener">OSRM</a> or <a href="https://valhalla.github.io/valhalla/" target="_blank" '
+                      'rel="noopener">Valhalla</a> by FOSSGIS over <a href="https://www.openstreetmap.org/copyright" '
                       'target="_blank" rel="noopener">\u00a9 OpenStreetMap contributors</a>; <a '
                       'href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">fix the '
                       "map</a>.</p>", street.map_parts())
@@ -499,36 +512,43 @@ class TestStreetStageRuns(unittest.TestCase):
                  ("a strange answer", 16, {"code": "Ok", "waypoints": [{"location": ["a", None], "distance": 5}]}),
                  ("no answer", 16, "hang"), ("an unnamed road", 16, road(5, name=""))]
         got = _run(self, r"""
+          Date.now = function () { return NOW + CLOCK; };
           var out = [];
           async function pick(z, answer) {
             ROUTES = []; route("routed-car/nearest", answer === "error" ? new TypeError("Failed to fetch") : answer);
             streetPick(-77.050283, -12.045154, z);
             advance(1000); await flush();
-            advance(2500); await flush();
+            advance(6000); await flush();
             return [S.street.lon, S.street.lat, S.street.label, S.street.finding,
                     $("street-pano").innerHTML.indexOf("cbll=" + S.street.lat.toFixed(6) + "," + S.street.lon.toFixed(6)) > 0,
-                    $("street-roads").textContent, $("street-next").hidden];
+                    $("street-roads").textContent, $("street-next").hidden, $("street-find").hidden];
           }
           var cases = """ + json.dumps([[z, answer] for _, z, answer in cases]) + r""";
           for (var i = 0; i < cases.length; i++) out.push(await pick(cases[i][0], cases[i][1]));
           console.log(JSON.stringify(out));
         """)
         here, named = [-77.050283, -12.045154, "12.05S 77.05W"], "Avenida Guillermo Dansey, 12.05S 77.05W"
-        silent = here + [False, True, "", True]
+        # Neither street finder gave a road (Valhalla, asked next, has no
+        # route here): the point as picked, saying so, and Find the street.
+        lost = here + [False, True, "The nearest street could not be found: this is Google\u2019s panorama nearest "
+                       "the point as picked, if it has one.", True, False]
         expected = [
             [-77.050231, -12.045687, named, False, True,
-             "The nearest named street, 400 m from the point picked. Next street: the point picked.", False],
+             "The nearest named street, 400 m from the point picked. No panorama of it? Next street: the point "
+             "picked.", False, True],
             here + [False, True, "The point as picked: no named street within 1 km, nor any road within 250 m. "
-                    "Next street: Avenida Guillermo Dansey, 1.2 km away.", False],
+                    "Next street: Avenida Guillermo Dansey, 1.2 km away.", False, True],
             [-77.050231, -12.045687, named, False, True,
-             "The nearest named street, 1.2 km from the point picked. Next street: the point picked.", False],
-            here + [False, True, "The point as picked: no road within 5 km.", True],
-            silent, silent, silent,
-            # An answer whose roads cannot be read says nothing of them.
-            silent,
-            silent,
+             "The nearest named street, 1.2 km from the point picked. No panorama of it? Next street: the point "
+             "picked.", False, True],
+            here + [False, True, "The point as picked: no road within 5 km.", True, True],
+            lost, lost, lost,
+            # An answer whose roads cannot be read is no answer.
+            lost,
+            lost,
             [-77.050231, -12.045687, "12.05S 77.05W", False, True,
-             "The nearest road, 5 m from the point picked. Next street: the point picked.", False]]
+             "The nearest road, 5 m from the point picked. No panorama of it? Next street: the point picked.",
+             False, True]]
         for (name, _, _), result, want in zip(cases, got, expected):
             with self.subTest(name):
                 self.assertEqual(result, want)
@@ -548,8 +568,8 @@ class TestStreetStageRuns(unittest.TestCase):
             osrm: ASKED.filter(function (u) { return u.indexOf("routed-car") >= 0; }).length}));
         """)
         hoover = [-81.729659, 27.989109, "Hoover Road, 27.99N 81.73W",
-                  "The nearest named street, 227 m from the point picked. Next street: Lake Shore Drive, 310 m away.",
-                  False, "Hoover Road, 27.99N 81.73W"]
+                  "The nearest named street, 227 m from the point picked. No panorama of it? Next street: Lake Shore "
+                  "Drive, 310 m away.", False, "Hoover Road, 27.99N 81.73W"]
         self.assertEqual(got["out"], [
             hoover,
             [-81.731, 27.991, "Lake Shore Drive, 27.99N 81.73W",
@@ -578,8 +598,227 @@ class TestStreetStageRuns(unittest.TestCase):
             S.street.roads.map(function (r) { return r.point ? "*" : r.name || "-"; })]));
         """)
         self.assertEqual(got, [-81.729997, 27.99967, "28.00N 81.73W",
-                               "The nearest road, 4 m from the point picked. Next street: Martin Luther King Jr "
-                               "Boulevard, 1.5 km away.", ["-", "Martin Luther King Jr Boulevard", "*"]])
+                               "The nearest road, 4 m from the point picked. No panorama of it? Next street: Martin "
+                               "Luther King Jr Boulevard, 1.5 km away.", ["-", "Martin Luther King Jr Boulevard", "*"]])
+
+    def test_valhalla_is_asked_when_osrm_fails_or_is_slow_and_the_first_road_given_is_taken(self):
+        got = _run(self, r"""
+          Date.now = function () { return NOW + CLOCK; };
+          function at() { return [S.street.lon, S.street.lat, S.street.label, S.street.finding, $("street-roads").textContent,
+                                  $("street-next").hidden, $("street-find").hidden]; }
+          function asked(words) { return ASKED.filter(function (u) { return u.indexOf(words) >= 0; }); }
+          var out = {};
+          // OSRM fails: Valhalla at once.
+          route("routed-car/nearest", new TypeError("Failed to fetch"));
+          route("valhalla1.openstreetmap.de/locate", """ + json.dumps(LOCATE_SI) + r""");
+          streetPick(-74.161517, 40.577058, 16);
+          advance(0); await flush();
+          out.failed = [at(), S.street.roads.map(function (r) { return r.point ? "*" : r.name; }), asked("locate").length];
+          out.url = asked("locate")[0];
+          $("street-next").fire("click");
+          out.next = at();
+          // OSRM silent: Valhalla once it has had 2.5 s, its road taken then.
+          ROUTES = []; ASKED.length = 0;
+          route("routed-car/nearest", "hang");
+          route("valhalla1.openstreetmap.de/locate", """ + json.dumps(LOCATE_SI) + r""");
+          streetPick(-74.161517, 40.577058, 16);
+          advance(1000); await flush();
+          advance(2499); await flush();
+          out.waiting = [S.street.finding, asked("locate").length];
+          advance(1); await flush();
+          out.slow = [at(), asked("routed-car").length, asked("locate").length];
+          // Both silent: the point as picked at 2.5 + 6 s, not before.
+          ROUTES = []; ASKED.length = 0;
+          route("routed-car/nearest", "hang");
+          route("valhalla1.openstreetmap.de/locate", "hang");
+          streetPick(-74.161517, 40.577058, 16);
+          advance(1000); await flush();
+          advance(2500); await flush();
+          advance(5999); await flush();
+          out.held = S.street.finding;
+          advance(1); await flush();
+          out.lost = at();
+          console.log(JSON.stringify(out));
+        """)
+        windham = [-74.161517, 40.577058, "Windham Loop, 40.58N 74.16W", False,
+                   "The nearest named street, 0 m from the point picked. No panorama of it? Next street: Rumson Road, "
+                   "78 m away.", False, True]
+        self.assertEqual(got["failed"], [windham, ["Windham Loop", "Rumson Road", "*"], 1])
+        # Roads of a residential street's class or over, and none in a
+        # tunnel or a ferry's: at the Battery on 14 October 2026 Valhalla's
+        # nearest was the Brooklyn-Battery Tunnel, 38 m under the pick.
+        self.assertEqual(got["url"], "https://valhalla1.openstreetmap.de/locate?json=%7B%22locations%22%3A%5B%7B%22lat"
+                         "%22%3A40.577058%2C%22lon%22%3A-74.161517%2C%22radius%22%3A100%2C%22search_filter%22%3A%7B"
+                         "%22min_road_class%22%3A%22residential%22%2C%22exclude_tunnel%22%3Atrue%2C%22exclude_ferry"
+                         "%22%3Atrue%7D%7D%5D%2C%22costing%22%3A%22auto%22%2C%22verbose%22%3Atrue%7D")
+        self.assertEqual(got["next"], [-74.160746, 40.576674, "Rumson Road, 40.58N 74.16W", False,
+                                       "Rumson Road, 78 m from the point picked (2 of 3). Next street: the point "
+                                       "picked.", False, True])
+        self.assertEqual(got["waiting"], [True, 0])
+        self.assertEqual(got["slow"], [windham, 1, 1])
+        self.assertTrue(got["held"])
+        self.assertEqual(got["lost"], [-74.161517, 40.577058, "40.58N 74.16W", False,
+                                       "The nearest street could not be found: this is Google\u2019s panorama nearest "
+                                       "the point as picked, if it has one.", True, False])
+
+    def test_valhalla_is_not_asked_when_osrm_answers_in_time_and_osrm_late_still_counts(self):
+        got = _run(self, r"""
+          Date.now = function () { return NOW + CLOCK; };
+          function locates() { return ASKED.filter(function (u) { return u.indexOf("/locate?") >= 0; }).length; }
+          var out = {};
+          // OSRM answers: Valhalla is never asked, though 2.5 s and more go by.
+          route("routed-car/nearest", """ + json.dumps(ROADS_WH) + r""");
+          route("valhalla1.openstreetmap.de/locate", """ + json.dumps(LOCATE_SI) + r""");
+          streetPick(-81.73, 27.9997, 16);
+          advance(0); await flush();
+          advance(3000); await flush();
+          advance(7000); await flush();
+          out.answered = [S.street.label, locates()];
+          // OSRM answers after Valhalla was asked at 2.5 s, Valhalla silent:
+          // OSRM's street is taken when it comes.
+          var answer = null, real = fetch;
+          fetch = function (url, opts) {
+            if (url.indexOf("routed-car") < 0) return real(url, opts);
+            ASKED.push(url);
+            return new Promise(function (ok) { answer = function () {
+              ok({ok: true, status: 200, json: function () { return Promise.resolve(""" + json.dumps(ROADS_WH) + r"""); }});
+            }; });
+          };
+          route("valhalla1.openstreetmap.de/locate", "hang");
+          streetPick(-81.73, 27.9997, 16);
+          advance(1000); await flush();
+          advance(2500); await flush();
+          out.hedged = [S.street.finding, locates()];
+          advance(1000); answer(); await flush();
+          out.late = [S.street.finding, S.street.label];
+          fetch = real;
+          console.log(JSON.stringify(out));
+        """)
+        self.assertEqual(got["answered"], ["Hoover Road, 27.99N 81.73W", 0])
+        self.assertEqual(got["hedged"], [True, 1])
+        self.assertEqual(got["late"], [False, "Hoover Road, 27.99N 81.73W"])
+
+    def test_valhalla_is_asked_only_for_the_stage_s_own_pick_and_a_late_answer_is_dropped(self):
+        got = _run(self, r"""
+          Date.now = function () { return NOW + CLOCK; };
+          function locates() {
+            return ASKED.filter(function (u) { return u.indexOf("/locate?") >= 0; }).map(function (u) {
+              return JSON.parse(decodeURIComponent(u.split("json=")[1])).locations[0].lon;
+            });
+          }
+          var out = {};
+          // OSRM silent and the stage left a second on: Valhalla is not asked
+          // when 2.5 s have gone by.
+          route("routed-car/nearest", "hang");
+          route("valhalla1.openstreetmap.de/locate", """ + json.dumps(LOCATE_SI) + r""");
+          streetPick(-81.73, 27.9997, 16);
+          advance(0); await flush();
+          advance(1000); streetLeave();
+          advance(2000); await flush();
+          out.left = [S.street, locates()];
+          // A pick replaced 1.8 s on by one OSRM fails at once: Valhalla is
+          // asked for the new one, and not for the old one at its 2.5 s.
+          ASKED.length = 0;
+          route("routed-car/nearest", function (url) {
+            return url.indexOf("-81.730000") >= 0 ? "hang" : new TypeError("Failed to fetch");
+          });
+          advance(1000);
+          streetPick(-81.73, 27.9997, 16);
+          advance(0); await flush();
+          advance(1800);
+          streetPick(-81.70, 28.05, 16);
+          advance(0); await flush();
+          advance(1000); await flush();
+          out.replaced = [S.street.label, locates()];
+          // Valhalla answering for a stage since left: nothing changes.
+          ASKED.length = 0;
+          var answer = null, real = fetch;
+          fetch = function (url, opts) {
+            if (url.indexOf("/locate?") < 0) return real(url, opts);
+            ASKED.push(url);
+            return new Promise(function (ok) { answer = function () {
+              ok({ok: true, status: 200, json: function () { return Promise.resolve(""" + json.dumps(LOCATE_SI) + r"""); }});
+            }; });
+          };
+          route("routed-car/nearest", new TypeError("Failed to fetch"));
+          advance(1000);
+          streetPick(-81.60, 28.10, 16);
+          advance(1000); await flush();
+          var asked = locates().length;
+          streetHashApply("#street=28.20000,-81.50000");
+          answer(); await flush();
+          out.dropped = [asked, S.street.lon, S.street.lat, S.street.roads];
+          fetch = real;
+          console.log(JSON.stringify(out));
+        """)
+        self.assertEqual(got["left"], [None, []])
+        self.assertEqual(got["replaced"], ["Windham Loop, 40.58N 74.16W", [-81.7]])
+        self.assertEqual(got["dropped"], [1, -81.5, 28.2, None])
+
+    def test_valhalla_is_asked_once_a_second_at_most(self):
+        got = _run(self, r"""
+          Date.now = function () { return NOW + CLOCK; };
+          function locates() {
+            return ASKED.filter(function (u) { return u.indexOf("/locate?") >= 0; }).map(function (u) {
+              return JSON.parse(decodeURIComponent(u.split("json=")[1])).locations[0].lon;
+            });
+          }
+          // A's OSRM silent: Valhalla asked for A at its 2.5 s, and silent too.
+          // B picked 0.1 s later, its OSRM failing at once: Valhalla is asked
+          // for B a second after it was asked for A, not at once.
+          route("routed-car/nearest", function (url) {
+            return url.indexOf("-81.730000") >= 0 ? "hang" : new TypeError("Failed to fetch");
+          });
+          route("valhalla1.openstreetmap.de/locate", function (url) {
+            return url.indexOf("-81.73") >= 0 ? "hang" : """ + json.dumps(LOCATE_SI) + r""";
+          });
+          streetPick(-81.73, 27.9997, 16);
+          advance(0); await flush();
+          advance(2500); await flush();
+          var first = locates();
+          advance(100);
+          streetPick(-81.70, 28.05, 16);
+          advance(0); await flush();
+          var soon = locates();
+          advance(899); await flush();
+          var held = [locates(), S.street.finding];
+          advance(1); await flush();
+          console.log(JSON.stringify({first: first, soon: soon, held: held, then: locates(), label: S.street.label}));
+        """)
+        self.assertEqual(got["first"], [-81.73])
+        self.assertEqual(got["soon"], [-81.73])
+        self.assertEqual(got["held"], [[-81.73], True])
+        self.assertEqual(got["then"], [-81.73, -81.7])
+        self.assertEqual(got["label"], "Windham Loop, 40.58N 74.16W")
+
+    def test_find_the_street_asks_again_and_goes_to_the_street_it_is_given(self):
+        got = _run(self, r"""
+          route("routed-car/nearest", 503);
+          route("valhalla1.openstreetmap.de/locate", 503);
+          streetPick(-81.73, 27.9997, 16);
+          advance(0); await flush();
+          var lost = [S.street.lon, S.street.lat, $("street-find").hidden,
+                      ASKED.filter(function (u) { return /routed-car|locate/.test(u); }).length];
+          route("routed-car/nearest", """ + json.dumps(ROADS_WH) + r""");
+          var focused = [];
+          $("street-stage").focus = function () { focused.push("street-stage"); };
+          document.activeElement = $("street-find");
+          $("street-find").fire("click");
+          var finding = [S.street.finding, $("street-find").hidden, focused];
+          advance(1000); await flush();
+          console.log(JSON.stringify({lost: lost, finding: finding,
+            found: [S.street.lon, S.street.lat, S.street.label, $("street-find").hidden, $("street-next").hidden],
+            again: ASKED.filter(function (u) { return u.indexOf("routed-car") >= 0; }).length}));
+        """)
+        self.assertEqual(got["lost"], [-81.73, 27.9997, False, 2])
+        self.assertEqual(got["finding"], [True, True, ["street-stage"]])
+        self.assertEqual(got["found"], [-81.729659, 27.989109, "Hoover Road, 27.99N 81.73W", True, False])
+        self.assertEqual(got["again"], 2)
+        # An exact point, or a street found, has nothing to find again.
+        got = _run(self, LIMA + r"""
+          console.log(JSON.stringify([$("street-find").hidden, streetFind()]));
+        """)
+        self.assertEqual(got, [True, False])
 
     def test_six_streets_at_most_and_none_for_an_exact_point(self):
         many = {"code": "Ok", "waypoints": [{"location": [-81.73 + i / 1000, 28.0], "name": "Road %d" % i,
@@ -1232,6 +1471,20 @@ AHEAD_SEPTEMBER = {"monthly": {"time": ["2026-09-01"] + _JAKARTA["time"][:6],
                                "precipitation_mean": [60.2] + _JAKARTA["precipitation_mean"][:6],
                                "precipitation_anomaly": [-61.0] + _JAKARTA["precipitation_anomaly"][:6],
                                "sea_surface_temperature_anomaly": [0.6] + _JAKARTA["sea_surface_temperature_anomaly"][:6]}}
+# Valhalla's locate at Staten Island on 14 October 2026: the roads it gave,
+# two directions of Windham Loop at the point, Rumson Road 78 m off and an
+# unnamed road, and one whose position cannot be read; a road of a class
+# under residential is not asked for.
+LOCATE_SI = [{"input_lat": 40.577058, "input_lon": -74.161517, "edges": [
+    {"correlated_lat": 40.577058, "correlated_lon": -74.161517, "distance": 0.0,
+     "edge_info": {"names": ["Windham Loop"]}},
+    {"correlated_lat": 40.577058, "correlated_lon": -74.161517, "distance": 0.0,
+     "edge_info": {"names": ["Windham Loop"]}},
+    {"correlated_lat": 40.576674, "correlated_lon": -74.160746, "distance": 78.0,
+     "edge_info": {"names": ["Rumson Road"]}},
+    {"correlated_lat": 40.5771, "correlated_lon": -74.1622, "distance": 60.0, "edge_info": {}},
+    {"correlated_lat": "x", "correlated_lon": -74.1622, "distance": 1.0, "edge_info": {"names": ["Bad"]}}]}]
+
 NOW_LIMA = {"latitude": -12.056238, "longitude": -77.06198, "utc_offset_seconds": -18000,
             "timezone": "America/Lima", "timezone_abbreviation": "GMT-5",
             "current": {"time": "2026-10-09T08:45", "interval": 900, "temperature_2m": 23.4, "precipitation": 0.0,
