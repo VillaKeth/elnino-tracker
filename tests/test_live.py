@@ -2493,12 +2493,16 @@ class TestTheHourlyRun(unittest.TestCase):
         self.assertIn('    - cron: "42 * * * *"\n', self.live)
         self.assertIn("  run:\n    needs: due\n"
                       "    if: ${{ !cancelled() && needs.due.outputs.skip != 'true' }}\n", self.live)
-        self.assertIn("--jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor'", self.live)
+        self.assertIn("--jq '(now - (.commit.committer.date | fromdateiso8601)) | floor'", self.live)
 
     @unittest.skipIf(sys.platform == "win32", "the hourly run is Linux")
-    def test_the_second_chance_is_skipped_only_once_the_hour_s_run_is_out(self):
+    def test_the_second_chance_stands_down_only_when_the_site_was_published_this_hour(self):
         # The check's own script, under bash as the run has it, with a gh that
-        # answers how many minutes ago gh-pages was published, or fails.
+        # answers how many seconds ago gh-pages was published, or fails, and a
+        # date that answers the clock. Held into the next hour, as GitHub held
+        # the 42 past runs at 08:01 and 14:03 on 14 October 2026, the second
+        # chance is that hour's run: those two stood down on a site 36 and 37
+        # minutes old, and it went two hours unpublished.
         body = self.live.split("        id: age\n", 1)[1].split("        run: |\n", 1)[1]
         lines = []
         for line in body.splitlines():
@@ -2512,16 +2516,27 @@ class TestTheHourlyRun(unittest.TestCase):
             gh.write_text('#!/bin/sh\necho "$*" >> "$CALLS"\n[ -n "$AGO" ] || exit 1\necho "$AGO"\n',
                           encoding="utf-8", newline="\n")
             gh.chmod(0o755)
+            clock = here / "date"
+            clock.write_text('#!/bin/sh\necho "$NOW"\n', encoding="utf-8", newline="\n")
+            clock.chmod(0o755)
             out, calls = here / "output", here / "calls"
-            for slot, ago, skip in (("", "5", "false"), ("12 * * * *", "5", "false"),
-                                    ("42 * * * *", "5", "true"), ("42 * * * *", "44", "true"),
-                                    ("42 * * * *", "45", "false"), ("42 * * * *", "90", "false"),
-                                    ("42 * * * *", "", "false"), ("42 * * * *", "soon", "false")):
-                with self.subTest(slot=slot, ago=ago):
+            hour = 1791986400  # 14:00 UTC on 14 October 2026
+            for slot, now, ago, skip in (
+                    ("", 42 * 60, "300", "false"), ("12 * * * *", 42 * 60, "300", "false"),
+                    # On time at 14:42: published at 14:25, 14:00:01 and 14:00:00 this hour.
+                    ("42 * * * *", 42 * 60, "1020", "true"), ("42 * * * *", 42 * 60, "2519", "true"),
+                    ("42 * * * *", 42 * 60, "2520", "true"),
+                    # Published at 13:59:59 and 13:58: the 14:00 hour has no run yet.
+                    ("42 * * * *", 42 * 60, "2521", "false"), ("42 * * * *", 42 * 60, "2640", "false"),
+                    # Held to 14:03: published at 13:26, as on 14 October, or at 14:01.
+                    ("42 * * * *", 3 * 60, "2220", "false"), ("42 * * * *", 3 * 60, "120", "true"),
+                    ("42 * * * *", 42 * 60, "", "false"), ("42 * * * *", 42 * 60, "soon", "false")):
+                with self.subTest(slot=slot, now=now, ago=ago):
                     out.write_text("", encoding="utf-8")
                     calls.unlink(missing_ok=True)
                     env = dict(os.environ, PATH=f"{here}{os.pathsep}{os.environ['PATH']}", SLOT=slot, AGO=ago,
-                               CALLS=str(calls), GITHUB_OUTPUT=str(out), GITHUB_REPOSITORY="owner/repo")
+                               NOW=str(hour + now), CALLS=str(calls), GITHUB_OUTPUT=str(out),
+                               GITHUB_REPOSITORY="owner/repo")
                     done = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(here / "check.sh")],
                                           env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
                                           timeout=60)

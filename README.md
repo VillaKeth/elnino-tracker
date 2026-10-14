@@ -2122,8 +2122,11 @@ much more than an hour, plus GitHub's queue, behind the feeds
   and GitHub queues scheduled runs longest at the top of it), on every push to
   `main`, and on request. GitHub may hold a scheduled run under load, or drop
   it, as it dropped the first of all, so 42 past is a second chance: it asks
-  when `gh-pages` was last published and stands down if that was under 45
-  minutes ago, running on any doubt. One runs at a time. Each calls
+  when `gh-pages` was last published and stands down if that was this hour
+  (UTC), running on any doubt. Held into the next hour, as GitHub held it to
+  08:01 and 14:03 on 14 October 2026, it is that hour's run: standing down on
+  a site under 45 minutes old, as it then did, left the site two hours old.
+  One runs at a time. Each calls
   `./publish.sh`, which runs `track.py --brief` and then publishes the run with
   `publish.py`, its refusals and all, under the run's own short-lived token.
 - **The state.** `data/elnino.db` and the cached downloads are carried from one
@@ -2560,7 +2563,8 @@ python -m unittest discover -s tests -v
   view turned any number of times put back on the world; and the hourly run's schedule, token, state, remote, keep-alive,
   time limit and actions pinned to commits, no pull request starting it, and the
   suite's Python and node, read as text, and its second chance at 42 past, whose
-  check runs under bash against a gh that answers or fails;
+  check runs under bash against a gh that answers or fails and a clock, standing
+  down only on a site published this hour, held past the hour or not;
 - **the street**: the card's composite matching the atlas tool's own on a full
   record, the event under way and the months still under way left out, a season
   short of three events or six neutral years said and not drawn, rain in

@@ -11,7 +11,7 @@ on:
     - cron: "12 * * * *"
     # A second chance: GitHub may hold a scheduled run under load, or drop
     # it, as it dropped the first of all. It stands down when the hour's run
-    # has come.
+    # has come; held into the next hour, it is that hour's run.
     - cron: "42 * * * *"
   workflow_dispatch:
   push:
@@ -28,7 +28,10 @@ permissions:
 
 jobs:
   # Whether this run is due: only the second chance asks, and it stands down
-  # when the site was published less than 45 minutes ago. Any doubt runs it.
+  # when the site was published this hour (UTC). Held past the hour, as GitHub
+  # held it to 08:01 and 14:03 on 14 October 2026, it publishes that hour's
+  # run: standing down on a site under 45 minutes old, as it did then, left
+  # the site two hours old. Any doubt runs it.
   due:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -44,9 +47,10 @@ jobs:
           skip=false
           if [ "$SLOT" = "42 * * * *" ] &&
              age=$(gh api "repos/$GITHUB_REPOSITORY/commits/gh-pages" \
-                     --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor'); then
-            echo "The site was published $age minutes ago."
-            if [ "$age" -lt 45 ] 2>/dev/null; then skip=true; fi
+                     --jq '(now - (.commit.committer.date | fromdateiso8601)) | floor'); then
+            into=$(( $(date -u +%s) % 3600 ))
+            echo "The site was published $age seconds ago, and the hour began $into seconds ago."
+            if [ "$age" -le "$into" ] 2>/dev/null; then skip=true; fi
           fi
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
 
