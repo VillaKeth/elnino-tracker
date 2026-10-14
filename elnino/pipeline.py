@@ -10,7 +10,7 @@ analysis at all.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from . import (
@@ -168,11 +168,18 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
             state.notes.append(f"{label}: {type(exc).__name__}: {exc}")
             return None
 
+    def preliminary(key: str, grid):
+        """The map as served: its day marked preliminary when OISST's
+        preliminary product served it, rather than the final behind it."""
+        if grid is None or not fetched[key].url.startswith(sources.OISST_NRT + "?"):
+            return grid
+        return replace(grid, preliminary=grid.as_of)
+
     if "sst_pacific" in text:
-        state.sst_map = attempt(
+        state.sst_map = preliminary("sst_pacific", attempt(
             "Pacific SST anomaly", grids.grid_map, text["sst_pacific"], "anom",
             "Tropical Pacific SST anomaly", "°C",
-        )
+        ))
         absolute = attempt(
             "Pacific SST", grids.grid_map, text["sst_pacific"], "sst",
             "Tropical Pacific SST", "°C",
@@ -186,15 +193,30 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
                     state.box_means[box.key] = mean
 
     if "sst_global" in text:
-        state.sst_global = attempt(
+        state.sst_global = preliminary("sst_global", attempt(
             "global SST anomaly", grids.grid_map, text["sst_global"], "anom",
             "Global SST anomaly", "°C",
-        )
+        ))
     if "sst_hovmoller" in text:
         state.sst_hov = attempt(
             "SST Hovmoller", grids.grid_hovmoller, text["sst_hovmoller"], "anom",
             "Equatorial SST anomaly", "°C",
         )
+        if state.sst_hov is not None and "sst_hovmoller_recent" in text:
+            state.sst_hov = attempt(
+                "SST Hovmoller, preliminary rows", grids.hovmoller_tail, state.sst_hov,
+                text["sst_hovmoller_recent"],
+            ) or state.sst_hov
+    # The four boxes day by day: the final analysis's record, then the days
+    # of the preliminary since it ends. Either stands alone.
+    record = recent = None
+    if "nino_daily" in text:
+        record = attempt("daily Nino boxes", grids.daily_box_means, text["nino_daily"])
+    if "nino_daily_recent" in text:
+        recent = attempt("daily Nino boxes, preliminary", grids.daily_box_means,
+                         text["nino_daily_recent"], preliminary=True)
+    state.nino_daily = tuple(grids.splice_days(record or [], recent or []))
+    state.nino_revision = grids.revisions(record or [], recent or [])
     if "ssh_pacific" in text:
         state.ssh_map = attempt(
             "sea surface height", grids.grid_map, text["ssh_pacific"], "sla",

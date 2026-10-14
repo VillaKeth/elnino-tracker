@@ -15,10 +15,13 @@ badly it is hurt when one goes dark:
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 import hashlib
 import io
 import json
+import os
+import re
 import ssl
 import time
 import urllib.error
@@ -29,6 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import NamedTuple
 
 USER_AGENT = "elnino-tracker/2.0 (+personal ENSO monitoring; contact: local user)"
 TIMEOUT = 45
@@ -43,6 +47,20 @@ CPC = "https://www.cpc.ncep.noaa.gov/data/indices"
 # carries the daily mooring data.
 COASTWATCH = "https://coastwatch.pfeg.noaa.gov/erddap"
 PMEL = "https://data.pmel.noaa.gov/pmel/erddap"
+
+# OISST comes as two products of one analysis. The final is about two weeks
+# behind; the preliminary is a day or two behind. NOAA's own files replace
+# each preliminary day with the final's once it lands, but ERDDAP's
+# preliminary dataset keeps its days, so the two overlap by about two weeks,
+# which is what lets the run measure what the final changed. CPC's weekly
+# index, out on the Monday after the week it means, can only be built from
+# the preliminary for its latest weeks. So the maps take whichever of the two
+# has the later day, and the Hovmoller and the daily boxes keep the final for
+# their record and take from the preliminary only the days since the final
+# ends. The preliminary has gaps (eleven days at the turn of 2026), which is
+# why its days are never picked by a stride.
+OISST_FINAL = f"{COASTWATCH}/griddap/ncdcOisst21Agg.csv"
+OISST_NRT = f"{COASTWATCH}/griddap/ncdcOisst21NrtAgg.csv"
 
 # How far back the rolling Hovmoller windows reach. Sixteen months is two
 # boreal winters' worth of context without making the vertical axis unreadable.
@@ -83,6 +101,18 @@ def erddap(base: str, query: str) -> str:
 _EQ_STRIP = "[(-2):4:(2)][(120):4:(280)]"
 _PACIFIC = "[(-30):2:(30)][(100):2:(300)]"
 _WORLD = "[(-79):1:(79)][(0):1:(359.75)]"
+# The four Nino boxes' cells, every day: half a degree on the very points the
+# Pacific map samples (29.875S and 100.125E onward), so a day both carry has
+# the same box means on the map as in the day-by-day series.
+_NINO_CELLS = "[(-9.875):2:(4.625)][(160.125):2:(279.625)]"
+# Days asked for: the final's last 90, and the preliminary's last 28, which
+# covers the final's two weeks behind it with room for the final to slip.
+_RECORD_DAYS = "[last-89:1:last]"
+_RECENT_DAYS = "[last-27:1:last]"
+# The Hovmoller's record: a row a week back from the final's latest day for
+# sixty-nine weeks, about sixteen months. Ending on that day, it leaves the
+# preliminary only the days the final has not reached.
+_RECORD_WEEKS = "[last-483:7:last]"
 _TAO_EQ = "&latitude>=-0.6&latitude<=0.6"
 
 
@@ -96,6 +126,14 @@ class Source:
     tier: str = "context"
     note: str = ""
     critical: bool = False
+    # The same subset of OISST's final analysis, for a feed whose ``url`` asks
+    # the preliminary. Both are asked their latest day and the later serves;
+    # on a day both carry, the final's, which is the better analysis of it.
+    final: str = ""
+    # Whether each day's download is kept in the archive as well. Not for a
+    # rolling window of days, each day's of which repeats all but a day of the
+    # day before's, of a product NOAA keeps every day of itself.
+    archive: bool = True
 
 
 SOURCES: tuple[Source, ...] = (
@@ -337,39 +375,64 @@ SOURCES: tuple[Source, ...] = (
     # -- spatial: the geometry, not the indices -----------------------------
     Source(
         key="sst_pacific",
-        name="OISST v2.1 daily SST and anomaly, tropical Pacific",
-        url=erddap(
-            f"{COASTWATCH}/griddap/ncdcOisst21Agg.csv",
-            f"anom[last][(0.0)]{_PACIFIC},sst[last][(0.0)]{_PACIFIC}",
-        ),
+        name="OISST v2.1 daily SST and anomaly, tropical Pacific (preliminary)",
+        url=erddap(OISST_NRT, f"anom[last][(0.0)]{_PACIFIC},sst[last][(0.0)]{_PACIFIC}"),
+        final=erddap(OISST_FINAL, f"anom[last][(0.0)]{_PACIFIC},sst[last][(0.0)]{_PACIFIC}"),
         agency="NOAA NCEI via CoastWatch ERDDAP",
-        cadence="daily",
+        cadence="daily, a day or two behind",
         tier="spatial",
-        note="The anomaly field the Nino indices are averaged out of.",
+        note=("The anomaly field the Nino indices are averaged out of. The final "
+              "analysis, two weeks behind, if the preliminary fails."),
     ),
     Source(
         key="sst_global",
-        name="OISST v2.1 daily SST anomaly, global",
-        url=erddap(
-            f"{COASTWATCH}/griddap/ncdcOisst21Agg.csv",
-            f"anom[last][(0.0)]{_WORLD}",
-        ),
+        name="OISST v2.1 daily SST anomaly, global (preliminary)",
+        url=erddap(OISST_NRT, f"anom[last][(0.0)]{_WORLD}"),
+        final=erddap(OISST_FINAL, f"anom[last][(0.0)]{_WORLD}"),
         agency="NOAA NCEI via CoastWatch ERDDAP",
-        cadence="daily",
+        cadence="daily, a day or two behind",
         tier="spatial",
-        note="Basin-wide context; the reason relative ONI exists.",
+        note=("Basin-wide context; the reason relative ONI exists. The final "
+              "analysis if the preliminary fails."),
     ),
     Source(
         key="sst_hovmoller",
         name="OISST v2.1 equatorial SST anomaly, time by longitude",
-        url=erddap(
-            f"{COASTWATCH}/griddap/ncdcOisst21Agg.csv",
-            f"anom[({_since(HOVMOLLER_MONTHS)}):7:last][(0.0)]{_EQ_STRIP}",
-        ),
+        url=erddap(OISST_FINAL, f"anom{_RECORD_WEEKS}[(0.0)]{_EQ_STRIP}"),
         agency="NOAA NCEI via CoastWatch ERDDAP",
         cadence="weekly samples",
         tier="spatial",
         note="Eastward propagation of the surface anomaly.",
+    ),
+    Source(
+        key="sst_hovmoller_recent",
+        name="OISST v2.1 equatorial SST anomaly, the last four weeks (preliminary)",
+        url=erddap(OISST_NRT, f"anom{_RECENT_DAYS}[(0.0)]{_EQ_STRIP}"),
+        agency="NOAA NCEI via CoastWatch ERDDAP",
+        cadence="daily, a day or two behind",
+        tier="spatial",
+        archive=False,
+        note="The Hovmoller's rows since the final analysis ends, to the latest day.",
+    ),
+    Source(
+        key="nino_daily",
+        name="OISST v2.1 SST anomaly over the Nino boxes, the last 90 days",
+        url=erddap(OISST_FINAL, f"anom{_RECORD_DAYS}[(0.0)]{_NINO_CELLS}"),
+        agency="NOAA NCEI via CoastWatch ERDDAP",
+        cadence="daily, about two weeks behind",
+        tier="spatial",
+        archive=False,
+        note="The four boxes' means day by day, from the final analysis.",
+    ),
+    Source(
+        key="nino_daily_recent",
+        name="OISST v2.1 SST anomaly over the Nino boxes, the last four weeks (preliminary)",
+        url=erddap(OISST_NRT, f"anom{_RECENT_DAYS}[(0.0)]{_NINO_CELLS}"),
+        agency="NOAA NCEI via CoastWatch ERDDAP",
+        cadence="daily, a day or two behind",
+        tier="spatial",
+        archive=False,
+        note="The boxes' days since the final analysis ends, to the latest day.",
     ),
     Source(
         key="tao_temperature",
@@ -620,6 +683,12 @@ class Fetched:
     sha256: str
     error: str | None = None
     warnings: list[str] = field(default_factory=list)
+    # Where the text came from: the source's own address, its final analysis's,
+    # or the one the cached copy was downloaded from.
+    url: str = ""
+    # The dataset had no new day, so the copy downloaded at ``fetched_at`` is
+    # current and was not downloaded again.
+    unchanged: bool = False
 
     @property
     def ok(self) -> bool:
@@ -671,63 +740,247 @@ def _http_get(url: str) -> str:
     raise RuntimeError(f"{type(last).__name__}: {last}")
 
 
+def probe_url(url: str) -> str:
+    """Where to ask whether a griddap subset has changed: its dataset's latest
+    time, a few bytes, where the subset can be tens of megabytes (the global
+    field is forty). A dataset with no new day has nothing new in any subset
+    of it ending at its last. Any other feed has no such question to ask."""
+    base, sep, _query = url.partition("?")
+    if not sep or "/griddap/" not in base:
+        return ""
+    return f"{base}?{urllib.parse.quote('time[last]', safe='')}"
+
+
+@dataclass(frozen=True)
+class _Product:
+    """One address a feed is served from, and the copy kept of it: ``<name>.cache``
+    beside ``<name>.meta.json``, the record of where and when the copy was
+    downloaded, the latest day its dataset said it had then, and the digest of
+    the bytes written."""
+
+    name: str
+    url: str
+    raw_dir: Path
+    final: bool = False
+
+    @property
+    def cache(self) -> Path:
+        return self.raw_dir / f"{self.name}.cache"
+
+    @property
+    def record(self) -> Path:
+        return self.raw_dir / f"{self.name}.meta.json"
+
+    def meta(self) -> dict:
+        return _read_meta(self.record)
+
+    def kept(self, meta: dict) -> str:
+        """The copy's text. Raises when there is none, or when it is not the
+        text its record was written for, as after a run stopped between the two."""
+        data = self.cache.read_bytes()
+        if not data.strip():
+            raise ValueError("the copy kept of it is empty")
+        if meta.get("sha256") and hashlib.sha256(data).hexdigest() != meta["sha256"]:
+            raise ValueError("the copy kept of it does not match its record")
+        return data.decode("utf-8", errors="replace")
+
+    def keep(self, data: bytes, meta: dict) -> None:
+        """Write the copy and then its record, each whole or not at all."""
+        for path, payload in ((self.cache, data),
+                              (self.record, json.dumps(meta, indent=2).encode("utf-8"))):
+            part = path.with_name(path.name + ".part")
+            try:
+                part.write_bytes(payload)
+                os.replace(part, path)
+            except OSError:
+                part.unlink(missing_ok=True)
+                raise
+
+    def served(self, source: Source) -> Fetched:
+        """The copy, served for want of a live answer."""
+        meta = self.meta()
+        return Fetched(source, self.kept(meta), meta.get("fetched_at", "unknown"),
+                       from_cache=True, sha256=meta.get("sha256", ""), url=meta.get("url", ""))
+
+
+class _Bid(NamedTuple):
+    """A product's claim to serve: the latest day its dataset says it has while
+    it answers, and the day its copy was downloaded at once it does not."""
+
+    day: str
+    live: bool
+    product: _Product
+
+    def rank(self) -> tuple:
+        # The later day first, and a live answer before a copy. A day both
+        # products carry is the final's, the better analysis of it; with no day
+        # said, the preliminary's, which is as a rule the later.
+        first = self.product.final if self.day else not self.product.final
+        return (self.day, self.live, first)
+
+
+def _copy_bid(product: _Product) -> list[_Bid]:
+    """The product's copy as a bid, when it has one."""
+    if not product.cache.exists():
+        return []
+    return [_Bid(product.meta().get("probe", ""), False, product)]
+
+
 def fetch(source: Source, raw_dir: Path, offline: bool = False) -> Fetched:
-    """Fetch one source, archiving the raw payload and falling back to cache."""
+    """Fetch one source, archiving the raw payload and falling back to cache.
+
+    A feed with OISST's final analysis behind its preliminary has two
+    products, and each keeps its own copy. Both are asked their latest day and
+    the later serves; when it fails, its copy stands in for it against the
+    other. A gridded product keeps its copy, without downloading the subset
+    again, while its dataset's latest day is the one the copy was downloaded at.
+    """
     raw_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = raw_dir / f"{source.key}.cache"
-    meta_path = raw_dir / f"{source.key}.meta.json"
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    products = [_Product(source.key, source.url, raw_dir)]
+    if source.final:
+        products.append(_Product(f"{source.key}.final", source.final, raw_dir, final=True))
 
-    if not offline:
+    problems: list[str] = ["offline mode requested"] if offline else []
+    bids: list[_Bid] = []
+    for product in products:
+        if offline:
+            bids += _copy_bid(product)
+            continue
         try:
-            # One line ending from here on, and the cache written without
-            # translation. In text mode on Windows every "\n" was written as
-            # "\r\n" and every CRLF a feed sent became "\r\r\n", which read
-            # back as two lines; and the archive's digest, taken over the
-            # text, never matched the translated file, so it was rewritten on
-            # every run.
-            text = _http_get(source.url).replace("\r\n", "\n")
-            digest = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
-            cache_path.write_text(text, encoding="utf-8", newline="")
-            meta_path.write_text(
-                json.dumps(
-                    {"url": source.url, "fetched_at": now, "sha256": digest, "bytes": len(text)},
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-            _archive(raw_dir, source.key, text, digest)
-            return Fetched(source, text, now, from_cache=False, sha256=digest)
+            bids.append(_Bid(_latest_day(product.url), True, product))
         except Exception as exc:  # noqa: BLE001 - surfaced to the user in the report
-            network_error = str(exc)
-    else:
-        network_error = "offline mode requested"
+            problems.append(_failure(exc, product.url))
+            bids += _copy_bid(product)
 
-    if cache_path.exists():
-        text = cache_path.read_text(encoding="utf-8")
-        meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
-        stamp = meta.get("fetched_at", "unknown")
-        return Fetched(
-            source,
-            text,
-            stamp,
-            from_cache=True,
-            sha256=meta.get("sha256", ""),
-            warnings=[f"live fetch failed ({network_error}); using cache from {stamp}"],
-        )
+    while bids:
+        bid = max(bids, key=_Bid.rank)
+        bids.remove(bid)
+        try:
+            got = (_download(source, bid.product, bid.day, now) if bid.live
+                   else bid.product.served(source))
+        except Exception as exc:  # noqa: BLE001 - surfaced to the user in the report
+            problems.append(_failure(exc, bid.product.url))
+            if bid.live:
+                bids += _copy_bid(bid.product)
+            continue
+        # The preliminary passed over for the final while it answers has
+        # stalled, which is worth a word.
+        problems += [f"latest day {other.day[:10] or 'not said'}, no later than the "
+                     f"final's ({other.product.url})"
+                     for other in bids if bid.product.final and other.live]
+        if got.from_cache:
+            got.warnings.insert(0, f"live fetch failed ({'; '.join(problems)})")
+        elif problems:
+            got.warnings.insert(0, f"{'; '.join(problems)}; served by {got.url}")
+        return got
 
-    return Fetched(source, "", now, from_cache=False, sha256="", error=network_error)
+    return Fetched(source, "", now, from_cache=False, sha256="", error="; ".join(problems))
 
 
-def _archive(raw_dir: Path, key: str, text: str, digest: str) -> None:
+def _failure(exc: Exception, url: str) -> str:
+    """What failed where, the reason first, so that a line cut short says why."""
+    return f"{exc} ({url})"
+
+
+def _latest_day(url: str) -> str:
+    """The latest time a griddap product's dataset says it has, or "" for a
+    feed with nothing to ask and for an answer with no time in it. Raises when
+    the dataset does not answer: a dataset that cannot say its latest day is
+    not asked for the day either."""
+    probe = probe_url(url)
+    return _latest_time(_http_get(probe)) if probe else ""
+
+
+# What a probe answers: ERDDAP's CSV of one time, the last line of it.
+_TIME = re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.]+Z?")
+
+
+def _latest_time(text: str) -> str:
+    """The time a probe answered, or "" when it answered anything else, which
+    is then no reason to keep the copy there is."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1] if lines and _TIME.fullmatch(lines[-1]) else ""
+
+
+def _is_griddap_csv(text: str) -> bool:
+    """Whether a griddap answer is ERDDAP's CSV of a subset, whole: its columns,
+    time first, then their units, then rows, the last of them a row like any
+    other. A proxy's page, an empty body, the header of nothing, a row cut
+    short or an error written after the rows is not kept, and the day its
+    dataset said is not recorded against it."""
+    end = len(text)
+    while end and text[end - 1] == "\n":
+        end -= 1
+    head = text.find("\n")
+    units = text.find("\n", head + 1) if head >= 0 else -1
+    if units < 0 or units >= end:
+        return False
+    last = text[text.rfind("\n", units, end) + 1:end]
+    return (text.startswith("time,") and bool(_TIME.match(last))
+            and last.count(",") == text.count(",", 0, head))
+
+
+def _read_meta(path: Path) -> dict:
+    """What was recorded of the cached copy: where and when it came from."""
+    try:
+        meta = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _download(source: Source, product: _Product, said: str, now: str) -> Fetched:
+    """A product's text, downloaded and kept, or its copy when its dataset's
+    latest day, as it ``said``, is the one the copy was downloaded at. Raises
+    when the address fails or answers with anything but its data."""
+    meta = product.meta()
+    if said and meta.get("probe") == said and meta.get("url") == product.url:
+        # A copy that is gone, or is not what its record was written for, is
+        # downloaded again.
+        with contextlib.suppress(OSError, ValueError):
+            return Fetched(source, product.kept(meta), meta.get("fetched_at", now),
+                           from_cache=False, sha256=meta.get("sha256", ""),
+                           url=product.url, unchanged=True)
+    # One line ending from here on, and the copy written as the very bytes its
+    # digest is taken over. In text mode on Windows every "\n" was written as
+    # "\r\n" and every CRLF a feed sent became "\r\r\n", which read back as
+    # two lines; and the archive's digest never matched the translated file,
+    # so it was rewritten on every run.
+    text = _http_get(product.url).replace("\r\n", "\n")
+    if probe_url(product.url):
+        if not _is_griddap_csv(text):
+            raise ValueError("its answer is not ERDDAP's CSV")
+    elif not text.strip():
+        raise ValueError("its answer is empty")
+    data = text.encode("utf-8")
+    digest = hashlib.sha256(data).hexdigest()
+    got = Fetched(source, text, now, from_cache=False, sha256=digest, url=product.url)
+    record = {"url": product.url, "fetched_at": now, "sha256": digest, "bytes": len(data)}
+    if said:
+        record["probe"] = said
+    # The text serves whether or not it can be kept.
+    try:
+        product.keep(data, record)
+    except OSError as exc:
+        got.warnings.append(f"kept no copy: {exc}")
+    if source.archive:
+        try:
+            _archive(product.raw_dir, product.name, data, digest)
+        except OSError as exc:
+            got.warnings.append(f"archived no copy: {exc}")
+    return got
+
+
+def _archive(raw_dir: Path, name: str, data: bytes, digest: str) -> None:
     """Keep one dated snapshot per day so the record can be audited later."""
     archive_dir = raw_dir / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
-    path = archive_dir / f"{key}_{stamp}.txt"
+    path = archive_dir / f"{name}_{stamp}.txt"
     if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() == digest:
         return
-    path.write_text(text, encoding="utf-8", newline="")
+    path.write_bytes(data)
 
 
 def fetch_all(

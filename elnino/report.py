@@ -855,14 +855,26 @@ def _section_stormfury(state) -> list[str]:
 def _section_data(state) -> list[str]:
     lines = _heading("data integrity")
     ok = [key for key, item in state.fetched.items() if item.ok and not item.from_cache]
+    same = [key for key in ok if state.fetched[key].unchanged]
     cached = [key for key, item in state.fetched.items() if item.ok and item.from_cache]
     failed = [(key, item.error) for key, item in state.fetched.items() if not item.ok]
 
-    lines.append(f"  {len(ok)} feed{'s' if len(ok) != 1 else ''} fetched live, "
-                 f"{len(cached)} served from cache, "
-                 f"{len(failed)} failed.")
+    checked = f" ({len(same)} checked and unchanged since downloaded)" if same else ""
+    lines.extend(_wrap(f"{len(ok)} feed{'s' if len(ok) != 1 else ''} fetched live{checked}, "
+                       f"{len(cached)} served from cache, {len(failed)} failed."))
     if cached:
         lines.extend(_wrap("Cached: " + ", ".join(sorted(cached)), indent="  "))
+    # What went wrong on the way to a feed that was served all the same. One
+    # reason for many feeds, as an offline run has, is said once.
+    warned: dict[str, list[str]] = {}
+    for key, item in state.fetched.items():
+        for warning in item.warnings:
+            warned.setdefault(warning, []).append(key)
+    if warned:
+        lines.append("")
+        lines.append("  FEED WARNINGS:")
+        for warning, keys in warned.items():
+            lines.extend(_wrap(f"{', '.join(keys)}: {warning}", indent="    - "))
     if failed:
         lines.append("")
         lines.append("  FAILED FEEDS:")
@@ -873,7 +885,7 @@ def _section_data(state) -> list[str]:
         lines.append("  PARSE WARNINGS:")
         for warning in state.warnings:
             lines.extend(_wrap(warning, indent="    - "))
-    if not failed and not state.warnings:
+    if not failed and not warned and not state.warnings:
         lines.append("  No feed failures and no parse warnings this run.")
     return lines
 
@@ -967,6 +979,10 @@ def _ascii_field(grid, chars: tuple[str, ...], row_label, max_rows: int,
     return lines
 
 
+# The latest days of the daily boxes the report lists.
+DAILY_ROWS = 14
+
+
 def _section_spatial(state) -> list[str]:
     spatial = getattr(state, "spatial", None)
     if spatial is None or not spatial.available:
@@ -981,7 +997,11 @@ def _section_spatial(state) -> list[str]:
 
     if spatial.box_means:
         lines.append("")
-        lines.append("  Area-weighted mean SST anomaly over each index box, from the grid:")
+        grid = spatial.sst_map
+        whose = (f", from the Pacific map for {grid.as_of}, NOAA's "
+                 f"{'preliminary' if grid.preliminary else 'final'} analysis" if grid else "")
+        lines.extend(_wrap(f"Area-weighted mean SST anomaly over each index box{whose}:",
+                           indent="  "))
         names = (("nino4", "Nino-4"), ("nino34", "Nino-3.4"),
                  ("nino3", "Nino-3"), ("nino12", "Nino-1+2"))
         rows = [
@@ -1004,6 +1024,34 @@ def _section_spatial(state) -> list[str]:
                 flavour = "neither flavour is clearly dominant on this gradient"
             lines.extend(_wrap(
                 f"Nino-1+2 minus Nino-4 is {gradient:+.2f} degC - {flavour}.",
+                indent="    ",
+            ))
+
+    if spatial.nino_daily:
+        lines.append("")
+        lines.append("  Day by day, from OISST, the four boxes on the Pacific map's own cells:")
+        names = (("nino4", "Nino-4"), ("nino34", "Nino-3.4"),
+                 ("nino3", "Nino-3"), ("nino12", "Nino-1+2"))
+        rows = [("", *(label for _key, label in names))]
+        for item in reversed(spatial.nino_daily[-DAILY_ROWS:]):
+            rows.append((item.day + (" (preliminary)" if item.preliminary else ""),
+                         *(f"{item.means[key]:+.2f}" if key in item.means else "n/a"
+                           for key, _label in names)))
+        lines.extend(_table(rows, (24, -8, -8, -8, -8)))
+        lines.extend(_wrap(
+            "Degrees C. A day marked preliminary is NOAA's preliminary analysis, "
+            "a day or two behind; the final replaces it about two weeks on. The "
+            "anomalies are OISST's own, against its 1971-2000 climatology, where "
+            "CPC's weekly index is against 1991-2020.",
+            indent="    ",
+        ))
+        moved = spatial.nino_revision.get("nino34")
+        if moved:
+            lines.extend(_wrap(
+                f"On the {moved.days} days both analyses carry, the final runs "
+                f"{moved.mean:+.2f} degC from the preliminary in Nino-3.4 on average, and "
+                f"up to {moved.most:.2f} degC on a day: about how far the preliminary "
+                "days may yet move.",
                 indent="    ",
             ))
 

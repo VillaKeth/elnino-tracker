@@ -768,9 +768,11 @@ def card(state, size: int = 640) -> str:
 
     peak_phrase = (f" and at the projected peak of {peak_index:+.2f} in "
                    f"{esc(peak_label)}") if peak_label else ""
+    # The day's analysis, as the global map under it says in full.
+    analysis = " (preliminary)" if grid.preliminary else ""
     return f"""<section class="card wide" id="globe">
   <h2>The planet, and what this event does to it</h2>
-  <p class="caption">Sea surface temperature anomaly for {esc(grid.as_of)} painted
+  <p class="caption">Sea surface temperature anomaly for {esc(grid.as_of)}{analysis} painted
   on the sphere, with the {len(links)} catalogued teleconnection regions outlined.
   <strong class="gdo">Drag to spin, pinch or use &minus;/+ (or ctrl and the wheel) to
   zoom, click anywhere to open that location.</strong> The panel reports every relationship covering the point

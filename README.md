@@ -20,7 +20,7 @@ Pacific.
 A diagnostic, forecast and impact system for the current El Niño, built on live
 NOAA observations.
 
-Every run downloads 43 feeds, diagnoses the ocean and the atmosphere separately,
+Every run checks 46 feeds live, diagnoses the ocean and the atmosphere separately,
 maps where the event physically sits in the basin and at depth, tracks every
 tropical cyclone NHC, CPHC or JTWC is warning on, worldwide, projects the event
 forward with three methods whose weights come from its own cross-validated
@@ -227,17 +227,18 @@ the physical model made directly visible.
 An index is a number summarising a map, and two very different maps produce the
 same number. +1.5 °C in Niño-3.4 can be a narrow tongue on the equator or a
 basin-wide bulge, and they do not mean the same thing for the atmosphere. So the
-maps are shipped alongside the indices, in eight views:
+maps are shipped alongside the indices, in nine views:
 
 | View | What it shows | Source |
 |---|---|---|
 | **The globe (3-D)** | the whole planet, spun with the mouse; click anywhere and the panel beside it says what this event does *there*, now and at its projected peak | OISST v2.1 + the teleconnection catalogue |
-| **SST anomaly map** | the tropical Pacific, with the four Niño boxes drawn on it and the 28 °C warm-pool edge marked | OISST v2.1, daily |
+| **SST anomaly map** | the tropical Pacific, with the four Niño boxes drawn on it and the 28 °C warm-pool edge marked | OISST v2.1, daily: NOAA's preliminary analysis, a day or two behind |
+| **Niño boxes day by day** | the four boxes' area-weighted anomaly each day on the map's own cells, the preliminary days shaded with how far the final moved them on the days both carry, and CPC's traditional weekly Niño-3.4 beside them as hollow dots, with how far the days run from it | OISST v2.1, daily: the final's last 90 days, then the preliminary's |
 | **Thermocline surface (3-D)** | 20 °C isotherm depth over longitude *and* latitude, rotatable | TAO/TRITON daily array |
 | **Depth section** | temperature against depth along the equator, 165E to 95W | TAO/TRITON monthly |
-| **Hovmöller** | longitude across, time downward — eastward propagation reads as a right-leaning band | OISST and altimetry |
+| **Hovmöller** | longitude across, time downward — eastward propagation reads as a right-leaning band | OISST (the final, then the preliminary's latest weeks) and altimetry |
 | **Sea-level anomaly** | upper-ocean heat content, seen from orbit and independent of the moorings | NESDIS altimetry |
-| **Global map** | the same day worldwide, which is the reason relative ONI exists | OISST v2.1 |
+| **Global map** | the same day worldwide, which is the reason relative ONI exists | OISST v2.1, preliminary |
 | **Phase spiral (3-D)** | six years of the recharge oscillator with time as the third axis, so the orbits separate | derived |
 
 Three numbers are read straight off the grids and printed in the terminal report
@@ -1790,8 +1791,12 @@ Extreme ≥85.
 
 ## Data sources
 
-All 43 feeds are fetched live on every run, in parallel, and archived under
-`data/raw/archive/` with a daily snapshot, so past readings stay auditable. The
+All 46 feeds are checked live on every run, in parallel. Each is downloaded
+but a gridded feed whose dataset has no new day (below), and each download is
+archived under `data/raw/archive/` with a daily snapshot, so past readings stay
+auditable; not the three rolling windows of OISST days, each day's download of
+which repeats all but a day of the day before's, of products NOAA keeps every
+day of itself. The
 cyclone decks and products are a second wave on top of that — three ATCF decks and
 up to five NHC products for each NHC or CPHC storm, one warning for each JTWC
 storm — and which storms exist is not known until the first wave lands.
@@ -1861,18 +1866,22 @@ downloads none of them, and both pages still draw without them (sections 12 and
 | [NASA POWER](https://power.larc.nasa.gov/) monthly and daily point APIs | the street card's record and the replay's days: rain and temperature since 1981 | keyless; credited as NASA asks; only on a drop or when asked, the replay's days only when it opens and for the cell's grid point |
 | [Open-Meteo](https://open-meteo.com/) forecast and seasonal APIs | the street card's weather now and ECMWF's next six months | keyless, non-commercial; "Weather data by Open-Meteo.com"; only on a drop or when asked |
 
-### Gridded and mooring feeds (8)
+### Gridded and mooring feeds (11)
 
 These are ERDDAP queries rather than static files: the subset — variable, time
 slice, latitude band, longitude range and stride — is encoded in the URL, so the
-server does the decimation and a map arrives as a few hundred kilobytes of CSV
-instead of a NetCDF archive. Every one of them is optional.
+server does the decimation and a map arrives as CSV instead of a NetCDF archive:
+2.5 MB for the Pacific map, 41 MB for the global field, 29 MB for ninety days of
+the Niño boxes' cells. Every one of them is optional.
 
 | Feed | What it is for |
 |---|---|
-| [`ncdcOisst21Agg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.html) — Pacific | the anomaly field the Niño indices are averaged out of |
-| [`ncdcOisst21Agg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.html) — global | basin-wide context |
-| [`ncdcOisst21Agg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.html) — equatorial strip | the SST Hovmöller, weekly samples |
+| [`ncdcOisst21NrtAgg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21NrtAgg.html) — Pacific | the anomaly field the Niño indices are averaged out of, NOAA's preliminary analysis, with the same subset of the final, [`ncdcOisst21Agg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.html), beside it: the one with the later day serves |
+| [`ncdcOisst21NrtAgg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21NrtAgg.html) — global | basin-wide context; the final beside it, as for the Pacific |
+| [`ncdcOisst21Agg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.html) — equatorial strip | the SST Hovmöller, a row a week back from the final's latest day for sixteen months |
+| [`ncdcOisst21NrtAgg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21NrtAgg.html) — equatorial strip, its last 28 days | the Hovmöller's rows past the final, on its weekly beat, and its latest day |
+| [`ncdcOisst21Agg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.html) — the Niño boxes, its last 90 days | the boxes day by day, on the Pacific map's half-degree cells |
+| [`ncdcOisst21NrtAgg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21NrtAgg.html) — the Niño boxes, its last 28 days | the days since the final ends |
 | [`pmelTaoMonT`](https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonT.html) | the equatorial depth section, full record so it can be an anomaly |
 | [`pmelTaoMonIso`](https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonIso.html) | 20 °C isotherm depth; Kelvin wave propagation |
 | [`pmelTaoDyIso`](https://www.pmel.noaa.gov/erddap/tabledap/pmelTaoDyIso.html) | the off-equatorial rows, for the 3-D thermocline surface |
@@ -1888,12 +1897,50 @@ Their columns are not gaps, they are longitudes that no longer exist, so a
 longitude present in under half the window is dropped rather than drawn as an
 empty stripe.
 
+**Two analyses of one ocean.** NOAA publishes OISST twice: a preliminary
+analysis a day or two after the day (`ncdcOisst21NrtAgg`, from 4 May 2020,
+with gaps) and the final about two weeks after (`ncdcOisst21Agg`), which
+replaces it in NOAA's files; ERDDAP's preliminary dataset keeps its days. The
+maps ask both for the same subset, and the one whose latest day is the later
+serves: the preliminary as a rule, the final when the preliminary has failed or
+stalled behind it, and the final on a day both have, as the better analysis of
+it. Each product keeps its own copy, and when the one chosen fails its copy
+stands in for it against the other, so a copy of yesterday's preliminary still
+beats the final. Each map says which analysis it shows and, past four days, how
+far behind it is. The Hovmöller and the daily boxes run on the final's record
+and carry it on with the preliminary's days, which the JSON marks. The
+Hovmöller's record ends on the final's latest day, a week with no preliminary
+day within three of it is a blank row, and its subcaption says where the
+preliminary rows begin. The daily card shades the preliminary's days and says
+how far the final moved them on the days both analyses carry: on 14 October
+2026, 0.07 °C warmer in Niño-3.4 on average and up to 0.20 °C on a day (0.34 °C
+in Niño-1+2). The boxes are on the Pacific map's own cells, so that a day both
+carry has the map's box means to the last bit. Both
+products' anomalies are against OISST's own 1971–2000 climatology (ERDDAP:
+"Climatology is based on 1971-2000 OI.v2 SST"), where CPC's weekly index is
+against 1991–2020, so the daily Niño-3.4 runs warm of CPC's by the warming
+between the two base periods; the daily card measures it on the weeks both
+carry, a CPC week being the seven days centred on its Wednesday.
+
+**A gridded feed is downloaded again only when it has a new day.** Before a
+griddap request the tracker asks the dataset for its last time (`time[last]`,
+a few hundred bytes); when that is the time its cached copy was downloaded at,
+from the same address, the copy stands and the feed says *unchanged since* its
+download. A probe that fails counts as the address failing, and one that
+answers anything but a time is a full download. The global field is 41 MB, and
+was downloaded every hour for a day that changes once a day. An answer is kept
+only when it is ERDDAP's CSV of the subset, whole, its last line a row like the
+rest, so a proxy's page or an answer cut short is never recorded against the
+dataset's day; a copy is written whole, and checked against its digest before
+it is used, kept or served.
+
 Note the weekly file: CPC's older `wksst8110.for` (1981-2010 base period) stopped
 updating in early 2021 and is a trap. This tracker uses `wksst9120.for`, on the
 current 1991-2020 base period.
 
-**Update rhythm.** The weekly SST file refreshes Monday; ONI, RONI and the
-monthly indices update early each month; WWV updates monthly; the MJO index is
+**Update rhythm.** OISST's preliminary analysis lands daily, a day or two
+behind, and the final about two weeks behind; the weekly SST file refreshes
+Monday; ONI, RONI and the monthly indices update early each month; WWV updates monthly; the MJO index is
 daily; the Diagnostic Discussion is issued on the second Thursday. For the ENSO
 state alone, running more often than daily gains nothing. The tropical cyclone
 products change faster: advisories every six hours with intermediates between,
@@ -1902,8 +1949,10 @@ every hour (*The live site*); `--watch` refuses only intervals under 15 minutes,
 which would be load on NOAA for nothing new.
 
 If a feed is unreachable the tracker falls back to the last cached copy and says
-so, in the report, in the dashboard's provenance panel, and in the exit code
-(3 = degraded). It only fails hard if neither RONI nor ONI is available, live or
+so and why: in the report, under the feed in the dashboard's provenance panel, in
+the JSON's feeds, and in the exit code (3 = degraded). A copy that cannot be
+written or archived costs a warning, not the download. It only fails hard if
+neither RONI nor ONI is available, live or
 cached. Cached copies are stored with LF line endings and written without
 translation: through Windows text mode every CRLF a feed sent became CR CR LF,
 which read back as two lines, and the archive's digest, taken over the text,
@@ -1931,7 +1980,7 @@ track.py                 CLI entry point, exit codes, watch loop, storm desk ser
 publish.py               puts output/ up as the site on GitHub Pages, under the site's name
 publish.sh               runs the tracker, then publishes the run: what the hourly run calls
 .github/workflows/       live.yml, the hourly run that keeps the site live; tests.yml
-elnino/sources.py        43-feed registry, parallel fetch, retry, cache + archive
+elnino/sources.py        46-feed registry, parallel fetch, retry, cache + archive
 elnino/parsers.py        one parser per NOAA format, each with its quirks documented
 elnino/classify.py       episodes, ranking, scale, flavour, analogs, power index
 elnino/subsurface.py     WWV ranking, tendency, measured lead, phase-space position
@@ -1981,14 +2030,14 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1485 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1578 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
                          storms.json, run.json, sw.js, and assets/ beside them
 ```
 
-`output/latest.json` (schema 9) is the machine-readable snapshot: classification,
+`output/latest.json` (schema 10) is the machine-readable snapshot: classification,
 every diagnostic behind it, the spatial block (each field's stamp, age and
 coverage; the map-derived box means; the warm-pool edge; the isotherm profile),
 the forecast with its verified error bars, open alerts, active impacts, and the
@@ -2027,6 +2076,15 @@ page and data file the run wrote beside it and the data file's own schema.
 it is news, kept apart from `cyclones.notes`, which are problems and make the
 run a degraded one. The storm
 desk's own data file is `output/storms.json`, described in section 12.
+Schema 10 follows OISST's preliminary analysis: each spatial field's
+`preliminary`, the day its preliminary rows begin (null for a field all from the
+final analysis); `spatial.nino_daily`, the four boxes day by day (`day`,
+`preliminary`, `nino4`, `nino34`, `nino3`, `nino12`); `spatial.nino_revision`,
+for each box what the final changed on the days both analyses carry (`days`, the
+`mean` of final less preliminary, and the `most` on a day); and for each feed the
+`url` that served it, the final's when the preliminary failed or fell behind it,
+`unchanged`, true when its dataset had no new day and it was not downloaded
+again, and `warnings`, what went wrong on the way to it.
 `output/run.json`, written after every other file of a run, names that run and
 nothing else: an open page asks for it to learn whether the site has a newer one
 (*The live site*).
@@ -2221,7 +2279,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1485 tests, no network required. They cover:
+1578 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2256,6 +2314,25 @@ python -m unittest discover -s tests -v
   mooring, a decommissioned longitude is dropped from the Hovmöller, and the
   thermocline tilt averages both ends, skips a mooring that never crossed 20 °C
   and declines rather than averaging one end with itself;
+- **the ocean a day or two ago**: the maps served by whichever of OISST's two
+  analyses has the later day, the final on a day both have, each product's own
+  copy standing in for it when it fails and never overwritten by the other's,
+  and saying so when the final served; a griddap feed downloaded again only when
+  its dataset's last time moves at the same address, a probe that fails counting
+  as the address failing and one that answers no time a full download; an answer
+  kept only whole, a copy used only when it matches its digest, a failed write
+  or archive costing a warning, an empty answer a failure; the daily boxes the
+  map's own box means to the last bit on a shared day, summed day by day as they
+  come, the record then the preliminary's days, either alone, a broken answer
+  costing only itself, and what the final changed on the days both carry; the
+  Hovmöller's record ending on the final's latest day and carried on its weekly
+  beat from the nearest day within three, a missed week a blank row, then the
+  latest day; each map and the daily card saying how far behind past four days;
+  the daily card's lines broken at a missing day, the preliminary shaded and
+  named, CPC's traditional weeks as hollow dots set against their seven days,
+  the end labels apart; CPC's weeks named by the Wednesday they are centred on;
+  schema 10, each feed's warnings beside it, and the provenance's *unchanged
+  since*;
 - **the renderers**: run-length encoding really collapses a 1,200-cell field to
   20 rectangles and breaks a run on both a colour change and a gap, cells are
   clipped to the frame, two plots on one page get two clip ids, a diverging ramp

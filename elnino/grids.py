@@ -31,8 +31,8 @@ from __future__ import annotations
 import csv
 import io
 import math
-from dataclasses import dataclass, field as dc_field
-from datetime import date, datetime
+from dataclasses import dataclass, field as dc_field, replace
+from datetime import date, datetime, timedelta
 
 # The TAO/TRITON Pacific moorings, west to east. RAMA (Indian) and PIRATA
 # (Atlantic) share the same feed and are filtered out by longitude.
@@ -119,6 +119,9 @@ class Field:
     as_of: str = ""
     y_labels: tuple[str, ...] = ()
     note: str = ""
+    # The first day, or row, of the field that is NOAA's preliminary analysis
+    # rather than its final one; "" when none of it is.
+    preliminary: str = ""
 
     @property
     def rows(self) -> int:
@@ -309,6 +312,65 @@ def grid_hovmoller(
         values=tuple(tuple(r) for r in grid),
         label=label, units=units, x_name="longitude", y_name="time",
         as_of=times[-1] if times else "", y_labels=tuple(times), note=note,
+    )
+
+
+# The Hovmoller's beat, and how far either side of a missing day of the
+# preliminary product a row may take its nearest day instead.
+HOV_STEP_DAYS = 7
+HOV_NEAR_DAYS = 3
+
+
+def hovmoller_tail(record: Field | None, recent: str, value_key: str = "anom") -> Field | None:
+    """The weekly record carried on with the preliminary product's days.
+
+    The final analysis ends about two weeks back, and the record on its
+    latest day. Past it, a row is taken a week on from the last, on the
+    record's own beat, from the day of the preliminary product it falls on,
+    or the nearest day within three when that one is missing (the earlier of
+    two as near); a week with no day that near is a blank row, so that the
+    rows stay a week apart, rather than one drawn from a day it is not. Then
+    the latest day, if it is not already the last row, so the diagram ends on
+    the ocean as it is. A record that did not arrive is no Hovmoller: four
+    weeks of days are not one.
+    """
+    if record is None or not record.y_labels:
+        return record
+    days = grid_hovmoller(recent, value_key, record.label, record.units)
+    last = date.fromisoformat(record.y_labels[-1])
+    have = {date.fromisoformat(stamp): row for row, stamp in enumerate(days.y_labels)}
+    later = sorted(day for day in have if day > last)
+    if not later:
+        return record
+
+    # Each new row's day, and the preliminary day it is drawn from: none for
+    # a blank row.
+    rows: list[tuple[date, date | None]] = []
+    step, latest = timedelta(days=HOV_STEP_DAYS), later[-1]
+    target, floor = last + step, last
+    while target <= latest:
+        near = [day for day in later
+                if floor < day and abs((day - target).days) <= HOV_NEAR_DAYS]
+        if near:
+            floor = min(near, key=lambda day: (abs((day - target).days), day))
+            rows.append((floor, floor))
+        else:
+            rows.append((target, None))
+        target += step
+    if not rows or rows[-1][1] != latest:
+        rows.append((latest, latest))
+
+    col_of = {lon: col for col, lon in enumerate(days.x)}
+    values = tuple(tuple(days.values[have[day]][col_of[lon]] if day and lon in col_of else None
+                         for lon in record.x) for _row, day in rows)
+    labels = record.y_labels + tuple(row.isoformat() for row, _day in rows)
+    return replace(
+        record,
+        y=tuple(float(i) for i in range(len(labels))),
+        values=record.values + values,
+        y_labels=labels,
+        as_of=labels[-1],
+        preliminary=rows[0][0].isoformat(),
     )
 
 
@@ -569,6 +631,22 @@ class Box:
     lat0: float
     lat1: float
 
+    def contains(self, lat: float, lon: float) -> bool:
+        """Whether a point is inside, its longitude taken in 0..360.
+
+        A box given west-of-east in 0..360 is an ordinary interval; one given
+        the other way round has wrapped past 360, and is the union of the two
+        pieces either side of the seam. Testing it as an ordinary interval
+        makes it the empty set, so a box over the dateline used to return None
+        and the panel above it a dash.
+        """
+        if not self.lat0 <= lat <= self.lat1:
+            return False
+        east = lon % 360.0
+        if self.lon0 <= self.lon1:
+            return self.lon0 <= east <= self.lon1
+        return east >= self.lon0 or east <= self.lon1
+
 
 NINO_BOXES: tuple[Box, ...] = (
     Box("nino4", "Nino-4", 160.0, 210.0, -5.0, 5.0),
@@ -576,6 +654,128 @@ NINO_BOXES: tuple[Box, ...] = (
     Box("nino3", "Nino-3", 210.0, 270.0, -5.0, 5.0),
     Box("nino12", "Nino-1+2", 270.0, 280.0, -10.0, 0.0),
 )
+
+
+@dataclass(frozen=True)
+class BoxDay:
+    """One day's mean anomaly over each index box that had a value that day."""
+
+    day: str
+    means: dict[str, float]
+    preliminary: bool = False
+
+
+def daily_box_means(text: str, boxes: tuple[Box, ...] = NINO_BOXES,
+                    preliminary: bool = False, value_key: str = "anom") -> list[BoxDay]:
+    """Each day's area-weighted mean over each box, from a griddap CSV of days.
+
+    ERDDAP sends a subset day by day, and each day is summed when its rows
+    end, so that one day's cells are held at a time (ninety days of the four
+    boxes are 650,000 of them); a day whose rows come again after another's
+    is an error, and a row whose time is not a day is left out. A day's cells
+    are summed as box_mean sums a map's, row after row from the south and each
+    row west to east, whatever order they arrived in; so a day the Pacific map
+    also shows, on the same cells, has the map's box means to the last bit.
+    """
+    reader = csv.reader(_lines(text))
+    try:
+        names = [name.strip() for name in next(reader)]
+        next(reader)  # units row
+    except StopIteration:
+        raise ValueError("daily boxes: empty response") from None
+    time_i, lat_i = column(names, "time"), column(names, "latitude")
+    lon_i, val_i = column(names, "longitude"), column(names, value_key)
+    width = len(names)
+    days: list[BoxDay] = []
+    day, cells = "", []
+    for raw in reader:
+        if len(raw) != width:
+            continue
+        value, lat, lon = _num(raw[val_i]), _num(raw[lat_i]), _num(raw[lon_i])
+        if value is None or lat is None or lon is None:
+            continue
+        stamp = _day(raw[time_i].strip())
+        if stamp != day:
+            if not _is_day(stamp):
+                continue
+            if stamp < day:
+                raise ValueError(f"daily boxes: {stamp} comes again after {day}")
+            if cells:
+                days.append(_box_day(day, cells, boxes, preliminary))
+            day, cells = stamp, []
+        cells.append((lat, lon, value))
+    if cells:
+        days.append(_box_day(day, cells, boxes, preliminary))
+    if not days:
+        raise ValueError("daily boxes: no values in the response")
+    return days
+
+
+def _lines(text: str):
+    """The text's lines one at a time, without the copy of the whole of it
+    that io.StringIO makes, four bytes a character."""
+    start = 0
+    while start < len(text):
+        end = text.find("\n", start)
+        if end < 0:
+            end = len(text)
+        yield text[start:end]
+        start = end + 1
+
+
+def _is_day(text: str) -> bool:
+    """Whether a time's first ten characters are a day, as YYYY-MM-DD."""
+    try:
+        return len(text) == 10 and date.fromisoformat(text).isoformat() == text
+    except ValueError:
+        return False
+
+
+def _box_day(day: str, cells: list[tuple[float, float, float]], boxes: tuple[Box, ...],
+             preliminary: bool) -> BoxDay:
+    """One day's cells, summed into each box's area-weighted mean."""
+    sums = {box.key: [0.0, 0.0] for box in boxes}
+    for lat, lon, value in sorted(cells):
+        cos = math.cos(math.radians(lat))
+        for box in boxes:
+            if box.contains(lat, lon):
+                sums[box.key][0] += value * cos
+                sums[box.key][1] += cos
+    means = {key: total / weight for key, (total, weight) in sums.items() if weight}
+    return BoxDay(day, means, preliminary)
+
+
+@dataclass(frozen=True)
+class Revision:
+    """What the final analysis changed in a box from the preliminary's value
+    over the days both carry: the mean of final less preliminary, and the
+    largest change on a day either way."""
+
+    days: int
+    mean: float
+    most: float
+
+
+def revisions(record: list[BoxDay], recent: list[BoxDay]) -> dict[str, Revision]:
+    """Each box's change from the preliminary analysis to the final on the
+    days both carry, which splice_days takes from the final: about how far
+    the preliminary's days after the record may yet move."""
+    preliminary = {item.day: item.means for item in recent}
+    changes: dict[str, list[float]] = {}
+    for item in record:
+        for key, value in item.means.items():
+            before = preliminary.get(item.day, {}).get(key)
+            if before is not None:
+                changes.setdefault(key, []).append(value - before)
+    return {key: Revision(len(found), sum(found) / len(found), max(abs(c) for c in found))
+            for key, found in changes.items()}
+
+
+def splice_days(record: list[BoxDay], recent: list[BoxDay]) -> list[BoxDay]:
+    """The record, then the days of the recent product after its last: a day
+    both carry is the record's, the final analysis's."""
+    last = record[-1].day if record else ""
+    return list(record) + [day for day in recent if day.day > last]
 
 
 def box_mean(grid: Field, box: Box) -> float | None:
@@ -592,15 +792,7 @@ def box_mean(grid: Field, box: Box) -> float | None:
             continue
         cos = math.cos(math.radians(lat))
         for col, lon in enumerate(grid.x):
-            east = lon % 360.0
-            # A box given west-of-east in 0..360 is an ordinary interval; one
-            # given the other way round has wrapped past 360, and is the union
-            # of the two pieces either side of the seam. Testing it as an
-            # ordinary interval makes it the empty set, so a box over the
-            # dateline used to return None and the panel above it a dash.
-            inside = (box.lon0 <= east <= box.lon1 if box.lon0 <= box.lon1
-                      else east >= box.lon0 or east <= box.lon1)
-            if not inside:
+            if not box.contains(lat, lon):
                 continue
             value = grid.values[row][col]
             if value is not None:
@@ -698,13 +890,17 @@ class SpatialState:
     mesh: Mesh | None = None
     profiles: tuple[Profile, ...] = ()
     box_means: dict[str, float] = dc_field(default_factory=dict)
+    # The four boxes day by day: the final analysis, then the preliminary's
+    # days since it ends; and what the final changed on the days both carry.
+    nino_daily: tuple[BoxDay, ...] = ()
+    nino_revision: dict[str, Revision] = dc_field(default_factory=dict)
     warm_pool: float | None = None
     stale: dict[str, int] = dc_field(default_factory=dict)
     notes: list[str] = dc_field(default_factory=list)
 
     @property
     def available(self) -> bool:
-        return any(
+        return bool(self.nino_daily) or any(
             getattr(self, name) is not None
             for name in ("sst_map", "sst_hov", "section", "iso_hov", "mesh")
         )

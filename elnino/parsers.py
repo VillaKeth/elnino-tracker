@@ -463,7 +463,7 @@ REL_MONTHLY_ORDER = ("nino12", "nino3", "nino4", "nino34")
 
 
 def parse_rel_weekly(text: str) -> list[tuple[date, dict[str, float]]]:
-    """rel_wksst9120.txt -- week-ending date then four relative anomalies."""
+    """rel_wksst9120.txt -- the day each week is centred on, then four relative anomalies."""
     out: list[tuple[date, dict[str, float]]] = []
     for line in text.splitlines():
         match = WEEK_RE.match(line)

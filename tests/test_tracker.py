@@ -9346,7 +9346,8 @@ class TestServe(unittest.TestCase):
         self.assertEqual(server.server_address[0], "127.0.0.1")
         # Not bound for real: listening on every interface can raise a
         # firewall prompt on the machine running the tests.
-        with mock.patch("http.server.HTTPServer.server_bind"),                 mock.patch("socketserver.TCPServer.server_activate"):
+        with (mock.patch("http.server.HTTPServer.server_bind"),
+              mock.patch("socketserver.TCPServer.server_activate")):
             server = self.track.serve(self.out, 0, lan=True)
         server.server_close()
         self.assertEqual(server.server_address[0], "0.0.0.0")
@@ -9354,8 +9355,14 @@ class TestServe(unittest.TestCase):
     def main(self, *argv):
         server = mock.MagicMock()
         server.server_address = ("127.0.0.1", 8765)
-        server.serve_forever.side_effect = KeyboardInterrupt
-        with mock.patch.object(self.track, "serve", return_value=server) as serve,                 mock.patch.object(self.track, "_guarded", return_value=0) as run,                 mock.patch.object(self.track.time, "sleep", side_effect=KeyboardInterrupt),                 mock.patch("sys.stderr"):
+        # Ctrl-C ends serving in the foreground. Under --watch the server is
+        # a thread's, which Ctrl-C never reaches: it ends the loop's sleep.
+        if "--watch" not in argv:
+            server.serve_forever.side_effect = KeyboardInterrupt
+        with (mock.patch.object(self.track, "serve", return_value=server) as serve,
+              mock.patch.object(self.track, "_guarded", return_value=0) as run,
+              mock.patch.object(self.track.time, "sleep", side_effect=KeyboardInterrupt),
+              mock.patch("sys.stderr")):
             code = self.track.main(["--out", str(self.out), *argv])
         return code, serve, run, server
 
@@ -10933,7 +10940,9 @@ class TestEndToEnd(unittest.TestCase):
     def test_a_run_writes_the_storm_desk_beside_the_dashboard(self):
         import track
 
-        with tempfile.TemporaryDirectory() as tmp,                 mock.patch.object(track.pipeline, "run", return_value=self.state),                 mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+        with (tempfile.TemporaryDirectory() as tmp,
+              mock.patch.object(track.pipeline, "run", return_value=self.state),
+              mock.patch("sys.stdout"), mock.patch("sys.stderr")):
             track.main(["--offline", "--quiet", "--out", tmp])
             page = (Path(tmp) / "storms.html").read_text(encoding="utf-8")
             data = json.loads((Path(tmp) / "storms.json").read_text(encoding="utf-8"))
@@ -10943,7 +10952,9 @@ class TestEndToEnd(unittest.TestCase):
     def test_a_run_writes_the_map_beside_the_storm_desk(self):
         import track
 
-        with tempfile.TemporaryDirectory() as tmp,                 mock.patch.object(track.pipeline, "run", return_value=self.state),                 mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+        with (tempfile.TemporaryDirectory() as tmp,
+              mock.patch.object(track.pipeline, "run", return_value=self.state),
+              mock.patch("sys.stdout"), mock.patch("sys.stderr")):
             track.main(["--offline", "--quiet", "--out", tmp])
             page = (Path(tmp) / "map.html").read_text(encoding="utf-8")
         self.assertIn('id="desk-data"', page)
@@ -11002,7 +11013,7 @@ class TestEndToEnd(unittest.TestCase):
     def test_payload_is_json_serialisable_and_keyed_as_documented(self):
         payload = dashboard.payload(self.state)
         restored = json.loads(json.dumps(payload))
-        self.assertEqual(restored["schema"], 9)
+        self.assertEqual(restored["schema"], 10)
         for key in ("index", "oni", "power_index", "subsurface", "atmosphere", "forecast",
                     "skill", "alerts", "impacts", "feeds", "footprints",
                     "cyclones", "stormfury", "atlas", "outlook", "storm_desk"):

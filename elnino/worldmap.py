@@ -308,7 +308,7 @@ def section(state) -> str:
         basis = ("against the tropical mean, as CPC now quotes it" if box["basis"] == "relative"
                  else "the traditional anomaly")
         out.append(f"<p>Ni\u00f1o 3.4 this week: <b>{box['anomaly']:+.2f} \u00b0C</b>, {basis} "
-                   f"(week ending {esc(a.latest_week.label)}).</p>")
+                   f"(the week centred on {esc(a.latest_week.label)}).</p>")
     peak = getattr(getattr(state, "forecast", None), "peak", None)
     if peak is None:
         out.append("<p>No forecast this run.</p>")

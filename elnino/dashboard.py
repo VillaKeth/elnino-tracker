@@ -248,7 +248,7 @@ def chart_weekly(weeks: list[WeekObservation], count: int = 104) -> str:
             )
         plot.add(
             _hit(
-                plot.sx(index), plot.sy(week.nino34_anom), f"Week ending {week.label}",
+                plot.sx(index), plot.sy(week.nino34_anom), f"Week centred on {week.label}",
                 f"Nino-3.4 {week.nino34_anom:+.2f} °C", f"SST {week.nino34_sst:.1f} °C",
             )
         )
@@ -511,6 +511,7 @@ th {{ color: var(--ink2); font-weight: 600; }}
   color: var(--ink2); flex-wrap: wrap; }}
 .sources a {{ color: var(--s1); text-decoration: none; word-break: break-all; }}
 .sources a:hover {{ text-decoration: underline; }}
+.sources .said {{ flex-basis: 100%; color: var(--muted); }}
 .pill {{ font-size: 0.68rem; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border);
   color: var(--ink2); white-space: nowrap; }}
 .pill.live {{ color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }}
@@ -696,6 +697,8 @@ footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
 .hint {{ color: var(--muted); font-style: italic; }}
 .threeup {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }}
 .swatch-line {{ height: 3px; border-radius: 2px; background: var(--ink); }}
+.swatch-week {{ width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--s1);
+  background: var(--surface); }}
 
 /* Colour bars. Every field that uses a ramp carries one of these, which is the
    relief the validator requires for a neutral midpoint that recedes. */
@@ -932,6 +935,55 @@ def storm_desk_card(state) -> str:
 </section>"""
 
 
+def _provenance_card(fetches: dict[str, Fetched]) -> str:
+    """Where every number came from this run, feed by feed.
+
+    A gridded feed whose dataset has no new day since it was downloaded is
+    checked live and not downloaded again: it is as current as a live one,
+    and says since when. Each links the address that served it, and says
+    under it what went wrong on the way: why the final analysis served
+    rather than the preliminary, why a copy did, why nothing could.
+    """
+    source_items, pills = [], []
+    for fetched in fetches.values():
+        if fetched.error:
+            kind, pill, status = "fail", "fail", "fetch failed"
+        elif fetched.unchanged:
+            kind, pill, status = "same", "live", f"unchanged since {fetched.fetched_at}"
+        elif fetched.from_cache:
+            kind, pill, status = "cache", "cache", f"cached {fetched.fetched_at}"
+        else:
+            kind, pill, status = "live", "live", f"live {fetched.fetched_at}"
+        pills.append(kind)
+        address = fetched.url or fetched.source.url
+        said = [fetched.error] if fetched.error else fetched.warnings
+        source_items.append(
+            f'<li><span class="pill {pill}">{esc(status)}</span>'
+            f'<span>{esc(fetched.source.agency)} &mdash; {esc(fetched.source.name)}</span>'
+            f'<a href="{esc(address)}">{esc(address)}</a>'
+            + "".join(f'<span class="said">{esc(line)}</span>' for line in said)
+            + "</li>"
+        )
+    # Say where the numbers came from this run, not where they would come
+    # from on a good day: an offline run is every feed out of the cache.
+    came = []
+    if pills.count("live"):
+        came.append(f"{pills.count('live')} fetched live this run")
+    if pills.count("same"):
+        came.append(f"{pills.count('same')} checked live and unchanged since they were downloaded")
+    if pills.count("cache"):
+        came.append(f"{pills.count('cache')} read from the local cache, each "
+                    "stamped with when it was fetched")
+    if pills.count("fail"):
+        came.append(f"{pills.count('fail')} failed with no cache to fall back on")
+    return f"""<section class="card" id="provenance">
+  <h2>Data provenance</h2>
+  <p class="caption">Every number on this page comes from these feeds:
+    {"; ".join(came)}.</p>
+  <ul class="sources">{''.join(source_items)}</ul>
+</section>"""
+
+
 def render(state) -> str:
     """The whole system state as one self-contained HTML file."""
     a = state.assessment
@@ -987,7 +1039,7 @@ def render(state) -> str:
         regions = {r.key: r for r in a.scale.regions} if a.scale else {}
         relative = bool(a.scale and a.scale.basis == "relative")
         for key, label, note in (
-            ("nino34", "Nino-3.4 weekly", f"week ending {esc(a.latest_week.label)}"),
+            ("nino34", "Nino-3.4 weekly", f"week centred on {esc(a.latest_week.label)}"),
             ("nino12", "Nino-1+2 weekly", "eastern Pacific / coastal"),
         ):
             region = regions.get(key)
@@ -1082,6 +1134,8 @@ def render(state) -> str:
     cards.append(atlasview.card(state))
     if sp.sst_map is not None:
         cards.append(fields.sst_map(sp.sst_map, sp.box_means, sp.warm_pool))
+    # The map's boxes day by day straight under it, CPC's weeks beside them.
+    cards.append(fields.nino_daily_card(sp.nino_daily, weeks, sp.nino_revision))
     if sp.mesh is not None:
         cards.append(space3d.thermocline(sp.mesh))
     cards.append(fields.section_card(sp))
@@ -1122,7 +1176,7 @@ def render(state) -> str:
         cards.append(
             f"""<section class="card" id="regions">
   <h2>Scale &mdash; spatial extent across the Nino regions</h2>
-  <p class="caption">Week ending {esc(a.latest_week.label)} &middot;
+  <p class="caption">Week centred on {esc(a.latest_week.label)} &middot;
     {a.scale.active_regions} of 4 regions at or above +0.5 °C &middot; {esc(a.scale.flavour)}
     (Nino-1+2 minus Nino-4 = {a.scale.flavour_index:+.2f} °C) &middot;
     {"relative anomalies, tropical mean removed, as CPC now quotes them"
@@ -1158,7 +1212,7 @@ def render(state) -> str:
     taken out, is beside it in the table</p>
   {chart_weekly(weeks)}
   {table("Weekly Nino-3.4 (most recent 16 weeks)",
-         ["Week ending", "Relative anomaly °C", "Traditional anomaly °C", "SST °C",
+         ["Week centred on", "Relative anomaly °C", "Traditional anomaly °C", "SST °C",
           "Nino-1+2 traditional °C"],
          [[w.label, relative_cell(w), f"{w.nino34_anom:+.2f}", f"{w.nino34_sst:.1f}",
            f"{w.nino12_anom:+.2f}"]
@@ -1218,38 +1272,7 @@ def render(state) -> str:
 </section>"""
     )
 
-    source_items, pills = [], []
-    for fetched in fetches.values():
-        if fetched.error:
-            pill, status = "fail", "fetch failed"
-        elif fetched.from_cache:
-            pill, status = "cache", f"cached {fetched.fetched_at}"
-        else:
-            pill, status = "live", f"live {fetched.fetched_at}"
-        pills.append(pill)
-        source_items.append(
-            f'<li><span class="pill {pill}">{esc(status)}</span>'
-            f'<span>{esc(fetched.source.agency)} &mdash; {esc(fetched.source.name)}</span>'
-            f'<a href="{esc(fetched.source.url)}">{esc(fetched.source.url)}</a></li>'
-        )
-    # Say where the numbers came from this run, not where they would come
-    # from on a good day: an offline run is every feed out of the cache.
-    came = []
-    if pills.count("live"):
-        came.append(f"{pills.count('live')} fetched live this run")
-    if pills.count("cache"):
-        came.append(f"{pills.count('cache')} read from the local cache, each "
-                    "stamped with when it was fetched")
-    if pills.count("fail"):
-        came.append(f"{pills.count('fail')} failed with no cache to fall back on")
-    cards.append(
-        f"""<section class="card" id="provenance">
-  <h2>Data provenance</h2>
-  <p class="caption">Every number on this page comes from these feeds:
-    {"; ".join(came)}.</p>
-  <ul class="sources">{''.join(source_items)}</ul>
-</section>"""
-    )
+    cards.append(_provenance_card(fetches))
 
     # The banner is the one thing a reader sees without scrolling, so it carries
     # the worst open alert and says how many others sit behind it.
@@ -1352,7 +1375,7 @@ def payload(state) -> dict:
     return {
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_at": state.run_at,
-        "schema": 9,
+        "schema": 10,
         "headline": a.headline,
         "cpc_status": a.status or None,
         "degraded": state.degraded,
@@ -1686,6 +1709,9 @@ def payload(state) -> dict:
                     "rows": getattr(state.spatial, name).rows,
                     "cols": getattr(state.spatial, name).cols,
                     "coverage": round(getattr(state.spatial, name).coverage(), 4),
+                    # The day the preliminary analysis's rows begin; null for
+                    # a field all from the final analysis.
+                    "preliminary": getattr(state.spatial, name).preliminary or None,
                 }
                 for name in ("sst_map", "sst_global", "sst_hov", "ssh_map", "ssh_hov",
                              "section", "section_anomaly", "iso_hov", "iso_hov_anomaly")
@@ -1696,6 +1722,21 @@ def payload(state) -> dict:
             # They are here to show what the map says, not to replace the index.
             "box_means_from_map": {
                 key: round(value, 3) for key, value in state.spatial.box_means.items()
+            },
+            # The four boxes day by day, from OISST on the Pacific map's own
+            # cells: the final analysis, then the preliminary's days after it.
+            "nino_daily": [
+                {"day": item.day, "preliminary": item.preliminary,
+                 **{key: round(item.means[key], 3) if key in item.means else None
+                    for key in ("nino4", "nino34", "nino3", "nino12")}}
+                for item in state.spatial.nino_daily
+            ],
+            # What the final changed on the days both analyses carry, box by
+            # box: final less preliminary on average, and the most on a day.
+            "nino_revision": {
+                key: {"days": moved.days, "mean": round(moved.mean, 3),
+                      "most": round(moved.most, 3)}
+                for key, moved in state.spatial.nino_revision.items()
             },
             "warm_pool_east_edge": state.spatial.warm_pool,
             "equatorial_isotherm_20c": [
@@ -1718,7 +1759,11 @@ def payload(state) -> dict:
             key: {
                 "ok": item.ok, "from_cache": item.from_cache,
                 "fetched_at": item.fetched_at, "error": item.error or None,
-                "url": item.source.url,
+                # The address that served it, whether its dataset had no new
+                # day, so it was checked and not downloaded again, and what
+                # went wrong on the way.
+                "url": item.url or item.source.url, "unchanged": item.unchanged,
+                "warnings": list(item.warnings),
             }
             for key, item in state.fetched.items()
         },
