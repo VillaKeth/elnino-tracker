@@ -1,8 +1,11 @@
 """Live ENSO data sources: fetch, retry, and archive raw snapshots.
 
-Every source is an authoritative NOAA/CPC, NOAA/PSL or NOAA/PMEL product.
-Nothing here depends on third-party packages so the tracker keeps working on a
-bare Python install.
+Every source is an authoritative product: NOAA's, from CPC (with IRI for the
+diagnostic discussion), PSL, PMEL, NCEI, CoastWatch and the National and
+Central Pacific Hurricane Centers; the Queensland Government's LongPaddock's
+daily SOI, on the Bureau of Meteorology's definition; and the Joint Typhoon
+Warning Center's warnings. Nothing here depends on third-party packages so the
+tracker keeps working on a bare Python install.
 
 Sources are grouped into tiers, which is how the rest of the system decides how
 badly it is hurt when one goes dark:
@@ -121,6 +124,11 @@ _WORLD = "[(-79):1:(79)][(0):1:(359.75)]"
 # Pacific map samples (29.875S and 100.125E onward), so a day both carry has
 # the same box means on the map as in the day-by-day series.
 _NINO_CELLS = "[(-9.875):2:(4.625)][(160.125):2:(279.625)]"
+# The Indian Ocean Dipole's poles' cells, every day: half a degree as the Nino
+# boxes' are, over 10S-10N and 50-110E, which holds the west pole and the east
+# (grids.IOD_BOXES). One degree put the DMI 0.027 degC off the full grid on 13
+# October 2026, half a degree 0.009.
+_IOD_CELLS = "[(-9.875):2:(9.625)][(50.125):2:(109.625)]"
 # Days asked for: the final's last 90, and the preliminary's last 28, which
 # covers the final's two weeks behind it with room for the final to slip.
 _RECORD_DAYS = "[last-89:1:last]"
@@ -186,6 +194,20 @@ class Source:
     # rolling window of days, each day's of which repeats all but a day of the
     # day before's, of a product NOAA keeps every day of itself.
     archive: bool = True
+    # Whether the feed is markup itself, a web page, an RSS feed or a KML
+    # file. Any other feed's answer that is markup is a page where its file
+    # should be, as a server down for maintenance or a file moved can send
+    # with a 200, and is no answer.
+    markup: bool = False
+
+
+# The SOI on the Bureau of Meteorology's definition, Troup's against
+# 1933-1992, worked out day by day from the day's Tahiti and Darwin pressures
+# by the Queensland Government's LongPaddock: every day since 1999 in one
+# file. The Bureau's own daily SOI data have been unavailable since January
+# 2025, when Meteo-France changed its Tahiti data service.
+LONGPADDOCK_SOI = ("https://data.longpaddock.qld.gov.au/SeasonalClimateOutlook/"
+                   "SouthernOscillationIndex/SOIDataFiles/DailySOI1933-1992Base.txt")
 
 
 SOURCES: tuple[Source, ...] = (
@@ -292,6 +314,18 @@ SOURCES: tuple[Source, ...] = (
         cadence="monthly",
         tier="atmosphere",
         note="Two stacked tables: raw anomaly, then standardized.",
+    ),
+    Source(
+        key="soi_daily",
+        name=("Daily SOI on the Bureau of Meteorology's definition "
+              "(Troup's, Tahiti-Darwin, 1933-1992 base)"),
+        url=LONGPADDOCK_SOI,
+        agency="Queensland Government (LongPaddock)",
+        cadence="daily, a day behind",
+        tier="atmosphere",
+        archive=False,
+        note=("A day is its year and its day of the year; -999.9 is a missing pressure. "
+              "The 30- and 90-day SOI are the means of the days'."),
     ),
     Source(
         key="eqsoi",
@@ -421,6 +455,7 @@ SOURCES: tuple[Source, ...] = (
         agency="NOAA CPC / IRI",
         cadence="monthly",
         tier="context",
+        markup=True,
         note="The operational authority. Issued the second Thursday.",
     ),
 
@@ -501,6 +536,30 @@ SOURCES: tuple[Source, ...] = (
         note="The boxes' days since the final analysis ends, to the latest day.",
     ),
     Source(
+        key="iod_daily",
+        name="OISST v2.1 SST anomaly over the Indian Ocean Dipole's poles, the last 90 days",
+        url=erddap(OISST_FINAL, f"anom{_RECORD_DAYS}[(0.0)]{_IOD_CELLS}"),
+        fallback=(erddap(NCEI_FINAL, f"anom{_RECORD_DAYS}[(0.0)]{_IOD_CELLS}"),),
+        agency="NOAA NCEI, via CoastWatch's ERDDAP or its own",
+        cadence="daily, about two weeks behind",
+        tier="spatial",
+        archive=False,
+        note="The poles' means and the Dipole Mode Index day by day, from the final analysis.",
+    ),
+    Source(
+        key="iod_daily_recent",
+        name=("OISST v2.1 SST anomaly over the Indian Ocean Dipole's poles, the last four "
+              "weeks (preliminary)"),
+        url=erddap(OISST_NRT, f"anom{_RECENT_DAYS}[(0.0)]{_IOD_CELLS}"),
+        fallback=tuple(erddap(NCEI_NRT, f"anom{days}[(0.0)]{_IOD_CELLS}")
+                       for days in _NCEI_RECENT_DAYS),
+        agency="NOAA NCEI, via CoastWatch's ERDDAP or its own",
+        cadence="daily, a day or two behind",
+        tier="spatial",
+        archive=False,
+        note="The poles' days since the final analysis ends, to the latest day.",
+    ),
+    Source(
         key="tao_temperature",
         name="TAO/TRITON monthly subsurface temperature, equator",
         url=erddap(
@@ -574,6 +633,7 @@ SOURCES: tuple[Source, ...] = (
         agency="NOAA National Hurricane Center",
         cadence="continuous",
         tier="cyclone",
+        markup=True,
         note="Every storm of the current season, live or finished.",
     ),
     Source(
@@ -583,6 +643,7 @@ SOURCES: tuple[Source, ...] = (
         agency="NOAA National Hurricane Center",
         cadence="annual",
         tier="cyclone",
+        markup=True,
         note="Scraped for the current filenames, which are renamed every spring.",
     ),
 
@@ -594,6 +655,7 @@ SOURCES: tuple[Source, ...] = (
         agency="NOAA National Hurricane Center",
         cadence="four times a day",
         tier="cyclone",
+        markup=True,
         note="Areas NHC is watching, with the 2-day and 7-day chance of formation.",
     ),
     Source(
@@ -603,6 +665,7 @@ SOURCES: tuple[Source, ...] = (
         agency="NOAA National Hurricane Center",
         cadence="four times a day",
         tier="cyclone",
+        markup=True,
         note="Areas NHC is watching, with the 2-day and 7-day chance of formation.",
     ),
     Source(
@@ -612,6 +675,7 @@ SOURCES: tuple[Source, ...] = (
         agency="NOAA Central Pacific Hurricane Center",
         cadence="four times a day",
         tier="cyclone",
+        markup=True,
         note="Areas CPHC is watching, with the 2-day and 7-day chance of formation.",
     ),
     Source(
@@ -621,6 +685,7 @@ SOURCES: tuple[Source, ...] = (
         agency="Joint Typhoon Warning Center",
         cadence="every warning",
         tier="cyclone",
+        markup=True,
         note="Live warnings for the west Pacific, Indian Ocean and southern hemisphere.",
     ),
     Source(
@@ -712,6 +777,7 @@ def product_source(kind: str, storm_id: str, url: str, name: str = "") -> Source
         agency="NOAA National Hurricane Center",
         cadence="every advisory",
         tier="cyclone",
+        markup=True,
         note="Per-storm product, linked from the active-storm index.",
     )
 
@@ -820,8 +886,8 @@ class _Product:
     """One product a feed is served from, at its own address or a second
     server's, and the copy kept of it: ``<name>.cache`` beside
     ``<name>.meta.json``, the record of where and when the copy was downloaded,
-    the latest day its dataset said it had then, and the digest of the bytes
-    written."""
+    the latest day its dataset said it had then, or the copy's last day with
+    values when its last day has none, and the digest of the bytes written."""
 
     name: str
     url: str
@@ -952,7 +1018,7 @@ def fetch(source: Source, raw_dir: Path, offline: bool = False) -> Fetched:
     product's own address as well, and serves as current while that is behind
     it. A gridded product
     keeps its copy, without downloading the subset again, while its dataset's
-    latest day is the one the copy was downloaded at.
+    latest day is the one the copy was downloaded at and has values for.
     """
     raw_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -1052,6 +1118,43 @@ def _is_griddap_csv(text: str) -> bool:
             and last.count(",") == text.count(",", 0, head))
 
 
+# The columns of a griddap answer that say where a value is, not what it is:
+# ERDDAP's standard axes, and the depth CoastWatch's OISST calls "zlev".
+_AXES = frozenset({"time", "altitude", "depth", "latitude", "longitude", "zlev"})
+
+
+def _last_times(text: str) -> tuple[str, str]:
+    """The times of the last row of a griddap answer, whole, and of its last
+    row with a value in it, "" when no row has one. A dataset can list a day
+    before its values are in it, as NCEI's preliminary OISST listed 12 October
+    with every cell NaN; the rows are read from the end, so a day with values
+    is done with at its last row."""
+    head = text.find("\n")
+    names = text[:head].split(",")
+    values = [i for i, name in enumerate(names) if name not in _AXES]
+    first = text.find("\n", head + 1) + 1
+    end, last = len(text), ""
+    while end > first:
+        start = text.rfind("\n", first - 1, end) + 1
+        row = text[start:end].split(",")
+        if len(row) == len(names):
+            last = last or row[0]
+            if any(row[i] != "NaN" for i in values):
+                return last, row[0]
+        end = start - 1
+    return last, ""
+
+
+# Markup from its first character on, past any white space or byte order mark.
+_MARKUP = re.compile(r"[\N{ZERO WIDTH NO-BREAK SPACE}\s]*<")
+
+
+def _is_markup(text: str) -> bool:
+    """Whether an answer is markup: a web page, an RSS feed or a KML file. No
+    other feed's file opens with a tag."""
+    return bool(_MARKUP.match(text))
+
+
 def _read_meta(path: Path) -> dict:
     """What was recorded of the cached copy: where and when it came from."""
     try:
@@ -1064,8 +1167,9 @@ def _read_meta(path: Path) -> dict:
 def _download(source: Source, product: _Product, url: str, said: str, now: str) -> Fetched:
     """A product's text, downloaded from ``url`` and kept, or its copy when the
     copy came from there and the dataset's latest day, as it ``said``, is the
-    one the copy was downloaded at. Raises when the address fails or answers
-    with anything but its data."""
+    one the copy is recorded at. Raises when the address fails or answers
+    with anything but its data, as a web page is for a feed that is not one,
+    or with a subset of nothing but NaN."""
     meta = product.meta()
     if said and meta.get("probe") == said and meta.get("url") == url:
         # A copy that is gone, or is not what its record was written for, is
@@ -1083,8 +1187,18 @@ def _download(source: Source, product: _Product, url: str, said: str, now: str) 
     if probe_url(url):
         if not _is_griddap_csv(text):
             raise ValueError("its answer is not ERDDAP's CSV")
+        last, valued = _last_times(text)
+        if not valued:
+            raise ValueError("its answer has no values")
+        if said and valued != last:
+            # A day listed before its values are in it: the copy is recorded
+            # at the last day it has values for, so that the subset is asked
+            # for again until they come.
+            said = valued
     elif not text.strip():
         raise ValueError("its answer is empty")
+    elif not source.markup and _is_markup(text):
+        raise ValueError("its answer is a web page")
     data = text.encode("utf-8")
     digest = hashlib.sha256(data).hexdigest()
     got = Fetched(source, text, now, from_cache=False, sha256=digest, url=url)

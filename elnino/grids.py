@@ -678,6 +678,13 @@ NINO_BOXES: tuple[Box, ...] = (
     Box("nino12", "Nino-1+2", 270.0, 280.0, -10.0, 0.0),
 )
 
+# The Indian Ocean Dipole's poles (Saji et al. 1999), as the Bureau of
+# Meteorology monitors them.
+IOD_BOXES: tuple[Box, ...] = (
+    Box("west", "West pole", 50.0, 70.0, -10.0, 10.0),
+    Box("east", "East pole", 90.0, 110.0, -10.0, 0.0),
+)
+
 
 @dataclass(frozen=True)
 class BoxDay:
@@ -801,6 +808,16 @@ def splice_days(record: list[BoxDay], recent: list[BoxDay]) -> list[BoxDay]:
     return list(record) + [day for day in recent if day.day > last]
 
 
+def dipole(days: list[BoxDay]) -> list[BoxDay]:
+    """The poles' days, each with its Dipole Mode Index, the west pole's mean
+    less the east pole's, on a day both have one: a day with one pole has no
+    DMI rather than half of one."""
+    return [BoxDay(item.day, {**item.means, "dmi": item.means["west"] - item.means["east"]},
+                   item.preliminary)
+            if "west" in item.means and "east" in item.means else item
+            for item in days]
+
+
 def box_mean(grid: Field, box: Box) -> float | None:
     """Area-weighted mean of a lat/lon field inside a box.
 
@@ -917,13 +934,17 @@ class SpatialState:
     # days since it ends; and what the final changed on the days both carry.
     nino_daily: tuple[BoxDay, ...] = ()
     nino_revision: dict[str, Revision] = dc_field(default_factory=dict)
+    # The Indian Ocean Dipole's poles day by day, as the boxes are, each day
+    # with its DMI; and what the final changed in each and in the DMI.
+    iod_daily: tuple[BoxDay, ...] = ()
+    iod_revision: dict[str, Revision] = dc_field(default_factory=dict)
     warm_pool: float | None = None
     stale: dict[str, int] = dc_field(default_factory=dict)
     notes: list[str] = dc_field(default_factory=list)
 
     @property
     def available(self) -> bool:
-        return bool(self.nino_daily) or any(
+        return bool(self.nino_daily or self.iod_daily) or any(
             getattr(self, name) is not None
             for name in ("sst_map", "sst_hov", "section", "iso_hov", "mesh")
         )

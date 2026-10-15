@@ -117,6 +117,10 @@ def parse_all(fetched: dict) -> tuple[dict, list[str]]:
         soi = _safe(warnings, "soi", parsers.parse_soi, text["soi"], default={})
         series["soi_tables"] = soi
         series["soi"] = soi.get("standardized", []) if soi else []
+    if "soi_daily" in text:
+        series["soi_daily"] = _safe(
+            warnings, "soi_daily", parsers.parse_daily_soi, text["soi_daily"], default=[]
+        )
     if "mei" in text:
         series["mei"] = _safe(warnings, "mei", parsers.parse_mei, text["mei"], default=[])
     if "atlantic" in text:
@@ -215,16 +219,29 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
                 "SST Hovmoller, preliminary rows", grids.hovmoller_tail, state.sst_hov,
                 text["sst_hovmoller_recent"],
             ) or state.sst_hov
-    # The four boxes day by day: the final analysis's record, then the days
-    # of the preliminary since it ends. Either stands alone.
-    record = recent = None
-    if "nino_daily" in text:
-        record = attempt("daily Nino boxes", grids.daily_box_means, text["nino_daily"])
-    if "nino_daily_recent" in text:
-        recent = attempt("daily Nino boxes, preliminary", grids.daily_box_means,
-                         text["nino_daily_recent"], preliminary=True)
-    state.nino_daily = tuple(grids.splice_days(record or [], recent or []))
-    state.nino_revision = grids.revisions(record or [], recent or [])
+
+    def daily(key: str, label: str, boxes) -> tuple[list, list]:
+        """A set of boxes day by day: the final analysis's record, and the
+        days of the preliminary, ``key``'s and its ``_recent``'s. Either
+        stands alone."""
+        record = recent = None
+        if key in text:
+            record = attempt(label, grids.daily_box_means, text[key], boxes)
+        if f"{key}_recent" in text:
+            recent = attempt(f"{label}, preliminary", grids.daily_box_means,
+                             text[f"{key}_recent"], boxes, preliminary=True)
+        return record or [], recent or []
+
+    # The four boxes day by day: the record, then the preliminary's days
+    # since it ends, and what the final changed on the days both carry.
+    record, recent = daily("nino_daily", "daily Nino boxes", grids.NINO_BOXES)
+    state.nino_daily = tuple(grids.splice_days(record, recent))
+    state.nino_revision = grids.revisions(record, recent)
+    # The Indian Ocean Dipole's poles alike, each day with its DMI.
+    record, recent = (grids.dipole(days) for days in
+                      daily("iod_daily", "daily dipole", grids.IOD_BOXES))
+    state.iod_daily = tuple(grids.splice_days(record, recent))
+    state.iod_revision = grids.revisions(record, recent)
     if "ssh_pacific" in text:
         state.ssh_map = altimetry("ssh_pacific", attempt(
             "sea surface height", grids.grid_map, text["ssh_pacific"], "sla",

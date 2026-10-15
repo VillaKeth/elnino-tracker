@@ -17,8 +17,8 @@ from .classify import Assessment, intensity_tier
 from .parsers import MonthValue, SeasonValue, WeekObservation
 from .sources import Fetched
 
-from . import (alerts, assets, atlas, atlasview, cyclones, fields, geo, globe, impacts, live,
-               panels, sitenav, space3d, stormdesk, stormfury, storms, worldmap)
+from . import (alerts, assets, atlas, atlasview, cyclones, daily, fields, geo, globe, impacts,
+               live, panels, sitenav, space3d, stormdesk, stormfury, storms, worldmap)
 from .svg import (  # noqa: F401 - re-exported for the panel modules
     BAND_STATUS,
     DARK,
@@ -457,6 +457,10 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
 .halo {{ paint-order: stroke; stroke: var(--plane); stroke-width: 3px;
   stroke-linejoin: round; }}
 .band-note, .axistitle {{ fill: var(--muted); font-size: 11px; font-family: var(--font); }}
+/* A threshold's name over the lines it names: a halo of the card's own
+   ground, so a line under it does not cut through the letters. */
+.band-note {{ paint-order: stroke; stroke: var(--surface); stroke-width: 3px;
+  stroke-linejoin: round; }}
 /* The field is one path per colour class rather than a rectangle per cell,
    so the crisp-edge hint lives on the group instead of on every element. */
 .cellfill path {{ shape-rendering: crispEdges; }}
@@ -1134,8 +1138,10 @@ def render(state) -> str:
     cards.append(atlasview.card(state))
     if sp.sst_map is not None:
         cards.append(fields.sst_map(sp.sst_map, sp.box_means, sp.warm_pool))
-    # The map's boxes day by day straight under it, CPC's weeks beside them.
-    cards.append(fields.nino_daily_card(sp.nino_daily, weeks, sp.nino_revision))
+    # The map's boxes day by day straight under it, CPC's weeks beside them,
+    # and the Indian Ocean's dipole from the same analyses.
+    cards.append(daily.nino_card(sp.nino_daily, weeks, sp.nino_revision))
+    cards.append(daily.dipole_card(sp.iod_daily, sp.iod_revision))
     if sp.mesh is not None:
         cards.append(space3d.thermocline(sp.mesh))
     cards.append(fields.section_card(sp))
@@ -1248,6 +1254,8 @@ def render(state) -> str:
     cards.append(panels.chart_phase(state))
     cards.append(panels.chart_heat(state))
     cards.append(panels.chart_walker(state))
+    # The SOI day by day, on the Bureau's definition, after CPC's months of it.
+    cards.append(daily.soi_card(state.series.get("soi_daily") or []))
     cards.append(panels.chart_forecast(state))
     cards.append(panels.chart_skill(state))
     cards.append(panels.impact_panel(state))
@@ -1357,6 +1365,22 @@ def _fix_json(fix) -> dict | None:
     }
 
 
+def _days_json(days, keys: tuple[str, ...]) -> list[dict]:
+    """Days of area-weighted means for the JSON: each day, whether it is the
+    preliminary analysis's, and its value of each of ``keys``, null where it
+    has none."""
+    return [{"day": item.day, "preliminary": item.preliminary,
+             **{key: round(item.means[key], 3) if key in item.means else None for key in keys}}
+            for item in days]
+
+
+def _revision_json(revision) -> dict:
+    """What the final changed on the days both analyses carry, series by
+    series: final less preliminary on average, and the most on a day."""
+    return {key: {"days": moved.days, "mean": round(moved.mean, 3), "most": round(moved.most, 3)}
+            for key, moved in revision.items()}
+
+
 def payload(state) -> dict:
     """Machine-readable snapshot, so the tracker can feed other tools.
 
@@ -1375,7 +1399,7 @@ def payload(state) -> dict:
     return {
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_at": state.run_at,
-        "schema": 10,
+        "schema": 11,
         "headline": a.headline,
         "cpc_status": a.status or None,
         "degraded": state.degraded,
@@ -1474,6 +1498,17 @@ def payload(state) -> dict:
                     }
                     if atmosphere.mjo else None
                 ),
+                # The SOI day by day, on the Bureau of Meteorology's
+                # definition, the days its card draws: each day's pressures and
+                # SOI, null on a day the file lacks, and its 30- and 90-day
+                # means, null where a window lacks too many days.
+                "soi_daily": [
+                    {"day": item.day, "tahiti": item.tahiti, "darwin": item.darwin,
+                     "soi": item.soi,
+                     **{key: round(value, 2) if value is not None else None
+                        for key, value in (("soi30", item.soi30), ("soi90", item.soi90))}}
+                    for item in daily.soi_days(state.series.get("soi_daily") or [])
+                ],
             }
             if atmosphere and atmosphere.indicators else None
         ),
@@ -1724,20 +1759,15 @@ def payload(state) -> dict:
                 key: round(value, 3) for key, value in state.spatial.box_means.items()
             },
             # The four boxes day by day, from OISST on the Pacific map's own
-            # cells: the final analysis, then the preliminary's days after it.
-            "nino_daily": [
-                {"day": item.day, "preliminary": item.preliminary,
-                 **{key: round(item.means[key], 3) if key in item.means else None
-                    for key in ("nino4", "nino34", "nino3", "nino12")}}
-                for item in state.spatial.nino_daily
-            ],
-            # What the final changed on the days both analyses carry, box by
-            # box: final less preliminary on average, and the most on a day.
-            "nino_revision": {
-                key: {"days": moved.days, "mean": round(moved.mean, 3),
-                      "most": round(moved.most, 3)}
-                for key, moved in state.spatial.nino_revision.items()
-            },
+            # cells: the final analysis, then the preliminary's days after it;
+            # and what the final changed on the days both analyses carry.
+            "nino_daily": _days_json(state.spatial.nino_daily,
+                                     ("nino4", "nino34", "nino3", "nino12")),
+            "nino_revision": _revision_json(state.spatial.nino_revision),
+            # The Indian Ocean Dipole's poles day by day from the same analyses,
+            # each day with its Dipole Mode Index, the west pole less the east.
+            "iod_daily": _days_json(state.spatial.iod_daily, ("west", "east", "dmi")),
+            "iod_revision": _revision_json(state.spatial.iod_revision),
             "warm_pool_east_edge": state.spatial.warm_pool,
             "equatorial_isotherm_20c": [
                 {"longitude": pr.lon, "depth_m": pr.isotherm(20.0), "as_of": pr.as_of}

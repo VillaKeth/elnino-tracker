@@ -1,4 +1,5 @@
-"""Parsers for the fixed-width / whitespace ASCII products CPC and PSL publish.
+"""Parsers for the fixed-width / whitespace ASCII products CPC, PSL and
+LongPaddock publish.
 
 Each parser is defensive: NOAA pads unreported months with -999 sentinels,
 glues negative numbers onto the preceding column, and occasionally appends
@@ -8,9 +9,10 @@ explanatory prose to the bottom of a data file.
 from __future__ import annotations
 
 import html
+import math
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 MISSING = -99.0  # anything at or below this is a NOAA fill value
 
@@ -199,6 +201,99 @@ def parse_soi(text: str) -> dict[str, list[MonthValue]]:
     result = {"anomaly": tables[0] if tables else []}
     result["standardized"] = tables[1] if len(tables) > 1 else result["anomaly"]
     return result
+
+
+@dataclass(frozen=True)
+class SoiDay:
+    """A day of the SOI on the Bureau of Meteorology's definition, from
+    LongPaddock's daily file: the day's mean sea-level pressure at Tahiti and
+    at Darwin, in hPa, and the day's SOI against 1933-1992, all three None on
+    a day the file has no row for that can be read; and the 30- and 90-day
+    SOI to it, the means of the days', or None where its window lacks too
+    many days."""
+
+    day: str
+    tahiti: float | None
+    darwin: float | None
+    soi: float | None
+    soi30: float | None = None
+    soi90: float | None = None
+
+
+# Sea-level pressure has been observed from 870 hPa (Typhoon Tip, 1979) to
+# 1084.8 hPa (Tosontsengel, Mongolia, 2001): a pressure outside that is the
+# file's fill value.
+PRESSURE_RANGE = (870.0, 1085.0)
+# The WMO's 3/5 rule for a month's mean: no more than five days missing, and
+# no more than three of them in a row. The 30- and 90-day SOI keep it.
+MOST_MISSING, MOST_IN_A_ROW = 5, 3
+
+
+def parse_daily_soi(text: str) -> list[SoiDay]:
+    """LongPaddock's daily SOI (DailySOI1933-1992Base.txt): a header,
+    ``Year Day Tahiti Darwin SOI``, then a row a day since 1 January 1999,
+    each day its year and its day of the year. Every calendar day from the
+    first row's to the last row's is a day, without pressures or an SOI where
+    the file has no row for it that can be read, so that a missing day breaks
+    the days' own values and not their means.
+
+    Two traps are in the file. A missing pressure is written -999.9, with an
+    SOI worked out from it all the same (224.84 on 20 December 2015): a row
+    whose pressures are not both sea-level pressures is left out, as is one
+    whose SOI is not a number. And a day can come twice (2012's 328th, 23
+    November, with different values, and its 329th, the 24th, not at all): a
+    row whose day is not later than the one before it is left out, so the
+    first stands and the record runs forward. A row whose day of the year its
+    year does not have is left out too, though the file has none.
+    """
+    lines = text.splitlines()
+    if not lines or lines[0].split()[:5] != ["Year", "Day", "Tahiti", "Darwin", "SOI"]:
+        raise ValueError("daily SOI: no 'Year Day Tahiti Darwin SOI' header")
+    low, high = PRESSURE_RANGE
+    rows: dict[date, tuple[float, float, float]] = {}
+    last: date | None = None
+    for line in lines[1:]:
+        parts = line.split()
+        if len(parts) != 5:
+            continue
+        try:
+            year, number = int(parts[0]), int(parts[1])
+            tahiti, darwin, soi = (float(part) for part in parts[2:])
+            day = date(year, 1, 1) + timedelta(days=number - 1)
+        except (ValueError, OverflowError):
+            continue
+        if day.year != year or not (low <= tahiti <= high and low <= darwin <= high):
+            continue
+        if not math.isfinite(soi) or (last is not None and day <= last):
+            continue
+        rows[day] = (tahiti, darwin, soi)
+        last = day
+    if last is None:
+        raise ValueError("daily SOI: no days in the file")
+    first = next(iter(rows))
+    by_day = {day: soi for day, (_tahiti, _darwin, soi) in rows.items()}
+    days = (first + timedelta(days=n) for n in range((last - first).days + 1))
+    return [SoiDay(day.isoformat(), *rows.get(day, (None, None, None)),
+                   _window_mean(by_day, day, 30), _window_mean(by_day, day, 90))
+            for day in days]
+
+
+def _window_mean(by_day: dict[date, float], last: date, length: int) -> float | None:
+    """The mean of the days' SOI over the ``length`` days to ``last``, or None
+    when more than MOST_MISSING of them, or more than MOST_IN_A_ROW in a row,
+    have none."""
+    found: list[float] = []
+    missing = in_a_row = 0
+    for back in range(length):
+        value = by_day.get(last - timedelta(days=back))
+        if value is None:
+            missing, in_a_row = missing + 1, in_a_row + 1
+            if missing > MOST_MISSING or in_a_row > MOST_IN_A_ROW:
+                return None
+            continue
+        found.append(value)
+        in_a_row = 0
+    return sum(found) / len(found)
 
 
 def parse_mei(text: str) -> list[SeasonValue]:

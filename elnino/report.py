@@ -445,6 +445,7 @@ def _section_atmosphere(state) -> list[str]:
             ind.label + (" STALE" if ind.stale else ""),
         ))
     lines.extend(_table(rows, (32, -7, -6, 13, 14)))
+    lines.extend(_soi_lines(state.series.get("soi_daily") or []))
 
     lines.append("")
     if at.bursts:
@@ -489,6 +490,39 @@ def _section_atmosphere(state) -> list[str]:
         ))
     for note in at.notes:
         lines.extend(_wrap(note, indent="  * "))
+    return lines
+
+
+def _soi_lines(days) -> list[str]:
+    """The SOI on the Bureau of Meteorology's definition over the latest
+    DAILY_ROWS days of LongPaddock's file, latest first, with the pressures it
+    is worked from, n/a on a day the file lacks."""
+    if not days:
+        return []
+    lines = ["", "  The SOI day by day, from LongPaddock's file, on the Bureau's definition:"]
+    rows = [("", "30-day", "90-day", "daily", "Tahiti", "Darwin")]
+    for item in reversed(days[-DAILY_ROWS:]):
+        rows.append((item.day,
+                     *(f"{value:+.1f}" if value is not None else "n/a"
+                       for value in (item.soi30, item.soi90, item.soi)),
+                     *(f"{value:.1f}" if value is not None else "n/a"
+                       for value in (item.tahiti, item.darwin))))
+    lines.extend(_table(rows, (12, -7, -7, -7, -8, -8)))
+    lines.extend(_wrap(
+        "El Nino lowers the SOI: these are in its own sign, as the table's "
+        "values are. They are on the Bureau of Meteorology's definition, "
+        "Troup's, as the Queensland Government's LongPaddock works it out: the "
+        "Bureau's own daily SOI data have been unavailable since January 2025, "
+        "when Meteo-France changed its Tahiti data service. The 30- and 90-day "
+        "SOI are the means of the days' values, as LongPaddock's own are, n/a "
+        "where a window lacks more than five days or more than three in a row; "
+        "sustained values below -7 are El-Nino-like and above +7 La-Nina-like. "
+        "Each day's SOI is ten times the standardised Tahiti less Darwin "
+        "pressure difference against 1933-1992, so CPC's monthly SOI in the "
+        "table, a standard score, runs at about a tenth of the 30-day SOI. "
+        "Pressures in hPa.",
+        indent="    ",
+    ))
     return lines
 
 
@@ -979,8 +1013,33 @@ def _ascii_field(grid, chars: tuple[str, ...], row_label, max_rows: int,
     return lines
 
 
-# The latest days of the daily boxes the report lists.
+# The latest days of a daily series the report lists.
 DAILY_ROWS = 14
+
+
+def _days_table(days, names: tuple[tuple[str, str], ...]) -> list[str]:
+    """The latest DAILY_ROWS days, latest first: each day, marked when it is
+    the preliminary analysis's, and its value of each of ``names``."""
+    rows = [("", *(label for _key, label in names))]
+    for item in reversed(days[-DAILY_ROWS:]):
+        rows.append((item.day + (" (preliminary)" if item.preliminary else ""),
+                     *(f"{item.means[key]:+.2f}" if key in item.means else "n/a"
+                       for key, _label in names)))
+    return _table(rows, (24, *(-8 for _name in names)))
+
+
+def _revision_lines(moved, where: str) -> list[str]:
+    """How far the final moved a daily series' preliminary days, ``where``
+    saying which series it is ("in Nino-3.4")."""
+    if not moved:
+        return []
+    return _wrap(
+        f"On the {moved.days} days both analyses carry, the final runs "
+        f"{moved.mean:+.2f} degC from the preliminary {where} on average, and "
+        f"up to {moved.most:.2f} degC on a day: about how far the preliminary "
+        "days may yet move.",
+        indent="    ",
+    )
 
 
 def _section_spatial(state) -> list[str]:
@@ -1032,12 +1091,7 @@ def _section_spatial(state) -> list[str]:
         lines.append("  Day by day, from OISST, the four boxes on the Pacific map's own cells:")
         names = (("nino4", "Nino-4"), ("nino34", "Nino-3.4"),
                  ("nino3", "Nino-3"), ("nino12", "Nino-1+2"))
-        rows = [("", *(label for _key, label in names))]
-        for item in reversed(spatial.nino_daily[-DAILY_ROWS:]):
-            rows.append((item.day + (" (preliminary)" if item.preliminary else ""),
-                         *(f"{item.means[key]:+.2f}" if key in item.means else "n/a"
-                           for key, _label in names)))
-        lines.extend(_table(rows, (24, -8, -8, -8, -8)))
+        lines.extend(_days_table(spatial.nino_daily, names))
         lines.extend(_wrap(
             "Degrees C. A day marked preliminary is NOAA's preliminary analysis, "
             "a day or two behind; the final replaces it about two weeks on. The "
@@ -1045,15 +1099,29 @@ def _section_spatial(state) -> list[str]:
             "CPC's weekly index is against 1991-2020.",
             indent="    ",
         ))
-        moved = spatial.nino_revision.get("nino34")
-        if moved:
-            lines.extend(_wrap(
-                f"On the {moved.days} days both analyses carry, the final runs "
-                f"{moved.mean:+.2f} degC from the preliminary in Nino-3.4 on average, and "
-                f"up to {moved.most:.2f} degC on a day: about how far the preliminary "
-                "days may yet move.",
-                indent="    ",
-            ))
+        lines.extend(_revision_lines(spatial.nino_revision.get("nino34"), "in Nino-3.4"))
+
+    if spatial.iod_daily:
+        lines.append("")
+        lines.append("  The Indian Ocean Dipole day by day, from OISST on half-degree cells:")
+        lines.extend(_days_table(spatial.iod_daily,
+                                 (("dmi", "DMI"), ("west", "West"), ("east", "East"))))
+        lines.extend(_wrap(
+            "Degrees C. The Dipole Mode Index is the west pole (50-70E, 10S-10N) "
+            "less the east pole (90-110E, 10S-0), each pole's anomaly "
+            "area-weighted. The Bureau of Meteorology counts a DMI above +0.4 as "
+            "a positive IOD value and one below -0.4 as a negative one, and eight "
+            "weeks of either as an event. The anomalies are OISST's own, against "
+            "its 1971-2000 climatology: a warming common to both poles cancels in "
+            "their difference, but a difference in their warming does not, so the "
+            "DMI here can run apart from the Bureau's own, whose thresholds these "
+            "are. IOD events typically develop from about May, peak from August "
+            "to October and break down when the Australian monsoon arrives at the "
+            "end of the southern spring, so a value past a threshold from December "
+            "to April seldom marks one.",
+            indent="    ",
+        ))
+        lines.extend(_revision_lines(spatial.iod_revision.get("dmi"), "in the DMI"))
 
     if spatial.warm_pool is not None:
         lines.append("")

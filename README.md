@@ -18,9 +18,10 @@ every page's icon, is El Niño's warm tongue reaching west along the equatorial
 Pacific.
 
 A diagnostic, forecast and impact system for the current El Niño, built on live
-NOAA observations.
+NOAA observations and LongPaddock's daily SOI, on the Bureau of Meteorology's
+definition.
 
-Every run checks 46 feeds live, diagnoses the ocean and the atmosphere separately,
+Every run checks 49 feeds live, diagnoses the ocean and the atmosphere separately,
 maps where the event physically sits in the basin and at depth, tracks every
 tropical cyclone NHC, CPHC or JTWC is warning on, worldwide, projects the event
 forward with three methods whose weights come from its own cross-validated
@@ -199,6 +200,22 @@ RONI diverge.
 Any indicator whose latest value is more than two months old is marked **stale**
 in the report, hatched on the dashboard, and excluded from the coupling verdict.
 
+**The SOI day by day.** CPC's monthly SOI comes out after the month it means.
+The SOI on the Bureau of Meteorology's definition, Troup's, is worked out every
+day from the day's pressures at Tahiti and Darwin, and its card, after the
+coupling chart, draws the last 120 days of the Queensland Government's
+LongPaddock file: the 30- and 90-day SOI, the means of the days' values as
+LongPaddock's own are, over each day's own value drawn faint, against the
+Bureau's thresholds, sustained values below −7 El Niño-like and above +7
+La Niña-like. The Bureau's own daily SOI data have been unavailable since
+January 2025, when Météo-France changed its Tahiti data service; for the 30
+days to 11 October 2026 the Bureau quoted −20.2 and LongPaddock's file gives
+−20.0. Each day's hover gives its Tahiti and Darwin pressures. The SOI keeps
+its own sign there, El Niño negative, and its own scale, ten times the
+standardised Tahiti less Darwin pressure difference against 1933–1992, so CPC's
+monthly SOI, a standard score, runs at about a tenth of the 30-day SOI. It does
+not enter the composite, which has CPC's monthly SOI already.
+
 ## 4. Subsurface — the recharge oscillator
 
 The single most useful predictor at 2-3 season lead is not SST, it is the heat
@@ -228,13 +245,14 @@ the physical model made directly visible.
 An index is a number summarising a map, and two very different maps produce the
 same number. +1.5 °C in Niño-3.4 can be a narrow tongue on the equator or a
 basin-wide bulge, and they do not mean the same thing for the atmosphere. So the
-maps are shipped alongside the indices, in nine views:
+maps are shipped alongside the indices, in ten views:
 
 | View | What it shows | Source |
 |---|---|---|
 | **The globe (3-D)** | the whole planet, spun with the mouse; click anywhere and the panel beside it says what this event does *there*, now and at its projected peak | OISST v2.1 + the teleconnection catalogue |
 | **SST anomaly map** | the tropical Pacific, with the four Niño boxes drawn on it and the 28 °C warm-pool edge marked | OISST v2.1, daily: NOAA's preliminary analysis, a day or two behind |
 | **Niño boxes day by day** | the four boxes' area-weighted anomaly each day on the map's own cells, the preliminary days shaded with how far the final moved them on the days both carry, and CPC's traditional weekly Niño-3.4 beside them as hollow dots, with how far the days run from it | OISST v2.1, daily: the final's last 90 days, then the preliminary's |
+| **Indian Ocean Dipole day by day** | the Dipole Mode Index, the west pole's anomaly (50–70E, 10S–10N) less the east pole's (90–110E, 10S–0), and each pole each day on half-degree cells, the preliminary days shaded with how far the final moved them, against the Bureau of Meteorology's ±0.4 °C thresholds, on OISST's 1971–2000 base: a warming common to both poles cancels in their difference, but a difference in their warming does not, so the DMI can run apart from the Bureau's own; events typically develop from about May and peak from August to October | OISST v2.1, daily: the final's last 90 days, then the preliminary's |
 | **Thermocline surface (3-D)** | 20 °C isotherm depth over longitude *and* latitude, rotatable | TAO/TRITON daily array |
 | **Depth section** | temperature against depth along the equator, 165E to 95W | TAO/TRITON monthly |
 | **Hovmöller** | longitude across, time downward — eastward propagation reads as a right-leaning band | OISST (the final, then the preliminary's latest weeks) and altimetry |
@@ -1874,17 +1892,18 @@ Extreme ≥85.
 
 ## Data sources
 
-All 46 feeds are checked live on every run, in parallel. Each is downloaded
+All 49 feeds are checked live on every run, in parallel. Each is downloaded
 but a gridded feed whose dataset has no new day (below), and each download is
 archived under `data/raw/archive/` with a daily snapshot, so past readings stay
-auditable; not the three rolling windows of OISST days, each day's download of
+auditable; not the five rolling windows of OISST days, each day's download of
 which repeats all but a day of the day before's, of products NOAA keeps every
-day of itself. The
+day of itself, nor LongPaddock's daily SOI, the whole record again each day, which
+the Queensland Government keeps. The
 cyclone decks and products are a second wave on top of that — three ATCF decks and
 up to five NHC products for each NHC or CPHC storm, one warning for each JTWC
 storm — and which storms exist is not known until the first wave lands.
 
-### Index feeds (26)
+### Index feeds (27)
 
 | Feed | What it is for |
 |---|---|
@@ -1899,6 +1918,7 @@ storm — and which storms exist is not known until the first wave lands.
 | [`wwv.dat`](https://www.pmel.noaa.gov/tao/wwv/data/wwv.dat) | warm water volume (PMEL/TAO) |
 | [`wwv_west.dat`](https://www.pmel.noaa.gov/tao/wwv/data/wwv_west.dat) | western WWV; has the heat moved east? |
 | [`soi`](https://www.cpc.ncep.noaa.gov/data/indices/soi) | Southern Oscillation Index |
+| [`DailySOI1933-1992Base.txt`](https://data.longpaddock.qld.gov.au/SeasonalClimateOutlook/SouthernOscillationIndex/SOIDataFiles/DailySOI1933-1992Base.txt) | the SOI day by day on the Bureau of Meteorology's definition, with each day's Tahiti and Darwin pressures (Queensland Government, LongPaddock) |
 | [`reqsoi.for`](https://www.cpc.ncep.noaa.gov/data/indices/reqsoi.for) | equatorial SOI |
 | [`darwin`](https://www.cpc.ncep.noaa.gov/data/indices/darwin) / [`tahiti`](https://www.cpc.ncep.noaa.gov/data/indices/tahiti) | the two SLP stations, separately |
 | [`olr`](https://www.cpc.ncep.noaa.gov/data/indices/olr) | convection at the date line |
@@ -1910,6 +1930,26 @@ storm — and which storms exist is not known until the first wave lands.
 | [`sstoi.atl.indices`](https://www.cpc.ncep.noaa.gov/data/indices/sstoi.atl.indices) | tropical Atlantic |
 | [`meiv2.data`](https://psl.noaa.gov/enso/mei/data/meiv2.data) | MEI.v2 |
 | [ENSO Diagnostic Discussion](https://www.cpc.ncep.noaa.gov/products/analysis_monitoring/enso_advisory/ensodisc.shtml) | the operational authority |
+
+LongPaddock's daily file has a row a day since 1 January 1999: the year, the
+day of the year, the two pressures, and the SOI against 1933–1992. It has two
+traps. A missing pressure is written as `-999.90`, with an SOI worked out from
+it all the same (Darwin on 20 December 2015, and an SOI of `0224.84`), so a row
+with a pressure outside 870–1085 hPa, the range sea-level pressure has been
+observed in, is left out, as is one whose SOI is not a number. And a day can be
+given twice and the next not at all (2012's 328th and 329th, 23 and 24
+November), so a row whose day is not later than the last is left out and the
+first stands. A day of the year past its year's end is left out too, though the
+file has none. Every calendar day from the file's first to its last is a day,
+without pressures or an SOI where its row is lacking or left out. A web page
+where the file should be is not kept, and the copy serves (below); anything
+else without the file's header is refused when it is read, and the run goes on
+without the card. The 30- and 90-day SOI are the means of the days' values, as
+LongPaddock's own are, worked out for every calendar day with the WMO's 3/5
+rule kept for both windows: none where a window lacks more than five days or
+more than three in a row. A day the file lacks so leaves the means whole and
+breaks only the faint line of the days' own values, and the file's first days,
+whose windows reach back past its start, have no means.
 
 ### Cyclone feeds (9, plus a second wave per live storm)
 
@@ -1949,14 +1989,15 @@ downloads none of them, and both pages still draw without them (sections 12 and
 | [NASA POWER](https://power.larc.nasa.gov/) monthly and daily point APIs | the street card's record and the replay's days: rain and temperature since 1981 | keyless; credited as NASA asks; only on a drop or when asked, the replay's days only when it opens and for the cell's grid point |
 | [Open-Meteo](https://open-meteo.com/) forecast and seasonal APIs | the street card's weather now and ECMWF's next six months | keyless, non-commercial; "Weather data by Open-Meteo.com"; only on a drop or when asked |
 
-### Gridded and mooring feeds (11)
+### Gridded and mooring feeds (13)
 
 These are ERDDAP queries rather than static files: the subset — variable, time
 slice, latitude band, longitude range and stride — is encoded in the URL, so the
 server does the decimation and a map arrives as CSV instead of a NetCDF archive:
 2.5 MB for the Pacific map, 41 MB for the global field, 5.7 MB for sixteen
 months of the sea-level strip's whole circles, 29 MB for ninety days of
-the Niño boxes' cells. Every one of them is optional.
+the Niño boxes' cells, 19 MB for ninety days of the dipole's. Every one of them
+is optional.
 
 | Feed | What it is for |
 |---|---|
@@ -1966,6 +2007,8 @@ the Niño boxes' cells. Every one of them is optional.
 | [`ncdcOisst21NrtAgg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21NrtAgg.html) — equatorial strip, its last 28 days | the Hovmöller's rows past the final, on its weekly beat, and its latest day |
 | [`ncdcOisst21Agg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.html) — the Niño boxes, its last 90 days | the boxes day by day, on the Pacific map's half-degree cells |
 | [`ncdcOisst21NrtAgg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21NrtAgg.html) — the Niño boxes, its last 28 days | the days since the final ends |
+| [`ncdcOisst21Agg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.html) — the Indian Ocean Dipole's poles, its last 90 days | the dipole day by day, on half-degree cells over 50–110E, 10S–10N, the rectangle holding both poles |
+| [`ncdcOisst21NrtAgg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21NrtAgg.html) — the poles, its last 28 days | the days since the final ends |
 | [`pmelTaoMonT`](https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonT.html) | the equatorial depth section, full record so it can be an anomaly |
 | [`pmelTaoMonIso`](https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonIso.html) | 20 °C isotherm depth; Kelvin wave propagation |
 | [`pmelTaoDyIso`](https://www.pmel.noaa.gov/erddap/tabledap/pmelTaoDyIso.html) | the off-equatorial rows, for the 3-D thermocline surface |
@@ -2078,7 +2121,14 @@ was downloaded every hour for a day that changes once a day. An answer is kept
 only when it is ERDDAP's CSV of the subset, whole, its last line a row like the
 rest, so a proxy's page or an answer cut short is never recorded against the
 dataset's day; a copy is written whole, and checked against its digest before
-it is used, kept or served.
+it is used, kept or served. A dataset can list a day before its values are in
+it: on the evening of 14 October NCEI's preliminary listed the 12th with every
+cell of it `NaN`, which would have blanked the maps and the Niño indices
+averaged out of them. An answer with no value in it is no answer, and the copy
+serves. An answer whose last day has none, as a window ending on that day has,
+serves for its other days, and is recorded at its last day with values rather
+than the day its dataset said, so that it is asked for again each run until
+the day fills.
 
 Note the weekly file: CPC's older `wksst8110.for` (1981-2010 base period) stopped
 updating in early 2021 and is a trap. This tracker uses `wksst9120.for`, on the
@@ -2096,13 +2146,16 @@ which would be load on NOAA for nothing new.
 
 If a feed is unreachable the tracker falls back to the last cached copy and says
 so and why: in the report, under the feed in the dashboard's provenance panel, in
-the JSON's feeds, and in the exit code (3 = degraded). A copy that cannot be
-written or archived costs a warning, not the download. It only fails hard if
-neither RONI nor ONI is available, live or
-cached. Cached copies are stored with LF line endings and written without
-translation: through Windows text mode every CRLF a feed sent became CR CR LF,
-which read back as two lines, and the archive's digest, taken over the text,
-never matched the translated file, so every snapshot was rewritten on every run.
+the JSON's feeds, and in the exit code (3 = degraded). A feed that answers with
+a web page where its file should be, as a server down for maintenance or a file
+moved can with a 200, has failed too, and its page is not kept over the copy;
+only the feeds that are pages, RSS or KML themselves keep markup. A copy that
+cannot be written or archived costs a warning, not the download. It only fails
+hard if neither RONI nor ONI is available, live or cached. Cached copies are
+stored with LF line endings and written without translation: through Windows
+text mode every CRLF a feed sent became CR CR LF, which read back as two lines,
+and the archive's digest, taken over the text, never matched the translated
+file, so every snapshot was rewritten on every run.
 
 ---
 
@@ -2126,7 +2179,7 @@ track.py                 CLI entry point, exit codes, watch loop, storm desk ser
 publish.py               puts output/ up as the site on GitHub Pages, under the site's name
 publish.sh               runs the tracker, then publishes the run: what the hourly run calls
 .github/workflows/       live.yml, the hourly run that keeps the site live; tests.yml
-elnino/sources.py        46-feed registry, parallel fetch, retry, cache + archive
+elnino/sources.py        49-feed registry, parallel fetch, retry, cache + archive
 elnino/parsers.py        one parser per NOAA format, each with its quirks documented
 elnino/classify.py       episodes, ranking, scale, flavour, analogs, power index
 elnino/subsurface.py     WWV ranking, tendency, measured lead, phase-space position
@@ -2151,6 +2204,8 @@ elnino/report.py         78-column ASCII terminal report, section-addressable
 elnino/svg.py            validated palette and plotting primitives
 elnino/panels.py         the advanced chart panels
 elnino/fields.py         maps, Hovmöller diagrams and depth sections
+elnino/daily.py          series day by day: the Niño boxes, the dipole and the SOI, and
+                         the plot that draws them
 elnino/space3d.py        orthographic 3-D: thermocline surface and phase spiral
 elnino/globe.py          the interactive globe, the storm overlay, the dossier
 elnino/atlas.py          the point dossier: cell, statistic, footprints, neighbours
@@ -2179,14 +2234,14 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1705 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1772 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
                          storms.json, run.json, sw.js, and assets/ beside them
 ```
 
-`output/latest.json` (schema 10) is the machine-readable snapshot: classification,
+`output/latest.json` (schema 11) is the machine-readable snapshot: classification,
 every diagnostic behind it, the spatial block (each field's stamp, age and
 coverage; the map-derived box means; the warm-pool edge; the isotherm profile),
 the forecast with its verified error bars, open alerts, active impacts, and the
@@ -2236,6 +2291,12 @@ or NCEI's when CoastWatch failed or was behind the copy NCEI made,
 `unchanged`, true when its dataset had no new day, or CoastWatch was behind the
 copy NCEI made, and it was not downloaded again, and `warnings`, what went
 wrong on the way to it.
+Schema 11 adds the Indian Ocean Dipole and the SOI day by day:
+`spatial.iod_daily`, the poles each day (`day`, `preliminary`, `west`, `east`
+and `dmi`, the west less the east); `spatial.iod_revision`, what the final
+changed in each, as `nino_revision` says it for the boxes; and
+`atmosphere.soi_daily`, the days the SOI card draws (`day`, `tahiti`, `darwin`,
+`soi`, and `soi30` and `soi90`, null where a window lacks too many days).
 `output/run.json`, written after every other file of a run, names that run and
 nothing else: an open page asks for it to learn whether the site has a newer one
 (*The live site*).
@@ -2433,7 +2494,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1705 tests, no network required. They cover:
+1772 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2491,7 +2552,9 @@ python -m unittest discover -s tests -v
   its dataset's last time moves at the same address, a probe that fails counting
   as the address failing and one that answers no time a full download; an answer
   kept only whole, a copy used only when it matches its digest, a failed write
-  or archive costing a warning, an empty answer a failure; the daily boxes the
+  or archive costing a warning, an empty answer a failure and one of nothing but
+  `NaN` too, one whose last day is all `NaN` recorded at its last day with
+  values, in any variable and on either server's axes; the daily boxes the
   map's own box means to the last bit on a shared day, summed day by day as they
   come, the record then the preliminary's days, either alone, a broken answer
   costing only itself, and what the final changed on the days both carry; the
@@ -2501,8 +2564,25 @@ python -m unittest discover -s tests -v
   the daily card's lines broken at a missing day, the preliminary shaded and
   named, CPC's traditional weeks as hollow dots set against their seven days,
   the end labels apart; CPC's weeks named by the Wednesday they are centred on;
-  schema 10, each feed's warnings beside it, and the provenance's *unchanged
-  since*;
+  a web page for a feed's file no answer, past white space or a byte order mark,
+  but for the feeds that are pages, RSS or KML, and each feed's own sample
+  markup only if it is one of those; schema 11, each feed's warnings beside it,
+  and the provenance's *unchanged since*;
+- **the dipole and the SOI day by day**: the poles asked on the Niño boxes'
+  half-degree cells, each pole its cells' cosine-weighted mean, the DMI the west
+  less the east on a day both poles have, the record then the preliminary's
+  days and what the final changed, a broken answer costing only itself;
+  LongPaddock's file read by year and day of the year, every calendar day a
+  day, its fill value, a pressure past any observed, an SOI that is not a
+  number, a day given twice and a day past its year's end left out, a page that
+  is not the file refused, and the 30- and 90-day means under the 3/5 rule,
+  whole over a day the file lacks; each new card's lines, a day the file lacks
+  breaking only the day's own, marks over the lines with their names haloed,
+  shading, hovers, caption, table and emptiness, the SOI's axis in whole
+  numbers, the dipole after the Niño boxes and the SOI after the coupling
+  chart; whose SOI it is, CPC's monthly SOI set beside the 30-day, the DMI's
+  base and the season IOD events form in; schema 11's days in the JSON, and
+  the report's;
 - **the renderers**: run-length encoding really collapses a 1,200-cell field to
   20 rectangles and breaks a run on both a colour change and a gap, cells are
   clipped to the frame, two plots on one page get two clip ids, a diverging ramp

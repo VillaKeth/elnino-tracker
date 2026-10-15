@@ -20,7 +20,8 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from elnino import dashboard, fields, grids, parsers, pipeline, report, sources, worldmap  # noqa: E402
+from elnino import (dashboard, daily, fields, grids, parsers, pipeline, report,  # noqa: E402
+                    sources, worldmap)
 
 
 def _query(url: str) -> str:
@@ -76,7 +77,8 @@ class TestOisstProducts(unittest.TestCase):
         self.assertIn("[(-30):2:(30)][(100):2:(300)]", _query(sources.SOURCES_BY_KEY["sst_pacific"].url))
 
     def test_every_new_feed_is_spatial_and_says_what_it_is(self):
-        for key in ("sst_hovmoller_recent", "nino_daily", "nino_daily_recent"):
+        for key in ("sst_hovmoller_recent", "nino_daily", "nino_daily_recent",
+                    "iod_daily", "iod_daily_recent"):
             with self.subTest(key=key):
                 source = sources.SOURCES_BY_KEY[key]
                 self.assertEqual(source.tier, "spatial")
@@ -85,8 +87,11 @@ class TestOisstProducts(unittest.TestCase):
 
     def test_the_rolling_windows_of_days_are_not_archived(self):
         # Each day's download of a window repeats all but a day of the day
-        # before's, and NOAA keeps every day of both products itself.
-        windows = {"sst_hovmoller_recent", "nino_daily", "nino_daily_recent"}
+        # before's, and NOAA keeps every day of both products itself; so does
+        # each day's of LongPaddock's daily SOI, the whole record since 1999,
+        # which it keeps itself.
+        windows = {"sst_hovmoller_recent", "nino_daily", "nino_daily_recent",
+                   "iod_daily", "iod_daily_recent", "soi_daily"}
         self.assertEqual({s.key for s in sources.SOURCES if not s.archive}, windows)
 
     def test_ncei_s_own_erddap_serves_the_two_products_as_well(self):
@@ -123,7 +128,7 @@ class TestOisstProducts(unittest.TestCase):
         # when the final replaces it, hours before its ERDDAP stops listing
         # the day, and asking for it meanwhile is an error too (on 14 October,
         # 29 September's), so then it is asked for the rest.
-        for key in ("sst_hovmoller_recent", "nino_daily_recent"):
+        for key in ("sst_hovmoller_recent", "nino_daily_recent", "iod_daily_recent"):
             with self.subTest(key=key):
                 fallback = sources.SOURCES_BY_KEY[key].fallback
                 self.assertEqual([address.partition("?")[0] for address in fallback],
@@ -137,11 +142,13 @@ class TestOisstProducts(unittest.TestCase):
         seconded = {s.key for s in sources.SOURCES if s.fallback or s.final_fallback}
         self.assertEqual(seconded, {"sst_pacific", "sst_global", "sst_hovmoller",
                                     "sst_hovmoller_recent", "nino_daily", "nino_daily_recent",
+                                    "iod_daily", "iod_daily_recent",
                                     "ssh_pacific", "ssh_hovmoller"})
 
     def test_a_feed_with_two_servers_names_both_above_the_address_that_served(self):
         agency = {"sst": "NOAA NCEI, via CoastWatch's ERDDAP or its own",
                   "nin": "NOAA NCEI, via CoastWatch's ERDDAP or its own",
+                  "iod": "NOAA NCEI, via CoastWatch's ERDDAP or its own",
                   "ssh": "NOAA CoastWatch, at its own ERDDAP or its West Coast node's"}
         for source in sources.SOURCES:
             if source.fallback:
@@ -210,6 +217,62 @@ class _Fetching:
 
     def kept(self, name="grid"):
         return (self.raw / f"{name}.cache").read_text(encoding="utf-8")
+
+
+class TestAnUnfilledDay(_Fetching, unittest.TestCase):
+    """A day a dataset lists before its values are in it, every row of it NaN,
+    as NCEI's preliminary OISST listed 12 October on the evening of the 14th."""
+
+    URL = "https://example.invalid/erddap/griddap/nrt.csv?anom%5Blast%5D"
+
+    def setUp(self):
+        super().setUp()
+        self.source = sources.Source(key="grid", name="grid", url=self.URL,
+                                     agency="test", cadence="daily")
+
+    @staticmethod
+    def rows(*days):
+        """ERDDAP's CSV of two cells a day, each day's value, NaN for None."""
+        return FIELD + "".join(
+            f"{day}T12:00:00Z,0.0,0.125,{lon},{'NaN' if value is None else value}\n"
+            for day, value in days for lon in (180.125, 180.375))
+
+    def test_a_map_of_a_day_without_values_is_no_answer_and_its_copy_serves(self):
+        kept = self.rows(("2026-10-13", 1.5))
+        self.fetch({self.probe(self.URL): LATER, self.URL: kept})
+        got = self.fetch({self.probe(self.URL): NEXT, self.URL: self.rows(("2026-10-14", None))})
+        self.assertEqual((got.text, got.from_cache), (kept, True))
+        self.assertIn(f"its answer has no values ({self.URL})", got.warnings[0])
+        self.assertEqual((self.kept(), self.meta()["probe"]), (kept, "2026-10-13T12:00:00Z"))
+
+    def test_a_window_ending_on_a_day_without_values_is_asked_again_until_they_come(self):
+        unfilled = self.rows(("2026-10-13", 1.5), ("2026-10-14", None))
+        got = self.fetch({self.probe(self.URL): NEXT, self.URL: unfilled})
+        self.assertEqual((got.text, got.from_cache, got.warnings), (unfilled, False, []))
+        # Kept at the last day it has values for, not the day its dataset said.
+        self.assertEqual(self.meta()["probe"], "2026-10-13T12:00:00Z")
+        filled = self.rows(("2026-10-13", 1.5), ("2026-10-14", 1.7))
+        got = self.fetch({self.probe(self.URL): NEXT, self.URL: filled})
+        self.assertEqual((got.text, got.unchanged), (filled, False))
+        self.assertEqual(self.meta()["probe"], "2026-10-14T12:00:00Z")
+        self.asked.clear()
+        self.assertTrue(self.fetch({self.probe(self.URL): NEXT}).unchanged)
+        self.assertEqual(self.asked, [self.probe(self.URL)])
+
+    def test_a_value_counts_in_any_of_an_answer_s_variables_whatever_its_axes(self):
+        # Sea level's answers have no depth; the maps' carry SST beside the
+        # anomaly; NCEI names its depth "depth" where CoastWatch says "zlev".
+        both = ("time,latitude,longitude,anom,sst\nUTC,degrees_north,degrees_east,C,C\n"
+                "2026-10-13T12:00:00Z,0.125,180.125,NaN,28.5\n"
+                "2026-10-14T12:00:00Z,0.125,180.125,NaN,NaN\n")
+        self.assertEqual(sources._last_times(both), ("2026-10-14T12:00:00Z", "2026-10-13T12:00:00Z"))
+        ncei = ("time,depth,latitude,longitude,anom\nUTC,m,degrees_north,degrees_east,Celsius\n"
+                "2026-10-12T12:00:00Z,0.0,0.125,180.125,{}\n"
+                "2026-10-12T12:00:00Z,0.0,0.375,180.125,NaN\n")
+        self.assertEqual(sources._last_times(ncei.format("NaN")), ("2026-10-12T12:00:00Z", ""))
+        # A day whose last cell is land is a day with values all the same.
+        self.assertEqual(sources._last_times(ncei.format("0.0")),
+                         ("2026-10-12T12:00:00Z", "2026-10-12T12:00:00Z"))
 
 
 class TestFetchFallbackAndProbe(_Fetching, unittest.TestCase):
@@ -479,6 +542,58 @@ class TestFetchFallbackAndProbe(_Fetching, unittest.TestCase):
         self.assertEqual((got.text, got.url, got.unchanged), ("x\n", plain, False))
         self.fetch({plain: "x\n"})
         self.assertEqual(self.asked, [plain, plain])
+
+
+class TestAWebPageForAFile(_Fetching, unittest.TestCase):
+    """A web page answering for a feed's file, with a 200, as a server down for
+    maintenance or a file moved can send one: not kept over the copy."""
+
+    URL = "https://example.invalid/indices/daily.txt"
+    FILE = "Year Day  Tahiti  Darwin     SOI\n2026 286 1014.33 1014.55  -19.13\n"
+    PAGE = "<!DOCTYPE html>\n<html><body><h1>Down for maintenance</h1></body></html>\n"
+
+    def setUp(self):
+        super().setUp()
+        self.source = sources.Source(key="grid", name="grid", url=self.URL,
+                                     agency="test", cadence="daily")
+
+    def test_a_page_for_a_file_is_no_answer_and_the_copy_serves(self):
+        self.fetch({self.URL: self.FILE})
+        got = self.fetch({self.URL: self.PAGE})
+        self.assertEqual((got.text, got.from_cache), (self.FILE, True))
+        self.assertIn(f"its answer is a web page ({self.URL})", got.warnings[0])
+        self.assertEqual(self.kept(), self.FILE)
+
+    def test_a_page_is_one_after_white_space_or_a_byte_order_mark(self):
+        for page in ("\n\n  " + self.PAGE, "\N{ZERO WIDTH NO-BREAK SPACE}" + self.PAGE, "<html>\n"):
+            with self.subTest(page=page[:12]):
+                got = self.fetch({self.URL: page})
+                self.assertFalse(got.ok)
+                self.assertIn("its answer is a web page", got.error)
+
+    def test_a_feed_that_is_a_page_keeps_its_page(self):
+        self.source = replace(self.source, markup=True)
+        got = self.fetch({self.URL: self.PAGE})
+        self.assertEqual((got.text, got.from_cache), (self.PAGE, False))
+
+    def test_the_feeds_that_are_pages_rss_or_kml_are_marked_so(self):
+        self.assertEqual({source.key for source in sources.SOURCES if source.markup},
+                         {"discussion", "atcf_index", "hurdat_index", "nhc_outlook_at",
+                          "nhc_outlook_ep", "nhc_outlook_cp", "jtwc_rss"})
+        self.assertTrue(sources.product_source("cone", "ep152026", "https://example.invalid/c.kmz")
+                        .markup)
+        for built in (sources.deck_source("b", "ep152026"), sources.hurdat_source("AL", "h.txt"),
+                      sources.jtwc_source("wp2526.tcw")):
+            self.assertFalse(built.markup, built.key)
+
+    def test_each_feed_s_own_sample_is_markup_only_if_it_is_a_page_rss_or_kml(self):
+        # The fixtures are feeds' own files as they were downloaded.
+        for path in sorted((Path(__file__).resolve().parent / "fixtures").iterdir()):
+            if path.is_file():
+                with self.subTest(path=path.name):
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                    self.assertEqual(sources._is_markup(text),
+                                     path.suffix in {".html", ".shtml", ".kml", ".rss"})
 
 
 class TestSecondServer(_Fetching, unittest.TestCase):
@@ -777,7 +892,7 @@ class TestDailyBoxes(unittest.TestCase):
         text += "not a time,0.0,0.125,200.125,9.9\n"
         days = grids.daily_box_means(text)
         self.assertEqual([d.day for d in days], ["2026-10-11", "2026-10-12"])
-        self.assertIn('id="nino-daily"', fields.nino_daily_card(days, []))
+        self.assertIn('id="nino-daily"', daily.nino_card(days, []))
 
     def test_the_days_are_summed_as_they_come_and_a_day_come_again_is_an_error(self):
         # ERDDAP sends a subset day by day, and a day is summed when its rows
@@ -1233,7 +1348,7 @@ class TestDailyCard(unittest.TestCase):
     """The four boxes day by day, with CPC's weeks beside them."""
 
     def card(self, days=None, weeks=()):
-        return fields.nino_daily_card(_days() if days is None else days, list(weeks))
+        return daily.nino_card(_days() if days is None else days, list(weeks))
 
     def test_one_line_a_box_in_its_own_colour_with_a_legend(self):
         html = self.card()
@@ -1361,19 +1476,19 @@ class TestDailyCard(unittest.TestCase):
     def test_the_card_says_how_far_the_final_moved_the_preliminary_s_days(self):
         moved = {"nino34": grids.Revision(13, 0.07, 0.2), "nino4": grids.Revision(13, -0.01, 0.05),
                  "nino12": grids.Revision(13, 0.14, 0.34)}
-        html = fields.nino_daily_card(_days(), [], moved)
+        html = daily.nino_card(_days(), [], moved)
         self.assertIn("On the 13 days both analyses carry, the final runs 0.07 °C warmer than the "
                       "preliminary in Nino-3.4 on average, and differs by up to 0.20 °C on a day "
                       "(0.34 °C in Nino-1+2): about how far the shaded days may yet move.", html)
-        cooler = fields.nino_daily_card(_days(), [], {"nino34": grids.Revision(5, -0.04, 0.09)})
+        cooler = daily.nino_card(_days(), [], {"nino34": grids.Revision(5, -0.04, 0.09)})
         self.assertIn("the final runs 0.04 °C cooler than the preliminary in Nino-3.4 on average, "
                       "and differs by up to 0.09 °C on a day: about", cooler)
-        same = fields.nino_daily_card(_days(), [], {"nino34": grids.Revision(4, 0.001, 0.1)})
+        same = daily.nino_card(_days(), [], {"nino34": grids.Revision(4, 0.001, 0.1)})
         self.assertIn("the final and the preliminary agree in Nino-3.4 on average, and differ "
                       "by up to 0.10 °C on a day: about", same)
         # Nothing to say with no shaded days.
         self.assertNotIn("both analyses carry",
-                         fields.nino_daily_card(_days(prelim_from="9999"), [], moved))
+                         daily.nino_card(_days(prelim_from="9999"), [], moved))
 
     def test_the_threshold_s_label_is_drawn_over_the_lines(self):
         html = self.card()
@@ -1477,8 +1592,15 @@ def _realtime_fetch_all(real):
             f"{d}T12:00:00Z,0.0,{lat},{120.125 + k},0.75"
             for d in _span("2026-09-14", "2026-10-12") for lat in (-0.875, 0.125)
             for k in range(161)) + "\n"
+        poles = _days_csv({d: [(0.125, 60.125, "1.0"), (-5.125, 100.125, "0.25")]
+                           for d in _span("2026-09-01", "2026-09-28")})
+        poles_recent = _days_csv({d: [(0.125, 60.125, "1.1"), (-5.125, 100.125, "0.25")]
+                                  for d in _span("2026-09-20", "2026-10-12")})
+        soi = "Year Day  Tahiti  Darwin     SOI\n" + "".join(
+            f"2026 {n:3d} 1013.00 1009.00 {(150 - n) / 10:7.2f}\n" for n in range(150, 287))
         for key, text in (("nino_daily", record), ("nino_daily_recent", recent),
-                          ("sst_hovmoller_recent", strip)):
+                          ("sst_hovmoller_recent", strip), ("iod_daily", poles),
+                          ("iod_daily_recent", poles_recent), ("soi_daily", soi)):
             source = sources.SOURCES_BY_KEY[key]
             fetched[key] = sources.Fetched(source, text, "2026-10-14T10:12:00+00:00", False, "",
                                            url=source.url)
@@ -1512,6 +1634,13 @@ class TestRealTimeRun(unittest.TestCase):
         self.assertLess(self.html.index('id="sst-map"'), self.html.index('id="nino-daily"'))
         self.assertLess(self.html.index('id="nino-daily"'), self.html.index('id="hovmoller"'))
 
+    def test_the_dipole_follows_the_boxes_and_the_soi_the_walker_circulation(self):
+        page = self.html
+        self.assertLess(page.index('id="nino-daily"'), page.index('id="iod-daily"'))
+        self.assertLess(page.index('id="iod-daily"'), page.index('id="hovmoller"'))
+        self.assertLess(page.index('id="walker"'), page.index('id="soi-daily"'))
+        self.assertLess(page.index('id="soi-daily"'), page.index('id="forecast"'))
+
     def test_the_maps_and_the_hovmoller_say_preliminary(self):
         self.assertIn("NOAA&rsquo;s preliminary analysis", self.html[self.html.index('id="sst-map"'):])
         self.assertEqual(self.state.spatial.sst_hov.y_labels[-1], "2026-10-12")
@@ -1519,7 +1648,7 @@ class TestRealTimeRun(unittest.TestCase):
 
     def test_the_json_carries_the_days_and_which_analysis_each_field_is(self):
         spatial = self.data["spatial"]
-        self.assertEqual(self.data["schema"], 10)
+        self.assertEqual(self.data["schema"], 11)
         self.assertEqual(spatial["fields"]["sst_map"]["preliminary"],
                          self.state.spatial.sst_map.as_of)
         self.assertEqual(spatial["fields"]["sst_hov"]["preliminary"],
@@ -1530,6 +1659,23 @@ class TestRealTimeRun(unittest.TestCase):
         self.assertEqual([d["preliminary"] for d in days[-15:]], [False] + [True] * 14)
         self.assertFalse(days[0]["preliminary"])
         self.assertEqual(set(days[-1]), {"day", "preliminary", "nino4", "nino34", "nino3", "nino12"})
+
+    def test_the_json_gives_the_dipole_day_by_day_and_what_the_final_changed(self):
+        spatial = self.data["spatial"]
+        days = spatial["iod_daily"]
+        self.assertEqual((days[0]["day"], days[-1]["day"]), ("2026-09-01", "2026-10-12"))
+        self.assertEqual([d["preliminary"] for d in days[-15:]], [False] + [True] * 14)
+        self.assertEqual(days[-1], {"day": "2026-10-12", "preliminary": True, "west": 1.1,
+                                    "east": 0.25, "dmi": 0.85})
+        self.assertEqual(set(spatial["iod_revision"]), {"west", "east", "dmi"})
+        self.assertEqual(spatial["iod_revision"]["dmi"], {"days": 9, "mean": -0.1, "most": 0.1})
+
+    def test_the_json_gives_the_soi_s_days_the_card_draws(self):
+        soi = self.data["atmosphere"]["soi_daily"]
+        self.assertEqual(len(soi), daily.SOI_DAYS)
+        self.assertEqual((soi[0]["day"], soi[-1]["day"]), ("2026-06-16", "2026-10-13"))
+        self.assertEqual(soi[-1], {"day": "2026-10-13", "tahiti": 1013.0, "darwin": 1009.0,
+                                   "soi": -13.6, "soi30": -12.15, "soi90": -9.15})
 
     def test_the_json_names_the_address_each_feed_was_served_from(self):
         feeds = self.data["feeds"]
@@ -1565,6 +1711,15 @@ class TestRealTimeRun(unittest.TestCase):
         self.assertIn("Nino-3.4", text)
         self.assertIn("2026-10-12 (preliminary)", text)
         self.assertIn("On the 9 days both analyses carry, the final runs", " ".join(text.split()))
+
+    def test_the_report_gives_the_dipole_after_the_boxes_and_the_soi_with_the_atmosphere(self):
+        text = report.render(self.state)
+        self.assertLess(text.index("Day by day, from OISST"),
+                        text.index("The Indian Ocean Dipole day by day"))
+        soi = text.index("The SOI day by day, from LongPaddock's file")
+        self.assertLess(text.index("ATMOSPHERE: IS THE OCEAN COUPLED TO IT?"), soi)
+        self.assertLess(soi, text.index("\nFORECAST\n"))
+        self.assertIn("  2026-10-13", text[soi:])
 
     def test_the_report_s_box_means_say_which_map_they_are_of(self):
         def said(spatial):
