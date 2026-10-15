@@ -3,8 +3,9 @@
 Every source is an authoritative product: NOAA's, from CPC (with IRI for the
 diagnostic discussion), PSL, PMEL, NCEI, CoastWatch and the National and
 Central Pacific Hurricane Centers; the Queensland Government's LongPaddock's
-daily SOI, on the Bureau of Meteorology's definition; and the Joint Typhoon
-Warning Center's warnings. Nothing here depends on third-party packages so the
+daily SOI, on the Bureau of Meteorology's definition; Remote Sensing Systems'
+CCMP ocean winds, from NOAA PIFSC's OceanWatch; and the Joint Typhoon Warning
+Center's warnings. Nothing here depends on third-party packages so the
 tracker keeps working on a bare Python install.
 
 Sources are grouped into tiers, which is how the rest of the system decides how
@@ -169,6 +170,19 @@ SSH_PRODUCTS = {
     SSH_EXPERIMENTAL: ("the West Coast node's experimental product of the altimeters' passes, "
                        "serving while CoastWatch's own ERDDAP fails"),
 }
+
+# Ocean winds, from NOAA PIFSC's OceanWatch ERDDAP: Remote Sensing Systems'
+# Cross-Calibrated Multi-Platform (CCMP) 10 m winds, version 2.1 near real
+# time, an analysis of satellite radiometer and scatterometer winds over NCEP's
+# GFS, six-hourly on a quarter degree, a day or two behind. CoastWatch's copy
+# stopped on 2 June 2026. The westerly wind events (``winds``) take the last
+# 360 analyses, every other one back from the latest: 180 days twice a day, 12
+# hours apart. The cells are every ninth, 2.25 degrees apart and symmetric
+# about the equator, 14.625S to 14.625N by 120.125E to 279.875E: the cells of
+# the vendored base (``windclim``).
+CCMP_NRT = "https://oceanwatch.pifsc.noaa.gov/erddap/griddap/ccmp-daily-v2-1-NRT.csv"
+_WIND_DAYS = "[last-718:2:last]"
+_WIND_CELLS = "[(-14.625):9:(14.625)][(120.125):9:(279.875)]"
 
 
 @dataclass(frozen=True)
@@ -614,6 +628,16 @@ SOURCES: tuple[Source, ...] = (
         cadence="weekly samples, a day or two behind",
         tier="spatial",
         note="Kelvin and Rossby wave tracking, independent of the moorings.",
+    ),
+    Source(
+        key="wind_daily",
+        name="CCMP v2.1 10 m zonal wind, tropical Pacific, the last 180 days (near real time)",
+        url=erddap(CCMP_NRT, f"uwnd{_WIND_DAYS}{_WIND_CELLS}"),
+        agency="Remote Sensing Systems' CCMP, via NOAA PIFSC's OceanWatch ERDDAP",
+        cadence="six-hourly, a day or two behind",
+        tier="spatial",
+        archive=False,
+        note="Westerly wind events, Harrison and Vecchi's, as they happen.",
     ),
 
     # -- cyclones: what the boundary condition actually produced -------------

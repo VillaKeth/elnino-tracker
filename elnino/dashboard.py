@@ -16,9 +16,11 @@ from datetime import datetime, timezone
 from .classify import Assessment, intensity_tier
 from .parsers import MonthValue, SeasonValue, WeekObservation
 from .sources import Fetched
+from .winds import REGIONS, THRESHOLD
 
 from . import (alerts, assets, atlas, atlasview, cyclones, daily, fields, geo, globe, impacts,
-               live, panels, sitenav, space3d, stormdesk, stormfury, storms, worldmap)
+               live, panels, sitenav, space3d, stormdesk, stormfury, storms, windclim,
+               worldmap)
 from .svg import (  # noqa: F401 - re-exported for the panel modules
     BAND_STATUS,
     DARK,
@@ -698,6 +700,7 @@ footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
   font-family: var(--font); paint-order: stroke; stroke: var(--surface);
   stroke-width: 3px; stroke-linejoin: round; }}
 .subcaption {{ margin: 6px 0 0; color: var(--muted); font-size: 0.74rem; }}
+.hovsolo {{ max-width: 600px; margin: 0 auto 14px; }}
 .hint {{ color: var(--muted); font-style: italic; }}
 .threeup {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }}
 .swatch-line {{ height: 3px; border-radius: 2px; background: var(--ink); }}
@@ -1256,6 +1259,8 @@ def render(state) -> str:
     cards.append(panels.chart_walker(state))
     # The SOI day by day, on the Bureau's definition, after CPC's months of it.
     cards.append(daily.soi_card(state.series.get("soi_daily") or []))
+    # Westerly wind events day by day: the bursts themselves, after the SOI.
+    cards.append(daily.wind_card(state.spatial.winds))
     cards.append(panels.chart_forecast(state))
     cards.append(panels.chart_skill(state))
     cards.append(panels.impact_panel(state))
@@ -1381,6 +1386,48 @@ def _revision_json(revision) -> dict:
             for key, moved in revision.items()}
 
 
+def _winds_json(winds) -> dict | None:
+    """Westerly wind events for the JSON, null without the feed: the window
+    and its regions, each region's smoothed anomaly day by day (null on a day
+    it has none), every event of the window by its first analysis, and the
+    runs still building, never counted. Longitudes are degrees east, 0 to
+    360: the regions straddle the dateline."""
+    if winds is None:
+        return None
+    stamp = "%Y-%m-%dT%H:%M:%SZ"
+    return {
+        "method": "Harrison and Vecchi (1997), in McGregor et al. (2016)'s eight regions",
+        "product": "CCMP v2.1 near real time, Remote Sensing Systems, via NOAA PIFSC OceanWatch",
+        "base": f"CCMP v2.0 monthly means, {windclim.BASE}",
+        "threshold_m_s": THRESHOLD,
+        "first_day": winds.first.isoformat(),
+        "last_day": winds.last.isoformat(),
+        "latest_analysis_utc": f"{winds.times[-1]:{stamp}}",
+        "regions": [{"key": region.key, "name": region.name, "lat": [region.south, region.north],
+                     "lon_east": [region.west, region.east]} for region in REGIONS],
+        "daily": [{"day": day.isoformat(),
+                   "anomaly_m_s": {region.key: round(values[region.key], 2)
+                                   if region.key in values else None for region in REGIONS}}
+                  for day, values in winds.daily.items()],
+        "events": [
+            {"region": event.region, "first_utc": f"{event.first:{stamp}}",
+             "last_utc": f"{event.last:{stamp}}", "days": event.days,
+             "centre_utc": f"{event.centre:{stamp}}", "peak_m_s": round(event.peak, 2),
+             "point_peak_m_s": round(event.point_peak, 2),
+             "point": {"lat": event.point[0], "lon_east": event.point[1]},
+             "wind_measure_m": round(event.measure), "under_way": event.ongoing,
+             "began_before_window": event.from_start, "overlaps": list(event.overlaps),
+             "counted_as": event.counted_as}
+            for event in winds.events
+        ],
+        "building": [
+            {"region": run.region, "since_utc": f"{run.since:{stamp}}", "days": run.days,
+             "latest_m_s": round(run.latest, 2)}
+            for run in winds.building
+        ],
+    }
+
+
 def payload(state) -> dict:
     """Machine-readable snapshot, so the tracker can feed other tools.
 
@@ -1399,7 +1446,7 @@ def payload(state) -> dict:
     return {
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_at": state.run_at,
-        "schema": 11,
+        "schema": 12,
         "headline": a.headline,
         "cpc_status": a.status or None,
         "degraded": state.degraded,
@@ -1768,6 +1815,9 @@ def payload(state) -> dict:
             # each day with its Dipole Mode Index, the west pole less the east.
             "iod_daily": _days_json(state.spatial.iod_daily, ("west", "east", "dmi")),
             "iod_revision": _revision_json(state.spatial.iod_revision),
+            # Westerly wind events from CCMP's near-real-time winds, as Harrison
+            # and Vecchi define them; null without the feed.
+            "wind_events": _winds_json(state.spatial.winds),
             "warm_pool_east_edge": state.spatial.warm_pool,
             "equatorial_isotherm_20c": [
                 {"longitude": pr.lon, "depth_m": pr.isotherm(20.0), "as_of": pr.as_of}

@@ -643,8 +643,14 @@ def _every(step: int, what: str) -> str:
 
 
 # --- panels -----------------------------------------------------------------
-def _hov_time_axis(plot: Plot, grid: Field) -> None:
-    """Quarter ticks down the side of a Hovmoller, thinned to fit.
+# The months a Hovmoller's time axis is ticked at: the quarters down a record
+# of weeks sixteen months long, every month down one of days.
+QUARTERS = ("01", "04", "07", "10")
+EVERY_MONTH = tuple(f"{month:02d}" for month in range(1, 13))
+
+
+def _hov_time_axis(plot: Plot, grid: Field, months: tuple[str, ...] = QUARTERS) -> None:
+    """Month ticks down the side of a Hovmoller, at ``months``, thinned to fit.
 
     Two separate things have to be guarded here. A weekly product has four or
     five rows inside the same month, so labelling "the month is January" labels
@@ -660,7 +666,7 @@ def _hov_time_axis(plot: Plot, grid: Field) -> None:
     first = True
     for row, stamp in enumerate(labels):
         year, month = stamp[:4], stamp[5:7]
-        if month not in ("01", "04", "07", "10") or (year, month) in seen:
+        if month not in months or (year, month) in seen:
             continue
         seen.add((year, month))
         y = plot.sy(float(row))
@@ -850,13 +856,17 @@ def global_map(grid: Field) -> str:
 
 def hovmoller(grid: Field, title: str, caption: str, diverging: bool = True,
               fmt: str = "{:+.2f}", units: str = "°C",
-              ramp_caption: str = "anomaly", extra: str = "") -> str:
+              ramp_caption: str = "anomaly", extra: str = "",
+              outlines: tuple[tuple[float, float, int, int, str], ...] = (),
+              months: tuple[str, ...] = QUARTERS) -> str:
     """Time down, longitude across: how the anomaly moved.
 
     Time runs downward so that a feature propagating east appears as a stripe
     leaning to the right as you read down the page, which is the orientation
     every operational centre uses and the one an experienced reader will
-    already have calibrated against.
+    already have calibrated against. ``outlines`` are boxes drawn over the
+    cells, each from one longitude to another and from one row to another
+    with a letter at its left; ``months`` are the months the time axis ticks.
     """
     plot = Plot(560, 470, (14, 18, 28, 58))
     plot.domain(grid.x[0], grid.x[-1], float(grid.rows - 1) + 0.5, -0.5)
@@ -870,7 +880,17 @@ def hovmoller(grid: Field, title: str, caption: str, diverging: bool = True,
         col_label=lon_name,
     )
     lon_axis(plot, grid.x[0], grid.x[-1], 20.0)
-    _hov_time_axis(plot, grid)
+    _hov_time_axis(plot, grid, months)
+    for west, east, first, last, letter in outlines:
+        x0, x1 = plot.sx(west), plot.sx(east)
+        y0, y1 = plot.sy(first - 0.5), plot.sy(last + 0.5)
+        plot.add(
+            f'<rect class="outline" x="{x0:.1f}" y="{y0:.1f}" width="{x1 - x0:.1f}" '
+            f'height="{y1 - y0:.1f}" fill="none" stroke="var(--ink)" stroke-width="1.3" '
+            f'pointer-events="none"/>'
+        )
+        plot.add(f'<text class="boxlabel" x="{x0 + 3:.1f}" y="{(y0 + y1) / 2 + 4:.1f}" '
+                 f'pointer-events="none">{esc(letter)}</text>')
     # Dateline: the single most useful reference on this diagram.
     if grid.x[0] <= 180.0 <= grid.x[-1]:
         x = plot.sx(180.0)

@@ -89,9 +89,10 @@ class TestOisstProducts(unittest.TestCase):
         # Each day's download of a window repeats all but a day of the day
         # before's, and NOAA keeps every day of both products itself; so does
         # each day's of LongPaddock's daily SOI, the whole record since 1999,
-        # which it keeps itself.
+        # which it keeps itself, and each day's of CCMP's last 180 days of
+        # winds, every analysis of which Remote Sensing Systems keeps.
         windows = {"sst_hovmoller_recent", "nino_daily", "nino_daily_recent",
-                   "iod_daily", "iod_daily_recent", "soi_daily"}
+                   "iod_daily", "iod_daily_recent", "soi_daily", "wind_daily"}
         self.assertEqual({s.key for s in sources.SOURCES if not s.archive}, windows)
 
     def test_ncei_s_own_erddap_serves_the_two_products_as_well(self):
@@ -1648,7 +1649,7 @@ class TestRealTimeRun(unittest.TestCase):
 
     def test_the_json_carries_the_days_and_which_analysis_each_field_is(self):
         spatial = self.data["spatial"]
-        self.assertEqual(self.data["schema"], 11)
+        self.assertEqual(self.data["schema"], 12)
         self.assertEqual(spatial["fields"]["sst_map"]["preliminary"],
                          self.state.spatial.sst_map.as_of)
         self.assertEqual(spatial["fields"]["sst_hov"]["preliminary"],

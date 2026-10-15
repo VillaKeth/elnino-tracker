@@ -19,10 +19,11 @@ import textwrap
 import unicodedata
 from datetime import datetime, timezone
 
-from . import (alerts, atlas, cyclones, forecast, grids, history, impacts, outlook,
-               stormdesk, stormfury, tcproducts)
+from . import (alerts, atlas, cyclones, daily, forecast, grids, history, impacts, outlook,
+               stormdesk, stormfury, tcproducts, windclim)
 from .grids import lon_name as _lon_name
 from .alerts import CRITICAL, INFO, WARNING, WATCH
+from .winds import EQUATORIAL, HV97_EVENTS, HV97_LONGEST, REGIONS, REGIONS_BY_KEY, THRESHOLD
 
 WIDTH = 78
 BAR_WIDTH = 32
@@ -467,6 +468,7 @@ def _section_atmosphere(state) -> list[str]:
         ))
     else:
         lines.append("  Westerly forcing: none detected in the recent record.")
+    lines.extend(_wind_lines(getattr(getattr(state, "spatial", None), "winds", None)))
 
     if at.mjo:
         m = at.mjo
@@ -521,6 +523,99 @@ def _soi_lines(days) -> list[str]:
         "pressure difference against 1933-1992, so CPC's monthly SOI in the "
         "table, a standard score, runs at about a tenth of the 30-day SOI. "
         "Pressures in hPa.",
+        indent="    ",
+    ))
+    return lines
+
+
+# The latest westerly wind events the report lists; latest.json lists them all.
+WIND_EVENT_ROWS = 12
+
+
+def _wind_region(key: str) -> str:
+    """A region as the report names it: "the central region (C, 155E-180, 5S-5N)"."""
+    region = REGIONS_BY_KEY[key]
+    return f"the {region.name} region ({key}, {region.span})"
+
+
+def _wind_lines(winds) -> list[str]:
+    """Westerly wind events, as Harrison and Vecchi (1997) define them, from
+    CCMP's near-real-time winds: what is under way and what is building; the
+    WIND_EVENT_ROWS events of the window to end latest, and the equatorial
+    regions' smoothed anomalies over its latest DAILY_ROWS days, latest first;
+    and how the events are found."""
+    if winds is None:
+        return []
+    above = f"above {THRESHOLD:+g} m/s"
+    count = {0: "no event", 1: "1 event"}.get(len(winds.events), f"{len(winds.events)} events")
+    lines = [""]
+    lines.extend(_wrap(
+        "Westerly wind events, as Harrison and Vecchi define them, from CCMP's "
+        f"near-real-time 10 m winds, {winds.first} to {winds.last}: {count} in the "
+        "eight regions."))
+    for event in winds.under_way:
+        before = event.from_start
+        sustained = (f"; longer than any of the {HV97_EVENTS} events in Harrison and Vecchi's "
+                     f"1986-1995 list (at most {HV97_LONGEST:g} days): a sustained westerly "
+                     "anomaly more than a burst") if event.sustained else ""
+        lines.extend(_wrap(
+            f"Under way in {_wind_region(event.region)}: {'at least ' if before else ''}"
+            f"{event.days:g} days {above} since {'before ' if before else ''}"
+            f"{event.first:%Y-%m-%d %HZ}, peaking at {event.peak:+.1f} m/s on "
+            f"{event.centre:%Y-%m-%d}{sustained}.", indent="    "))
+    if not winds.under_way:
+        lines.append("    No event under way.")
+    for run in winds.building:
+        lines.extend(_wrap(
+            f"Building in {_wind_region(run.region)}: {run.days:g} "
+            f"day{'' if run.days == 1 else 's'} {above}, latest {run.latest:+.1f} m/s; "
+            "counted from three days.", indent="    "))
+    listed = winds.latest_first[:WIND_EVENT_ROWS]
+    if listed:
+        lines.extend(["", "  The events, latest to end first; peak is the largest smoothed "
+                          "anomaly, m/s:"])
+        rows = [("type", "first", "last", "days", "peak", "counts as")]
+        for event in listed:
+            rows.append((event.region,
+                         f"{event.first:%Y-%m-%d %HZ}{'*' if event.from_start else ''}",
+                         "under way" if event.ongoing else f"{event.last:%Y-%m-%d %HZ}",
+                         f"{event.days:g}", f"{event.peak:+.1f}", daily.counts_as(event)))
+        lines.extend(_table(rows, (4, 15, 14, -5, -5, 27)))
+        if any(event.from_start for event in listed):
+            lines.extend(_wrap("* Began before the window: it started before its first "
+                               "analysis here, and lasted longer.", indent="    "))
+        if len(winds.events) > len(listed):
+            lines.extend(_wrap(f"The window's {len(winds.events) - len(listed)} earlier "
+                               "events are in latest.json.", indent="    "))
+    lines.extend(["", "  The equatorial regions' smoothed anomaly day by day, m/s, latest first:"])
+    rows = [("", *(REGIONS_BY_KEY[key].name.capitalize() for key in EQUATORIAL))]
+    for day in list(winds.daily)[-DAILY_ROWS:][::-1]:
+        values = winds.daily[day]
+        rows.append((day.isoformat(), *(f"{values[key]:+.2f}" if key in values else "n/a"
+                                        for key in EQUATORIAL)))
+    lines.extend(_table(rows, (12, -8, -8, -8)))
+    regions = "; ".join(f"{region.key} {region.span}" for region in REGIONS)
+    lines.extend(_wrap(
+        "An event is three days or more in which the 10 m zonal wind anomaly over a "
+        "region, cosine-weighted and smoothed 1/4-1/2-1/4 on analyses 12 hours apart "
+        f"(half power at 2.75 days), stays {above}; the latest analysis is smoothed "
+        f"when the next comes. The regions: {regions}. Events in bordering regions "
+        "centred within three days overlap and count as the stronger. The anomalies "
+        f"are against CCMP version 2.0's monthly means for {windclim.BASE}; at 72 "
+        "analysis times in 2016-2019 the near-real-time product's regional means differ "
+        "from version 2.0's by 0.20 m/s at most on average and by 0.19-0.51 m/s rms "
+        "analysis by analysis. Against TAO's daily winds at its seven reporting "
+        "equatorial moorings, June to September 2026, the near-real-time daily zonal "
+        "wind correlates at 0.88-0.95 mooring by mooring; at 165E and 170W, where the "
+        "wind was westerly on average, it ran 0.7 m/s less westerly than TAO's, and "
+        "from 155W to 95W 0.2 m/s more easterly. TAO measures at 4 m and CCMP is for "
+        "10 m, where a neutral log profile has the wind about 8% stronger: that leaves "
+        "the eastern difference within 0.15 m/s and widens the western one to 0.9 m/s. "
+        "Against a monthly climatology an El Nino's own westerly anomaly counts as "
+        "well, so in a strong event the central and eastern regions' runs can last "
+        f"weeks, longer than any of Harrison and Vecchi's {HV97_EVENTS} of 1986-1995 "
+        f"(at most {HV97_LONGEST:g} days). The westerly forcing above counts months of "
+        "CPC's 850 hPa index; these are the surface bursts themselves.",
         indent="    ",
     ))
     return lines

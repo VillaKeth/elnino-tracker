@@ -11018,7 +11018,7 @@ class TestEndToEnd(unittest.TestCase):
     def test_payload_is_json_serialisable_and_keyed_as_documented(self):
         payload = dashboard.payload(self.state)
         restored = json.loads(json.dumps(payload))
-        self.assertEqual(restored["schema"], 11)
+        self.assertEqual(restored["schema"], 12)
         for key in ("index", "oni", "power_index", "subsurface", "atmosphere", "forecast",
                     "skill", "alerts", "impacts", "feeds", "footprints",
                     "cyclones", "stormfury", "atlas", "outlook", "storm_desk"):

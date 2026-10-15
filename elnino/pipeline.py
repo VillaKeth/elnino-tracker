@@ -28,6 +28,7 @@ from . import (
     storage,
     subsurface,
     verification,
+    winds,
 )
 
 # Feeds that are stacked CPC monthly grids and can share one parser.
@@ -242,6 +243,9 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
                       daily("iod_daily", "daily dipole", grids.IOD_BOXES))
     state.iod_daily = tuple(grids.splice_days(record, recent))
     state.iod_revision = grids.revisions(record, recent)
+    # Westerly wind events, from CCMP's near-real-time winds.
+    if "wind_daily" in text:
+        state.winds = attempt("westerly wind events", winds.analyse, text["wind_daily"])
     if "ssh_pacific" in text:
         state.ssh_map = altimetry("ssh_pacific", attempt(
             "sea surface height", grids.grid_map, text["ssh_pacific"], "sla",
@@ -478,6 +482,7 @@ def run(
             previous,
             storms,
             now=run_at,
+            winds=spatial.winds,
         )
         alert_set = alerts.reconcile(conn, raised, run_at)
 

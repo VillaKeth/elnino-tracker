@@ -1,5 +1,5 @@
-"""Series day by day: the Nino boxes, the Indian Ocean Dipole and the SOI, and
-the plot that draws them.
+"""Series day by day: the Nino boxes, the Indian Ocean Dipole, the SOI and the
+westerly wind events, and the plot that draws them.
 
 The classification runs on CPC's weekly and monthly indices, and the Bureau of
 Meteorology watches the Indian Ocean's dipole week by week, all out days or
@@ -17,8 +17,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from .fields import OISST_BASE, _behind
+from . import windclim
+from .fields import EVERY_MONTH, OISST_BASE, _behind, field_table, hovmoller
 from .svg import Plot, _legend, esc, nice_ticks, table
+from .winds import EQUATORIAL, HV97_EVENTS, HV97_LONGEST, REGIONS_BY_KEY, THRESHOLD, Event, Winds
 
 
 @dataclass(frozen=True)
@@ -91,11 +93,23 @@ SOI = Chart(
            Mark(-7.0, "El Nino-like -7", "var(--warm)")),
     unit="", digits=1, floor=10.0, missing="not worked out", ticks="{:+.0f}",
 )
+# The equatorial regions' smoothed westerly anomalies, west to east, the
+# regions whose events force Kelvin waves; each one's events are shaded in its
+# colour.
+WINDS = Chart(
+    lines=(Line("W", "West", "var(--s1)"), Line("C", "Central", "var(--s2)"),
+           Line("E", "East", "var(--s3)")),
+    marks=(Mark(THRESHOLD, f"event threshold {THRESHOLD:+g} m/s", "var(--warm)"),),
+    unit=" m/s", digits=1, floor=3.0, missing="not smoothed", ticks="{:+.0f}",
+)
 # The SOI card's span, in days back from the file's latest: four months, long
 # enough to hold a turn of the 90-day mean.
 SOI_DAYS = 120
 # Line-end labels nearer each other than this, in plot units, are moved apart.
 LABEL_GAP = 13.0
+# A band's lane, in plot units: a bar 5 high and a gap of 2, the lanes down
+# from the plot's top in the room its axis leaves above the highest value.
+LANE = 7.0
 # CPC dates a week by its centre, a Wednesday ("week centered on"); a week is
 # set against the days within WEEK_HALF of it when WEEK_DAYS of them are drawn.
 WEEK_HALF, WEEK_DAYS = 3, 5
@@ -181,12 +195,15 @@ def _day_columns(plot: Plot, values: dict, chart: Chart, preliminary, notes: dic
 def _plot(values: dict[date, dict[str, float]], chart: Chart,
           preliminary: frozenset[date] = frozenset(),
           dots: tuple[tuple[date, float], ...] = (),
-          notes: dict[date, list[str]] | None = None) -> Plot:
+          notes: dict[date, list[str]] | None = None,
+          bands: tuple[tuple[date, date, str], ...] = ()) -> Plot:
     """The days drawn: each of ``chart``'s lines from ``values``, each day's
     value of each line by its key, in the order of the days; the
-    ``preliminary`` days shaded; the marks; ``dots``, days and values drawn as
-    hollow dots in the leading line's colour; each line's latest value; and a
-    column over each day with its values and its ``notes``."""
+    ``preliminary`` days shaded; ``bands``, spans of days from one to another,
+    each a bar in the lane of a line, by its key, in its colour; the marks;
+    ``dots``, days and values drawn as hollow dots in the leading line's
+    colour; each line's latest value; and a column over each day with its
+    values and its ``notes``."""
     dates = list(values)
     first, last = dates[0], dates[-1]
     span = (last - first).days
@@ -212,6 +229,14 @@ def _plot(values: dict[date, dict[str, float]], chart: Chart,
             f'fill="var(--track)" opacity="0.6"/>'
         )
         plot.add(f'<text x="{x0 + 4:.1f}" y="{plot.top - 8:.1f}" class="band-note">preliminary</text>')
+    lanes = {line.key: (lane, line.colour) for lane, line in enumerate(chart.lines)}
+    for start, end, key in bands:
+        lane, colour = lanes[key]
+        x0, x1 = x_of(max(start, first)) - column / 2, x_of(min(end, last)) + column / 2
+        plot.add(
+            f'<rect class="band" x="{x0:.1f}" y="{plot.top + 3 + lane * LANE:.1f}" '
+            f'width="{x1 - x0:.1f}" height="{LANE - 2:.1f}" fill="{colour}" rx="1.5"/>'
+        )
 
     for mark in chart.marks:
         y = plot.sy(mark.value)
@@ -532,4 +557,194 @@ def soi_card(days) -> str:
   {plot.svg('Daily Southern Oscillation Index', described)}
   {table("LongPaddock's SOI and the day's pressures, by day",
          ["Day", "30-day SOI", "90-day SOI", "Daily SOI", "Tahiti, hPa", "Darwin, hPa"], rows)}
+</section>"""
+
+
+# --- westerly wind events -----------------------------------------------------------
+def _region_words(key: str) -> str:
+    """A region as a caption calls it: "the central region (155E-180, 5S-5N)"."""
+    region = REGIONS_BY_KEY[key]
+    return f"the {region.name} region ({region.span.replace('-', '&ndash;')})"
+
+
+def _days_words(days: float) -> str:
+    return f"{days:g} day{'' if days == 1 else 's'}"
+
+
+def _under_way_words(event: Event) -> str:
+    """An event under way as the caption says it: its region, its days above
+    the threshold since it began, and its smoothed peak; at least those days,
+    since before its first analysis, when it began before the window; and
+    when it has run longer than any of Harrison and Vecchi's, a mark saying
+    so, which ``_wind_now`` explains once."""
+    before = event.from_start
+    sustained = " (longer than any in Harrison and Vecchi&rsquo;s list)" if event.sustained else ""
+    return (f"{_region_words(event.region)}: <strong>{'at least ' if before else ''}"
+            f"{_days_words(event.days)}</strong> above {THRESHOLD:+g} m/s since "
+            f"{'before ' if before else ''}{_day_label(event.first.date())}, peaking at "
+            f"{event.peak:+.1f} m/s on {_day_label(event.centre.date())}{sustained}")
+
+
+def _wind_now(winds: Winds) -> str:
+    """What is under way, or else the latest event, or that there is none; and
+    the runs still building."""
+    above = f"above {THRESHOLD:+g} m/s"
+    if winds.under_way:
+        each = [_under_way_words(event) for event in winds.under_way]
+        words = (" A westerly wind event is under way in " if len(each) == 1
+                 else " Westerly wind events are under way in ") + "; and in ".join(each) + "."
+        if any(event.sustained for event in winds.under_way):
+            words += (f" Harrison and Vecchi&rsquo;s {HV97_EVENTS} events of 1986&ndash;1995 "
+                      f"lasted {HV97_LONGEST:g} days at most: a run longer is a sustained "
+                      "westerly anomaly more than a burst.")
+    elif winds.events:
+        latest = max(winds.events, key=lambda event: event.last)
+        words = (f" No event is under way. The latest, in {_region_words(latest.region)}, ran "
+                 f"{_days_words(latest.days)} from {_day_label(latest.first.date())} to "
+                 f"{_day_label(latest.last.date())}, peaking at {latest.peak:+.1f} m/s.")
+    else:
+        words = f" No westerly wind event in these {len(winds.daily)} days."
+    if winds.building:
+        words += " Building, not yet three days: " + "; ".join(
+            f"{_region_words(run.region)}, {_days_words(run.days)} {above}, "
+            f"latest {run.latest:+.1f} m/s" for run in winds.building) + "."
+    return words
+
+
+def _lon_words(lon: float) -> str:
+    if lon == 180.0:
+        return "180"
+    return f"{lon:.1f}E" if lon < 180.0 else f"{360.0 - lon:.1f}W"
+
+
+def counts_as(event: Event) -> str:
+    """What an event counts as, for a table: "itself", or "itself (overlaps
+    W)"; or the stronger it overlaps, "C", or "C (also overlaps N)"."""
+    others = ", ".join(key for key in event.overlaps if key != event.counted_as)
+    if event.counted_as == event.region:
+        return f"itself (overlaps {others})" if others else "itself"
+    return event.counted_as + (f" (also overlaps {others})" if others else "")
+
+
+def _wind_rows(winds: Winds) -> list[list[str]]:
+    """The events, the latest to end first: each one's type, region and run,
+    its centre, peak and point peak, its wind measure, what it counts as, and
+    whether it is under way or began before the window."""
+    rows = []
+    for event in winds.latest_first:
+        region = REGIONS_BY_KEY[event.region]
+        lat, lon = event.point
+        note = "; ".join(words for words in (
+            "under way" if event.ongoing else "",
+            f"began before {_day_label(winds.first)}" if event.from_start else "") if words)
+        rows.append([
+            # A table's cells are escaped: the dash itself, not its entity.
+            event.region, f"{region.name}, {region.span.replace('-', '–')}",
+            f"{event.first:%Y-%m-%d %HZ}", f"{event.last:%Y-%m-%d %HZ}", f"{event.days:g}",
+            f"{event.centre:%Y-%m-%d %HZ}", f"{event.peak:+.1f}", f"{event.point_peak:+.1f}",
+            f"{abs(lat):.1f}{'N' if lat >= 0 else 'S'} {_lon_words(lon)}",
+            f"{event.measure / 1e6:.2f}", counts_as(event), note or "—",
+        ])
+    return rows
+
+
+def wind_card(winds: Winds | None) -> str:
+    """Westerly wind events day by day, as Harrison and Vecchi (1997) defined
+    them, from CCMP's near-real-time winds: the 5S-5N anomaly's Hovmoller with
+    each equatorial event outlined, the equatorial regions' smoothed
+    anomalies with each of their events shaded, and every event of the
+    window in all eight regions.
+
+    The coupling card's 850 hPa trades are CPC's monthly indices, and the
+    report's westerly forcing counts months of them; these are the bursts
+    themselves, days long, a day or two behind.
+    """
+    if winds is None or len(winds.daily) < 2:
+        return ""
+    names = {line.key: line.name for line in WINDS.lines}
+    outlines, bands, notes = [], [], {}
+    for event in winds.events:
+        if event.region not in EQUATORIAL:
+            continue
+        region = REGIONS_BY_KEY[event.region]
+        first, last = event.first.date(), event.last.date()
+        outlines.append((region.west, region.east, (first - winds.first).days,
+                         (last - winds.first).days, event.region))
+        bands.append((first, last, event.region))
+        for offset in range((last - first).days + 1):
+            notes.setdefault(first + timedelta(days=offset), []).append(
+                f"{names[event.region]} event")
+    panel = hovmoller(
+        winds.hovmoller, "Equatorial 10 m zonal wind anomaly, time by longitude",
+        "Hovmoller diagram of the 10 m zonal wind anomaly from 5S to 5N, a row a day, time "
+        "running downward and longitude across, westerly warm, with each equatorial westerly "
+        "wind event outlined over its region and its days.",
+        fmt="{:+.1f}", units="m/s", ramp_caption="zonal wind anomaly",
+        outlines=tuple(outlines), months=EVERY_MONTH,
+        extra=('<p class="subcaption">CCMP v2.1 near real time, 5S&ndash;5N cosine-weighted, '
+               'each row the mean of the day&rsquo;s analyses; outlined and lettered, the '
+               'west, central and east regions&rsquo; events.</p>'))
+    values = {day: {key: value for key, value in day_values.items() if key in EQUATORIAL}
+              for day, day_values in winds.daily.items()}
+    plot = _plot(values, WINDS, notes=notes, bands=tuple(bands))
+    described = ("The smoothed 10 m zonal wind anomaly of the west, central and east regions "
+                 "each day, with each region's westerly wind events as bars in its colour along "
+                 "the top.")
+    product = (
+        "Remote Sensing Systems&rsquo; Cross-Calibrated Multi-Platform (CCMP) 10 m winds, "
+        "version 2.1 near real time, from NOAA PIFSC&rsquo;s OceanWatch: an analysis of "
+        "satellite radiometer and scatterometer winds over NCEP&rsquo;s GFS, here twice a day "
+        f"on cells 2.25 degrees apart, {winds.first} to {winds.last}.")
+    definition = (
+        " An event, as Harrison and Vecchi (1997) define one, is three days or more in which "
+        "the 10 m zonal wind anomaly over one of their eight regions, cosine-weighted and "
+        "smoothed by a three-point triangle filter on analyses 12 hours apart (half power at "
+        f"2.75 days), stays above {THRESHOLD:+g} m/s; an analysis is smoothed when the next "
+        "one comes. Its centre is its largest smoothed value, its peak that value, its point "
+        "peak the strongest cell in the region then, and its wind measure the time integral "
+        "of its smoothed anomaly. Events in bordering regions centred within three days "
+        "overlap, and count as the stronger. Against a monthly climatology an El Nino&rsquo;s "
+        "own westerly anomaly counts as well, so in a strong event the central and eastern "
+        "regions&rsquo; runs can last weeks, the bursts within them showing in the chart and "
+        "the Hovmoller.")
+    # Measured on 15 October 2026: the near-real-time product against version
+    # 2.0 at 72 analysis times both carry, and against TAO's daily winds, TAO
+    # lifted from 4 m to 10 m by a neutral log profile (z0 2e-5 to 2e-4 m).
+    base = (
+        " The anomalies are against CCMP version 2.0&rsquo;s monthly means for "
+        f"{windclim.BASE.replace('-', '&ndash;')} on the same cells, interpolated between "
+        "the months&rsquo; middles. At 72 analysis times in 2016&ndash;2019 that both "
+        "versions carry, the near-real-time product&rsquo;s regional means differ from "
+        "version 2.0&rsquo;s by 0.20 m/s at most on average (in the north-west; 0.12 m/s at "
+        "most in the equatorial regions), and by 0.19&ndash;0.51 m/s rms analysis by "
+        "analysis. Against TAO&rsquo;s daily winds at its seven reporting equatorial "
+        "moorings, 165E to 95W, June to September 2026, its daily zonal wind correlates at "
+        "0.88&ndash;0.95 mooring by mooring. At 165E and 170W, where the wind was westerly "
+        "on average, it ran 0.7 m/s less westerly than TAO&rsquo;s; from 155W to 95W, "
+        "0.2 m/s more easterly. TAO measures at 4 m and CCMP is for 10 m, where a neutral "
+        "log profile has the wind about 8% stronger: that leaves the eastern difference "
+        "within 0.15 m/s and widens the western one to 0.9 m/s, so events&rsquo; peaks "
+        "there may run low.")
+    months = (
+        " The coupling card&rsquo;s 850 hPa trades are CPC&rsquo;s monthly indices, and the "
+        "report&rsquo;s westerly forcing counts months of the western one strongly westerly; "
+        "these are the surface bursts themselves, days long, that force the downwelling "
+        "Kelvin waves the Hovmoller card follows east.")
+    rows = _wind_rows(winds)
+    events = table(
+        f"westerly wind events in these {len(winds.daily)} days, latest first",
+        ["Type", "Region", "First", "Last", "Days", "Centre", "Peak (smoothed), m/s",
+         "Point peak, m/s", "Where", "Wind measure, 10⁶ m", "Counts as", "Note"],
+        rows) if rows else ""
+    keys = [(line.name, line.colour) for line in WINDS.lines]
+    return f"""<section class="card" id="wind-events">
+  <h2>Westerly wind events day by day</h2>
+  <p class="caption">{product}{_behind(winds.last.isoformat())}{_wind_now(winds)}</p>
+  <p class="caption">{definition.lstrip()}{base}{months}</p>
+  <div class="hovsolo">{panel}</div>
+  {_legend(keys)}
+  {plot.svg('Daily equatorial zonal wind anomalies', described)}
+  {events}
+  {field_table(winds.hovmoller, "equatorial 10 m zonal wind anomaly, m/s", fmt="{:+.1f}",
+               max_rows=18, max_cols=12)}
 </section>"""

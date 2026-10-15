@@ -33,6 +33,10 @@ import io
 import math
 from dataclasses import dataclass, field as dc_field, replace
 from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # winds reads its feed with this module's reader
+    from .winds import Winds
 
 # The TAO/TRITON Pacific moorings, west to east. RAMA (Indian) and PIRATA
 # (Atlantic) share the same feed and are filtered out by longitude.
@@ -938,6 +942,8 @@ class SpatialState:
     # with its DMI; and what the final changed in each and in the DMI.
     iod_daily: tuple[BoxDay, ...] = ()
     iod_revision: dict[str, Revision] = dc_field(default_factory=dict)
+    # Westerly wind events day by day, from CCMP's near-real-time winds.
+    winds: Winds | None = None
     warm_pool: float | None = None
     stale: dict[str, int] = dc_field(default_factory=dict)
     notes: list[str] = dc_field(default_factory=list)

@@ -21,7 +21,7 @@ A diagnostic, forecast and impact system for the current El Niño, built on live
 NOAA observations and LongPaddock's daily SOI, on the Bureau of Meteorology's
 definition.
 
-Every run checks 49 feeds live, diagnoses the ocean and the atmosphere separately,
+Every run checks 50 feeds live, diagnoses the ocean and the atmosphere separately,
 maps where the event physically sits in the basin and at depth, tracks every
 tropical cyclone NHC, CPHC or JTWC is warning on, worldwide, projects the event
 forward with three methods whose weights come from its own cross-validated
@@ -191,8 +191,9 @@ indicators that agree with it** and with each dissenter named. A composite of
 +1.5σ built on 55% agreement is a different animal from the same number on 90%
 agreement, and the dashboard says which one you are looking at.
 
-Also tracked: **westerly wind bursts** (sustained western-Pacific westerly
-anomalies, the trigger for downwelling Kelvin waves), the **MJO** from the CPC
+Also tracked: **westerly wind bursts** month by month (sustained western-Pacific
+westerly anomalies at 850 hPa, the trigger for downwelling Kelvin waves; the
+bursts themselves, days long, are below), the **MJO** from the CPC
 200 hPa velocity potential projections, the **QBO**, and the **tropical Atlantic**
 — a warm Atlantic opposes the Pacific Walker response and is one reason ONI and
 RONI diverge.
@@ -215,6 +216,74 @@ its own sign there, El Niño negative, and its own scale, ten times the
 standardised Tahiti less Darwin pressure difference against 1933–1992, so CPC's
 monthly SOI, a standard score, runs at about a tenth of the 30-day SOI. It does
 not enter the composite, which has CPC's monthly SOI already.
+
+**Westerly wind events day by day.** CPC's 850 hPa trades are monthly, and a
+westerly wind burst lasts days. The bursts themselves are found as Harrison and
+Vecchi (1997) defined them, in Remote Sensing Systems' CCMP version 2.1
+near-real-time 10 m winds from NOAA PIFSC's OceanWatch: the last 180 days, an
+analysis every 12 hours, on every ninth of CCMP's quarter-degree cells, 15S to
+15N and 120E to 80W. A region's anomaly is the cosine-weighted mean of its
+cells' (none when fewer than three quarters have a value), smoothed by a
+three-point 1/4, 1/2, 1/4 filter over analyses 12 hours apart, half power at
+2.75 days; an event is a run of at least six smoothed analyses, three days,
+every one strictly above +2 m/s, and a gap breaks a run, never bridging one.
+The regions are Harrison and Vecchi's eight as McGregor et al. (2016) list them:
+NW, N and NE at 5–15N over 120–150E, 150E–180 and 180–150W; W, C and E at
+5S–5N over 130–155E, 155E–180 and 180–150W; S and SE at 15–5S over 150E–180 and
+180–150W. Each event has a centre, its largest smoothed value (the first of
+equals); a peak, that value; a point peak, the strongest cell anomaly in the
+region at the centre; and a wind measure, its smoothed anomaly integrated over
+its 12-hour steps, in metres (the memo's composites run 1.1–1.6 × 10⁶ m).
+Events in bordering regions centred within three days overlap, and each counts
+as the region of the largest peak among them, never a weaker one. The latest
+analysis is smoothed only when the next comes, so a run reaching a region's
+latest smoothed analysis is **under way**, and one under way short of three
+days is **building**: named, never counted. A run from the window's first
+analysis began before it and says so, its days a floor; one of those short of
+three days is dropped.
+
+Its card, after the SOI's, draws the 5S–5N anomaly as a Hovmöller, a row a day
+from the mean of the day's analyses, with each equatorial event outlined
+over its region and days and lettered; the west, central and east regions'
+smoothed anomalies day by day against the +2 m/s line, each region's events a
+bar in its colour along the top; and every event of the window, in all eight
+regions, the latest to end first, so those under way head it. Its caption says
+what is under way, or else the latest event, what is building and, past four
+days, how far behind the analysis is.
+
+The anomalies are against CCMP version 2.0's monthly means for 1991–2018, over
+ERA-Interim, its 28 whole years inside the WMO's 1991–2020 normal, on the same
+cells: vendored once by `tools/vendor_winds.py` into `elnino/windclim.py` and
+interpolated linearly between the months' middles. The near-real-time product
+runs from 2015 only, too short to be its own normal. At 72 analysis times in
+2016–2019 that both versions carry, the near-real-time product's regional means
+differ from version 2.0's by 0.20 m/s at most on average (in the north-west;
+0.12 m/s at most in the equatorial regions) and by 0.19–0.51 m/s rms analysis
+by analysis, the west region's the most, up to 1.7 m/s. Against TAO's daily
+winds at its seven reporting equatorial moorings, 165E to 95W, June to
+September 2026, its daily zonal wind correlates at 0.88–0.95 mooring by
+mooring. At 165E and 170W, where the wind was westerly on average, it ran
+0.7 m/s less westerly than TAO's; from 155W to 95W, 0.2 m/s more easterly.
+TAO's anemometers are 4 m above the sea and CCMP's winds are for 10 m, where a
+neutral log profile has the wind about 8% stronger: that leaves the eastern
+difference within 0.15 m/s and widens the western one to 0.9 m/s, so events'
+peaks there may run low. Pooled over all seven the correlation is 0.97, mostly
+from the moorings' different means.
+
+Against a monthly climatology an El Niño's own westerly anomaly counts too, so
+in a strong event the runs last weeks, the bursts inside them showing in the
+chart and the Hovmöller rather than as rows of their own. Harrison and Vecchi's
+351 events of 1986–1995 (the memo's Table 1) lasted 5 days at the median and
+32.5 at the longest, so the caption, the report and the alert call a run longer
+than any of theirs a sustained westerly anomaly more than a burst. On 13
+October 2026 the window held 50 events, and three were under way: the central
+region's for 66.5 days, peaking at +9.2 m/s; the north region's for 37 days,
+peaking at +7.1 m/s, both longer than any of Harrison and Vecchi's; and the
+east region's for 12.5 days, peaking at +10.1 m/s. `latest.json` carries
+every event and each region's days (`spatial.wind_events`); the report lists
+what is under way, what is building and the latest events after its monthly
+westerly forcing; and each equatorial event under way raises an INFO alert,
+`wwe_w`, `wwe_c` or `wwe_e`, on every run until it ends.
 
 ## 4. Subsurface — the recharge oscillator
 
@@ -1892,13 +1961,14 @@ Extreme ≥85.
 
 ## Data sources
 
-All 49 feeds are checked live on every run, in parallel. Each is downloaded
+All 50 feeds are checked live on every run, in parallel. Each is downloaded
 but a gridded feed whose dataset has no new day (below), and each download is
 archived under `data/raw/archive/` with a daily snapshot, so past readings stay
 auditable; not the five rolling windows of OISST days, each day's download of
 which repeats all but a day of the day before's, of products NOAA keeps every
 day of itself, nor LongPaddock's daily SOI, the whole record again each day, which
-the Queensland Government keeps. The
+the Queensland Government keeps, nor CCMP's last 180 days of winds, which PIFSC
+keeps. The
 cyclone decks and products are a second wave on top of that — three ATCF decks and
 up to five NHC products for each NHC or CPHC storm, one warning for each JTWC
 storm — and which storms exist is not known until the first wave lands.
@@ -1989,15 +2059,15 @@ downloads none of them, and both pages still draw without them (sections 12 and
 | [NASA POWER](https://power.larc.nasa.gov/) monthly and daily point APIs | the street card's record and the replay's days: rain and temperature since 1981 | keyless; credited as NASA asks; only on a drop or when asked, the replay's days only when it opens and for the cell's grid point |
 | [Open-Meteo](https://open-meteo.com/) forecast and seasonal APIs | the street card's weather now and ECMWF's next six months | keyless, non-commercial; "Weather data by Open-Meteo.com"; only on a drop or when asked |
 
-### Gridded and mooring feeds (13)
+### Gridded and mooring feeds (14)
 
 These are ERDDAP queries rather than static files: the subset — variable, time
 slice, latitude band, longitude range and stride — is encoded in the URL, so the
 server does the decimation and a map arrives as CSV instead of a NetCDF archive:
 2.5 MB for the Pacific map, 41 MB for the global field, 5.7 MB for sixteen
 months of the sea-level strip's whole circles, 29 MB for ninety days of
-the Niño boxes' cells, 19 MB for ninety days of the dipole's. Every one of them
-is optional.
+the Niño boxes' cells, 19 MB for ninety days of the dipole's, 17 MB for 180 days
+of CCMP's winds. Every one of them is optional.
 
 | Feed | What it is for |
 |---|---|
@@ -2014,6 +2084,7 @@ is optional.
 | [`pmelTaoDyIso`](https://www.pmel.noaa.gov/erddap/tabledap/pmelTaoDyIso.html) | the off-equatorial rows, for the 3-D thermocline surface |
 | [`noaacwBLENDEDsshDaily`](https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.html) — map, in whole circles of latitude | sea-level anomaly; heat content from orbit, a day or two behind, with the same subset of the West Coast node's [`nesdisSSH1day`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day.html) behind it |
 | [`noaacwBLENDEDsshDaily`](https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.html) — equator, in whole circles | Kelvin and Rossby waves, independent of the moorings: a row every seventh of the dataset's days back from the latest for sixteen months, `nesdisSSH1day` behind it |
+| [`ccmp-daily-v2-1-NRT`](https://oceanwatch.pifsc.noaa.gov/erddap/griddap/ccmp-daily-v2-1-NRT.html) — the tropical Pacific, its last 180 days | westerly wind events: CCMP version 2.1's near-real-time 10 m zonal wind every 12 hours on every ninth quarter-degree cell, 15S–15N and 120E–80W, a day or two behind |
 
 Two traps in this group. Its feeds run on different clocks, OISST and the
 altimetry a day or two behind and the moorings' monthly means weeks, and the
@@ -2109,6 +2180,19 @@ sea-level map and strip say which of the two products they are, and their
 chips, past four days, how far behind the field is: a copy serving through an
 outage is as far behind as it is, whatever its product usually is.
 
+**Winds from PIFSC's OceanWatch.** The westerly wind events' feed is NOAA
+PIFSC's copy of CCMP version 2.1 near real time
+([`ccmp-daily-v2-1-NRT`](https://oceanwatch.pifsc.noaa.gov/erddap/griddap/ccmp-daily-v2-1-NRT.html)),
+an analysis every six hours, of which it asks every other one of the last 719:
+360, 12 hours apart, on Harrison and Vecchi's beat. It has no second server.
+CoastWatch's West Coast node sends its `pifscCcmpDailyV21NRT` back to PIFSC,
+and the node's ±180 copy of it ended on 2 June 2026; the near-real-time blended
+winds on CoastWatch's central ERDDAP stopped in March 2023, and the West Coast
+node's ASCAT winds at the end of 2022. A run PIFSC fails serves the copy, and
+the card's chip says how far behind it is. An answer with no smoothed value in
+any region is refused and noted, never read as no event, and an analysis
+listed before its values are in is left out.
+
 **A gridded feed is downloaded again only when it has a new day.** Before a
 griddap request the tracker asks the dataset for its last time (`time[last]`,
 a few hundred bytes); when that is the time its cached copy was downloaded at,
@@ -2135,7 +2219,8 @@ updating in early 2021 and is a trap. This tracker uses `wksst9120.for`, on the
 current 1991-2020 base period.
 
 **Update rhythm.** OISST's preliminary analysis lands daily, a day or two
-behind, and the final about two weeks behind; the weekly SST file refreshes
+behind, and the final about two weeks behind; CCMP's near-real-time winds every
+six hours, a day or two behind; the weekly SST file refreshes
 Monday; ONI, RONI and the monthly indices update early each month; WWV updates monthly; the MJO index is
 daily; the Diagnostic Discussion is issued on the second Thursday. For the ENSO
 state alone, running more often than daily gains nothing. The tropical cyclone
@@ -2179,11 +2264,13 @@ track.py                 CLI entry point, exit codes, watch loop, storm desk ser
 publish.py               puts output/ up as the site on GitHub Pages, under the site's name
 publish.sh               runs the tracker, then publishes the run: what the hourly run calls
 .github/workflows/       live.yml, the hourly run that keeps the site live; tests.yml
-elnino/sources.py        49-feed registry, parallel fetch, retry, cache + archive
+elnino/sources.py        50-feed registry, parallel fetch, retry, cache + archive
 elnino/parsers.py        one parser per NOAA format, each with its quirks documented
 elnino/classify.py       episodes, ranking, scale, flavour, analogs, power index
 elnino/subsurface.py     WWV ranking, tendency, measured lead, phase-space position
 elnino/atmosphere.py     10 indicators, Walker composite, bursts, MJO, coupling
+elnino/winds.py          westerly wind events: regions, filter, runs, overlaps, Hovmöller
+elnino/windclim.py       the vendored CCMP v2.0 monthly base of the 10 m zonal wind
 elnino/forecast.py       analog ensemble, nonlinear recharge oscillator, persistence
 elnino/verification.py   cross-validated hindcast of all three methods, barrier, weights
 elnino/impacts.py        28 teleconnections, gated on intensity and flavour
@@ -2204,8 +2291,8 @@ elnino/report.py         78-column ASCII terminal report, section-addressable
 elnino/svg.py            validated palette and plotting primitives
 elnino/panels.py         the advanced chart panels
 elnino/fields.py         maps, Hovmöller diagrams and depth sections
-elnino/daily.py          series day by day: the Niño boxes, the dipole and the SOI, and
-                         the plot that draws them
+elnino/daily.py          series day by day: the Niño boxes, the dipole, the SOI and the
+                         westerly wind events, and the plot that draws them
 elnino/space3d.py        orthographic 3-D: thermocline surface and phase spiral
 elnino/globe.py          the interactive globe, the storm overlay, the dossier
 elnino/atlas.py          the point dossier: cell, statistic, footprints, neighbours
@@ -2213,7 +2300,8 @@ elnino/atlasdata.py      Natural Earth borders, rivers, lakes, 7,342-place gazet
 elnino/atlasview.py      the atlas page: pan, zoom, click, and the dashboard card
 elnino/composite.py      the vendored El Nino minus neutral grids, diff / t / base
 elnino/relief.py         vendored ETOPO1: land height and sea-floor depth, 0.25 deg
-tools/                   one-off vendoring: composites, coastline, gazetteer, relief
+tools/                   one-off vendoring: composites, coastline, gazetteer, relief,
+                         the winds' base
 elnino/stormfury.py      the STORMFURY recreation: criteria, momentum, confound
 elnino/storms.py         the three cyclone cards: tracks, season verdict, STORMFURY
 elnino/dashboard.py      self-contained HTML + inline SVG, and the JSON payload
@@ -2234,14 +2322,14 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1772 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1859 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
                          storms.json, run.json, sw.js, and assets/ beside them
 ```
 
-`output/latest.json` (schema 11) is the machine-readable snapshot: classification,
+`output/latest.json` (schema 12) is the machine-readable snapshot: classification,
 every diagnostic behind it, the spatial block (each field's stamp, age and
 coverage; the map-derived box means; the warm-pool edge; the isotherm profile),
 the forecast with its verified error bars, open alerts, active impacts, and the
@@ -2297,6 +2385,17 @@ and `dmi`, the west less the east); `spatial.iod_revision`, what the final
 changed in each, as `nino_revision` says it for the boxes; and
 `atmosphere.soi_daily`, the days the SOI card draws (`day`, `tahiti`, `darwin`,
 `soi`, and `soi30` and `soi90`, null where a window lacks too many days).
+Schema 12 adds the westerly wind events, `spatial.wind_events`, null without
+the feed: the `method`, `product`, `base` and `threshold_m_s`; the window,
+`first_day`, `last_day` and `latest_analysis_utc`; the eight `regions` (`key`,
+`name`, `lat` and `lon_east`, degrees east from 0 to 360, since the regions
+straddle the date line); `daily`, each day's smoothed anomaly of each region
+(`anomaly_m_s`, null on a day a region has none); `events`, in the order they
+began, each with its `region`, `first_utc`, `last_utc`, `days`, `centre_utc`,
+`peak_m_s`, `point_peak_m_s`, `point` (`lat`, `lon_east`), `wind_measure_m`,
+`under_way`, `began_before_window`, the regions it `overlaps` and the one it is
+`counted_as`; and `building`, the runs under way not yet three days long
+(`region`, `since_utc`, `days`, `latest_m_s`).
 `output/run.json`, written after every other file of a run, names that run and
 nothing else: an open page asks for it to learn whether the site has a newer one
 (*The live site*).
@@ -2494,7 +2593,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1772 tests, no network required. They cover:
+1859 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2566,7 +2665,7 @@ python -m unittest discover -s tests -v
   the end labels apart; CPC's weeks named by the Wednesday they are centred on;
   a web page for a feed's file no answer, past white space or a byte order mark,
   but for the feeds that are pages, RSS or KML, and each feed's own sample
-  markup only if it is one of those; schema 11, each feed's warnings beside it,
+  markup only if it is one of those; schema 12, each feed's warnings beside it,
   and the provenance's *unchanged since*;
 - **the dipole and the SOI day by day**: the poles asked on the Niño boxes'
   half-degree cells, each pole its cells' cosine-weighted mean, the DMI the west
@@ -2583,6 +2682,26 @@ python -m unittest discover -s tests -v
   chart; whose SOI it is, CPC's monthly SOI set beside the 30-day, the DMI's
   base and the season IOD events form in; schema 11's days in the JSON, and
   the report's;
+- **westerly wind events**: the vendored base on the feed's very cells, land
+  and sea valued; the regions and their neighbours from their geometry; the
+  base interpolated between the months' middles and across the year's end;
+  region means cosine-weighted and refused short of three quarters; the
+  filter's weights and its half power at 2.75 days; a run of six counting and
+  one of five not, strictly above 2 m/s, a gap breaking a run, the centre,
+  peaks, point and wind measure, under way, from the window's start and
+  building; overlaps within three days counting as the stronger, each region
+  named once, and no cell in two regions; the Hovmöller's rows from the
+  analyses each day has, one at either end of a window ending at 00Z or 06Z; a
+  feed with no smoothed value in any region refused and an analysis without
+  values left out; the feed's query, tier and archive flag, a broken answer
+  costing only itself; the card's lines, mark, bars, outlines, hovers, caption,
+  table, building runs, behind chip and emptiness, after the SOI's, those under
+  way first and at least their days when they began before the window, and a
+  run longer than any of Harrison and Vecchi's called sustained; schema 12's
+  block, null without the feed;
+  the report's lines after the monthly westerly forcing; and the INFO alert for
+  an equatorial event under way, none for one off the equator, one over or a
+  run building;
 - **the renderers**: run-length encoding really collapses a 1,200-cell field to
   20 rectangles and breaks a run on both a colour change and a gap, cells are
   clipped to the frame, two plots on one page get two clip ids, a diverging ramp

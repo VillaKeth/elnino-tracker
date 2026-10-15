@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
 from .classify import displayed, find_episodes
+from .winds import EQUATORIAL, HV97_EVENTS, HV97_LONGEST, REGIONS_BY_KEY, THRESHOLD
 
 INFO = "info"
 WATCH = "watch"
@@ -114,9 +115,11 @@ def evaluate(
     previous=None,
     storms=None,
     now: str | None = None,
+    winds=None,
 ) -> list[Alert]:
     """Run every rule against the current state, as of ``now`` (the run's
-    time, ISO 8601). Ordering happens later."""
+    time, ISO 8601), with the westerly wind events, ``winds``, when their feed
+    came. Ordering happens later."""
     out: list[Alert] = []
     latest = assessment.index_latest
     name_of_index = assessment.index_name
@@ -357,6 +360,10 @@ def evaluate(
                 value=float(atmosphere_state.burst_count_12mo),
             )
 
+    # -- westerly wind events, day by day ------------------------------------
+    if winds is not None:
+        out.extend(wind_rules(winds))
+
     # -- forecast ------------------------------------------------------------
     if forecast_result is not None and forecast_result.peak is not None:
         peak = forecast_result.peak
@@ -492,6 +499,40 @@ def evaluate(
         out.extend(cyclone_rules(storms))
         out.extend(product_rules(storms, now))
 
+    return out
+
+
+def wind_rules(winds) -> list[Alert]:
+    """An INFO alert for each equatorial region's westerly wind event under
+    way, as Harrison and Vecchi (1997) define one, from CCMP's near-real-time
+    winds, raised on every run until the event ends. Events off the equator,
+    finished ones and runs still building raise nothing."""
+    out: list[Alert] = []
+    for event in winds.under_way:
+        if event.region not in EQUATORIAL:
+            continue
+        region = REGIONS_BY_KEY[event.region]
+        before = event.from_start
+        sustained = (f"; longer than any of the {HV97_EVENTS} events in Harrison and Vecchi's "
+                     f"1986-1995 list (at most {HV97_LONGEST:g} days): a sustained westerly "
+                     "anomaly more than a burst") if event.sustained else ""
+        counts = ("" if event.counted_as == event.region
+                  else f"; it counts as the stronger {event.counted_as} event it overlaps")
+        _add(
+            out,
+            code=f"wwe_{event.region.lower()}",
+            level=INFO,
+            title=f"Westerly wind event under way: {region.name} region, {region.span}",
+            detail=(
+                f"{'at least ' if before else ''}{event.days:g} days above "
+                f"{THRESHOLD:+g} m/s since {'before ' if before else ''}"
+                f"{event.first:%Y-%m-%d %HZ} in CCMP's near-real-time winds to "
+                f"{winds.last}, peaking at {event.peak:+.1f} m/s on "
+                f"{event.centre:%Y-%m-%d}{sustained}{counts}. Equatorial westerly anomalies "
+                "force downwelling Kelvin waves east."
+            ),
+            value=round(event.peak, 2),
+        )
     return out
 
 
