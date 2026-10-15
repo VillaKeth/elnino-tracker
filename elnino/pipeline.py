@@ -176,6 +176,13 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
             return grid
         return replace(grid, preliminary=grid.as_of)
 
+    def altimetry(key: str, grid):
+        """The sea-level field with the words for the product that served it,
+        or none for a copy of a dataset no longer asked."""
+        if grid is None:
+            return grid
+        return replace(grid, note=sources.SSH_PRODUCTS.get(fetched[key].url.partition("?")[0], ""))
+
     if "sst_pacific" in text:
         state.sst_map = preliminary("sst_pacific", attempt(
             "Pacific SST anomaly", grids.grid_map, text["sst_pacific"], "anom",
@@ -219,15 +226,16 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
     state.nino_daily = tuple(grids.splice_days(record or [], recent or []))
     state.nino_revision = grids.revisions(record or [], recent or [])
     if "ssh_pacific" in text:
-        state.ssh_map = attempt(
+        state.ssh_map = altimetry("ssh_pacific", attempt(
             "sea surface height", grids.grid_map, text["ssh_pacific"], "sla",
-            "Sea surface height anomaly", "m",
-        )
+            "Sea surface height anomaly", "m", within=sources.SSH_MAP_LONS,
+        ))
     if "ssh_hovmoller" in text:
-        state.ssh_hov = attempt(
+        state.ssh_hov = altimetry("ssh_hovmoller", attempt(
             "sea surface height Hovmoller", grids.grid_hovmoller,
             text["ssh_hovmoller"], "sla", "Equatorial sea surface height anomaly", "m",
-        )
+            within=sources.SSH_STRIP_LONS,
+        ))
     if "tao_temperature" in text:
         state.section = attempt("depth section", grids.section, text["tao_temperature"])
         state.section_anomaly = attempt(
@@ -251,9 +259,10 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
             text.get("tao_isotherm"),
         )
 
-    # Age each field against its own stamp. An experimental altimetry product
-    # that is three months behind is still worth showing, but only if the
-    # panel says so rather than implying it is current.
+    # Age each field against its own stamp. A field weeks behind, as the
+    # moorings' monthly section is, or the altimetry when only the West Coast
+    # node's experimental product answers, is still worth showing, but only if
+    # the panel says so rather than implying it is current.
     for name in ("sst_map", "sst_global", "sst_hov", "ssh_map", "ssh_hov",
                  "section", "section_anomaly", "iso_hov", "iso_hov_anomaly",
                  "mesh"):

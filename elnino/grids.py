@@ -238,13 +238,16 @@ def tilt(depths, ends: int = 2):
 
 # --- griddap: OISST and altimetry -------------------------------------------
 def grid_map(
-    text: str, value_key: str, label: str, units: str, note: str = ""
+    text: str, value_key: str, label: str, units: str, note: str = "",
+    within: tuple[float, float] | None = None,
 ) -> Field:
     """A single-time lat/lon field from a griddap CSV response.
 
     ERDDAP returns one row per cell in row-major order, but the response is not
     guaranteed to be sorted and land cells come back as NaN, so the lattice is
-    rebuilt from the distinct axis values rather than assumed.
+    rebuilt from the distinct axis values rather than assumed. ``within``, the
+    first and last longitudes east of Greenwich to keep, crops whole circles
+    of latitude to an ocean that crosses the date line (see ``_within``).
     """
     names, rows = read_csv(text)
     if not rows:
@@ -253,6 +256,8 @@ def grid_map(
     lon_i = column(names, "longitude")
     val_i = column(names, value_key)
     time_i = names.index("time") if "time" in names else None
+    if within:
+        rows = _within(rows, lon_i, within, label)
 
     lats = sorted({r[lat_i] for r in rows if r[lat_i] is not None})
     lons = sorted({r[lon_i] for r in rows if r[lon_i] is not None})
@@ -276,13 +281,15 @@ def grid_map(
 
 
 def grid_hovmoller(
-    text: str, value_key: str, label: str, units: str, note: str = ""
+    text: str, value_key: str, label: str, units: str, note: str = "",
+    within: tuple[float, float] | None = None,
 ) -> Field:
     """Time by longitude, averaged across the latitudes in the request.
 
     The equatorial strip is requested a few rows wide and meaned here rather
     than sampled on a single row, because a one-row sample of a 0.25 degree
     product is noisy enough to invent structure that is not there.
+    ``within`` crops whole circles of latitude as for ``grid_map``.
     """
     names, rows = read_csv(text)
     if not rows:
@@ -290,6 +297,8 @@ def grid_hovmoller(
     time_i = column(names, "time")
     lon_i = column(names, "longitude")
     val_i = column(names, value_key)
+    if within:
+        rows = _within(rows, lon_i, within, label)
 
     bucket: dict[tuple[str, float], list[float]] = {}
     for row in rows:
@@ -313,6 +322,20 @@ def grid_hovmoller(
         label=label, units=units, x_name="longitude", y_name="time",
         as_of=times[-1] if times else "", y_labels=tuple(times), note=note,
     )
+
+
+def _within(rows: list[list], lon_i: int, window: tuple[float, float], label: str) -> list[list]:
+    """The rows whose longitude, east of Greenwich, is from the first of
+    ``window`` to the last, each with that longitude as its own: an ocean that
+    crosses the date line, out of whole circles of latitude asked of a dataset
+    whose longitudes run -180 to 180. A row east of Greenwich already keeps
+    its longitude as it was."""
+    first, last = window
+    kept = [[*row[:lon_i], row[lon_i] % 360, *row[lon_i + 1:]] for row in rows
+            if row[lon_i] is not None and first <= row[lon_i] % 360 <= last]
+    if not kept:
+        raise ValueError(f"{label}: no longitude from {first} to {last} east")
+    return kept
 
 
 # The Hovmoller's beat, and how far either side of a missing day of the

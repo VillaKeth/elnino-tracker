@@ -238,7 +238,7 @@ maps are shipped alongside the indices, in nine views:
 | **Thermocline surface (3-D)** | 20 °C isotherm depth over longitude *and* latitude, rotatable | TAO/TRITON daily array |
 | **Depth section** | temperature against depth along the equator, 165E to 95W | TAO/TRITON monthly |
 | **Hovmöller** | longitude across, time downward — eastward propagation reads as a right-leaning band | OISST (the final, then the preliminary's latest weeks) and altimetry |
-| **Sea-level anomaly** | upper-ocean heat content, seen from orbit and independent of the moorings | NESDIS altimetry |
+| **Sea-level anomaly** | upper-ocean heat content, seen from orbit and independent of the moorings | NOAA CoastWatch's blended altimetry |
 | **Global map** | the same day worldwide, which is the reason relative ONI exists | OISST v2.1, preliminary |
 | **Phase spiral (3-D)** | six years of the recharge oscillator with time as the third axis, so the orbits separate | derived |
 
@@ -1954,7 +1954,8 @@ downloads none of them, and both pages still draw without them (sections 12 and
 These are ERDDAP queries rather than static files: the subset — variable, time
 slice, latitude band, longitude range and stride — is encoded in the URL, so the
 server does the decimation and a map arrives as CSV instead of a NetCDF archive:
-2.5 MB for the Pacific map, 41 MB for the global field, 29 MB for ninety days of
+2.5 MB for the Pacific map, 41 MB for the global field, 5.7 MB for sixteen
+months of the sea-level strip's whole circles, 29 MB for ninety days of
 the Niño boxes' cells. Every one of them is optional.
 
 | Feed | What it is for |
@@ -1968,13 +1969,15 @@ the Niño boxes' cells. Every one of them is optional.
 | [`pmelTaoMonT`](https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonT.html) | the equatorial depth section, full record so it can be an anomaly |
 | [`pmelTaoMonIso`](https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonIso.html) | 20 °C isotherm depth; Kelvin wave propagation |
 | [`pmelTaoDyIso`](https://www.pmel.noaa.gov/erddap/tabledap/pmelTaoDyIso.html) | the off-equatorial rows, for the 3-D thermocline surface |
-| [`nesdisSSH1day_Lon0360`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day_Lon0360.html) — map | sea-level anomaly; heat content from orbit |
-| [`nesdisSSH1day_Lon0360`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day_Lon0360.html) — equator | Kelvin and Rossby waves, independent of the moorings |
+| [`noaacwBLENDEDsshDaily`](https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.html) — map, in whole circles of latitude | sea-level anomaly; heat content from orbit, a day or two behind, with the same subset of the West Coast node's [`nesdisSSH1day`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day.html) behind it |
+| [`noaacwBLENDEDsshDaily`](https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.html) — equator, in whole circles | Kelvin and Rossby waves, independent of the moorings: a row every seventh of the dataset's days back from the latest for sixteen months, `nesdisSSH1day` behind it |
 
-Two traps in this group. The altimetry product is experimental and is routinely
-weeks to months behind the SST fields, so each spatial view carries the age of
-its own data rather than the run date, and anything over 45 days behind is
-labelled stale in both the dashboard and the report. And the mooring array has
+Two traps in this group. Its feeds run on different clocks, OISST and the
+altimetry a day or two behind and the moorings' monthly means weeks, and the
+altimetry falls back on the West Coast node's experimental product, weeks
+behind, when CoastWatch's own ERDDAP fails, so each spatial view carries the
+age of its own data rather than the run date, and anything over 45 days behind
+is labelled stale in both the dashboard and the report. And the mooring array has
 moved over its lifetime: 143E, 156E and 152W reported for years and are gone.
 Their columns are not gaps, they are longitudes that no longer exist, so a
 longitude present in under half the window is dropped rather than drawn as an
@@ -2035,9 +2038,33 @@ where CoastWatch has `zlev` and `degree_C`; the cells are the same, and so
 are the values, but that NCEI writes some to more digits (1.8499999 where
 CoastWatch writes 1.85), so a map and daily boxes from the two servers agree
 on a day's box means to about the seventh decimal place, not the last bit.
-The moorings and the altimetry have no second server:
-PMEL's ERDDAP sends a request for a TAO dataset back to CoastWatch, and no
-other server has the altimetry in this form.
+The moorings have no second server: PMEL's ERDDAP sends a request
+for a TAO dataset back to CoastWatch.
+
+**Sea level from CoastWatch's own ERDDAP.** The altimetry comes from NOAA
+CoastWatch's central ERDDAP
+([`noaacwBLENDEDsshDaily`](https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.html),
+its blend of the altimeters' near-real-time passes from RADS, a day or two
+behind), with the West Coast node's experimental product of the same
+altimetry
+([`nesdisSSH1day`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day.html),
+weeks behind) asked for the same subset when CoastWatch's own fails, as NCEI
+is for OISST. Until 14 October the tracker read the West Coast node's 0-360
+copy of that product, `nesdisSSH1day_Lon0360`, whose last day was 28
+September and which did not come back from 14 October's outage. Both
+datasets run their longitudes from -180 to 180, so the tropical Pacific,
+which crosses the date
+line, is asked for whole circles of latitude on the very points the 0-360
+requests sampled, every 2.5 degrees from 179.875W for the map and every
+degree for the equatorial strip, and the grids keep the Pacific's
+longitudes, east of Greenwich: 120E to 70W for the map, 120E to 80W for the
+strip. The strip's rows are every seventh of the dataset's days back from
+the latest, as the SST record's are, a week apart where the dataset has every
+day and a step longer across a day it lacks; they were a week apart from a
+date sixteen months back and could end six days before the latest. The
+sea-level map and strip say which of the two products they are, and their
+chips, past four days, how far behind the field is: a copy serving through an
+outage is as far behind as it is, whatever its product usually is.
 
 **A gridded feed is downloaded again only when it has a new day.** Before a
 griddap request the tracker asks the dataset for its last time (`time[last]`,
@@ -2152,7 +2179,7 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1692 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1705 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -2406,7 +2433,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1692 tests, no network required. They cover:
+1705 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2452,7 +2479,14 @@ python -m unittest discover -s tests -v
   made the copy, a copy NCEI made serving as current while CoastWatch is behind
   it but not a copy of CoastWatch's own once CoastWatch goes back, every answer
   passed over named with the day it said or as saying none, and a map NCEI
-  served marked as the analysis it is; a griddap
+  served marked as the analysis it is; sea level asked of CoastWatch's own
+  ERDDAP with its West Coast node's behind it, for whole circles of latitude on
+  the points sampled before, kept to the Pacific's longitudes east of
+  Greenwich, a copy east of Greenwich already kept as it was, the runner's
+  copies of the gone 0-360 dataset giving way to the West Coast node's same
+  day and serving while both servers fail, and the sea-level map and strip
+  saying whose altimetry they are, with only their chips saying how far
+  behind, past four days; a griddap
   feed downloaded again only when
   its dataset's last time moves at the same address, a probe that fails counting
   as the address failing and one that answers no time a full download; an answer

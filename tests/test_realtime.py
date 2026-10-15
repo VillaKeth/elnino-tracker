@@ -104,7 +104,10 @@ class TestOisstProducts(unittest.TestCase):
                 with self.subTest(key=source.key, final=url == source.final):
                     base = url.partition("?")[0]
                     if base not in ncei:
-                        self.assertEqual(fallback, ())
+                        # Only OISST has a final analysis behind a feed, so
+                        # no other feed has a second server for one.
+                        if url == source.final:
+                            self.assertEqual(fallback, ())
                         continue
                     windows = (("[0:1:last]", "[1:1:last]") if "[last-27:1:last]" in _query(url)
                                else ("[last-27:1:last]",))
@@ -128,18 +131,22 @@ class TestOisstProducts(unittest.TestCase):
                 self.assertEqual([_query(address).partition("[(0.0)]")[0] for address in fallback],
                                  ["anom[0:1:last]", "anom[1:1:last]"])
 
-    def test_only_oisst_has_a_second_server(self):
-        # TAO's moorings and the altimetry have none that serves their data:
-        # PMEL's ERDDAP sends a request for the moorings back to CoastWatch.
+    def test_oisst_and_sea_level_have_a_second_server(self):
+        # TAO's moorings have none that serves their data: PMEL's ERDDAP sends
+        # a request for the moorings back to CoastWatch.
         seconded = {s.key for s in sources.SOURCES if s.fallback or s.final_fallback}
         self.assertEqual(seconded, {"sst_pacific", "sst_global", "sst_hovmoller",
-                                    "sst_hovmoller_recent", "nino_daily", "nino_daily_recent"})
+                                    "sst_hovmoller_recent", "nino_daily", "nino_daily_recent",
+                                    "ssh_pacific", "ssh_hovmoller"})
 
     def test_a_feed_with_two_servers_names_both_above_the_address_that_served(self):
+        agency = {"sst": "NOAA NCEI, via CoastWatch's ERDDAP or its own",
+                  "nin": "NOAA NCEI, via CoastWatch's ERDDAP or its own",
+                  "ssh": "NOAA CoastWatch, at its own ERDDAP or its West Coast node's"}
         for source in sources.SOURCES:
             if source.fallback:
                 with self.subTest(key=source.key):
-                    self.assertEqual(source.agency, "NOAA NCEI, via CoastWatch's ERDDAP or its own")
+                    self.assertEqual(source.agency, agency[source.key[:3]])
 
 
 class TestProbe(unittest.TestCase):
@@ -1005,6 +1012,188 @@ def _week(stamp, nino34):
     from datetime import date
     return parsers.WeekObservation(date.fromisoformat(stamp), 24.0, 2.0, 26.0, 1.5,
                                    28.0, nino34, 29.0, 0.6)
+
+
+# --- sea level ----------------------------------------------------------------
+SLA_HEAD = "time,latitude,longitude,sla\nUTC,degrees_north,degrees_east,m\n"
+
+
+def _sla(days, lats, lons) -> str:
+    """ERDDAP's CSV of sea level, each cell's value telling its latitude and
+    longitude apart."""
+    rows = [f"{day}T00:00:00Z,{lat},{lon},{lat + lon / 1000:.6f}"
+            for day in days for lat in lats for lon in lons]
+    return SLA_HEAD + "\n".join(rows) + "\n"
+
+
+class TestSeaLevel(unittest.TestCase):
+    """Sea level from NOAA CoastWatch's own ERDDAP, a day or two behind, with
+    the West Coast node's experimental product behind it, both asked for whole
+    circles of latitude and kept to the Pacific's longitudes."""
+
+    # Both datasets' longitudes: 179.875W to 179.875E.
+    CIRCLE = tuple(-179.875 + 2.5 * k for k in range(144))
+    STRIP = tuple(-179.875 + k for k in range(360))
+
+    def test_sea_level_is_coastwatch_s_blended_altimetry_with_its_west_coast_node_behind_it(self):
+        self.assertEqual(sources.SSH,
+                         "https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.csv")
+        self.assertEqual(sources.SSH_EXPERIMENTAL,
+                         "https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day.csv")
+        for key in ("ssh_pacific", "ssh_hovmoller"):
+            with self.subTest(key=key):
+                source = sources.SOURCES_BY_KEY[key]
+                self.assertTrue(source.url.startswith(sources.SSH + "?"), source.url)
+                self.assertEqual(source.fallback,
+                                 (source.url.replace(sources.SSH, sources.SSH_EXPERIMENTAL),))
+                self.assertEqual((source.final, source.tier), ("", "spatial"))
+                self.assertNotIn("experimental", source.cadence)
+
+    def test_the_pacific_is_asked_for_whole_circles_on_the_points_it_was_sampled_on(self):
+        # The longitudes run -180 to 180 and the tropical Pacific crosses the
+        # date line: whole circles of latitude from 179.875W, every 2.5 degrees
+        # for the map and every degree for the strip, carry the very points
+        # the 0-360 requests sampled from 120.125E. The strip's rows are a
+        # week apart back from the latest day, as the SST Hovmoller's are.
+        self.assertEqual(_query(sources.SOURCES_BY_KEY["ssh_pacific"].url),
+                         "sla[last][(-24.875):10:(25.125)][(-179.875):10:(179.875)]")
+        self.assertEqual(_query(sources.SOURCES_BY_KEY["ssh_hovmoller"].url),
+                         "sla[last-483:7:last][(-1.875):4:(2.125)][(-179.875):4:(179.875)]")
+        self.assertLessEqual({120.125 + 2.5 * k for k in range(69)},
+                             {lon % 360 for lon in self.CIRCLE})
+        self.assertEqual(sources.SSH_MAP_LONS, (120.125, 290.125))
+        self.assertEqual(sources.SSH_STRIP_LONS, (120.125, 280.125))
+
+    def test_a_map_of_whole_circles_keeps_the_pacific_s_longitudes_east_of_greenwich(self):
+        text = _sla(["2026-10-13"], (-0.875, 0.125),
+                    (-179.875, -70.125, -67.375, 0.125, 119.875, 120.125, 179.875))
+        grid = grids.grid_map(text, "sla", "Sea surface height anomaly", "m",
+                              within=(120.125, 290.125))
+        self.assertEqual(grid.x, (120.125, 179.875, 180.125, 289.875))
+        self.assertEqual(grid.y, (-0.875, 0.125))
+        self.assertEqual(grid.values[1], tuple(round(0.125 + lon / 1000, 6) for lon in
+                                               (120.125, 179.875, -179.875, -70.125)))
+        self.assertEqual(grid.as_of, "2026-10-13")
+
+    def test_a_copy_east_of_greenwich_already_is_kept_as_it_was(self):
+        # A copy the 0-360 requests made, served while both servers fail.
+        text = _sla(["2026-09-28"], (0.125,), (120.125, 200.125, 290.125))
+        grid = grids.grid_map(text, "sla", "Sea surface height anomaly", "m",
+                              within=(120.125, 290.125))
+        self.assertEqual(grid, grids.grid_map(text, "sla", "Sea surface height anomaly", "m"))
+
+    def test_a_hovmoller_of_whole_circles_keeps_the_strip_s_longitudes(self):
+        text = _sla(["2026-10-06", "2026-10-13"], (-0.875, 0.125, 1.125),
+                    (-179.875, -80.125, -78.875, 119.875, 120.125))
+        grid = grids.grid_hovmoller(text, "sla", "Equatorial sea surface height anomaly", "m",
+                                    within=(120.125, 280.125))
+        self.assertEqual(grid.x, (120.125, 180.125, 279.875))
+        self.assertEqual(grid.y_labels, ("2026-10-06", "2026-10-13"))
+        self.assertAlmostEqual(grid.values[1][1], 0.125 - 0.179875, places=9)
+
+    def test_the_run_s_sea_level_is_the_pacific_s(self):
+        map_lats = tuple(-24.875 + 2.5 * k for k in range(21))
+        strip_lats = (-1.875, -0.875, 0.125, 1.125, 2.125)
+        state = pipeline.build_spatial({
+            "ssh_pacific": _fetched("ssh_pacific", _sla(["2026-10-13"], map_lats, self.CIRCLE)),
+            "ssh_hovmoller": _fetched("ssh_hovmoller",
+                                      _sla(["2026-10-06", "2026-10-13"], strip_lats, self.STRIP)),
+        })
+        self.assertEqual((len(state.ssh_map.x), state.ssh_map.x[0], state.ssh_map.x[-1]),
+                         (69, 120.125, 290.125))
+        self.assertEqual(len(state.ssh_map.y), 21)
+        self.assertEqual((len(state.ssh_hov.x), state.ssh_hov.x[0], state.ssh_hov.x[-1]),
+                         (161, 120.125, 280.125))
+        self.assertEqual(state.ssh_hov.as_of, "2026-10-13")
+        self.assertEqual(state.notes, [])
+
+    def _state(self, age, served=lambda source: source.url):
+        lats = tuple(-24.875 + 2.5 * k for k in range(21))
+        pacific, strip = sources.SOURCES_BY_KEY["ssh_pacific"], sources.SOURCES_BY_KEY["ssh_hovmoller"]
+        state = pipeline.build_spatial({
+            "ssh_pacific": _fetched("ssh_pacific", _sla(["2026-10-13"], lats, self.CIRCLE),
+                                    served(pacific)),
+            "ssh_hovmoller": _fetched("ssh_hovmoller",
+                                      _sla(["2026-10-06", "2026-10-13"], (0.125,), self.STRIP),
+                                      served(strip)),
+        })
+        state.stale.update(ssh_map=age, ssh_hov=age)
+        return state
+
+    def test_the_sea_level_card_says_whose_altimetry_it_is_and_how_far_behind_past_four_days(self):
+        card = fields.ssh_card(self._state(4))
+        self.assertIn("blend of the altimeters", card)
+        self.assertIn("near-real-time passes; the", card)
+        self.assertNotIn("experimental", card)
+        self.assertNotIn("behind", card)
+        self.assertIn("5 days behind", fields.ssh_card(self._state(5)))
+
+    def test_the_sea_level_hovmoller_says_whose_altimetry_it_is_and_how_far_behind(self):
+        card = fields.hov_card(self._state(4))
+        self.assertIn("Altimetry: NOAA CoastWatch", card)
+        self.assertIn("near-real-time passes. ", card)
+        self.assertNotIn("experimental", card)
+        self.assertNotIn("behind", card)
+        self.assertIn("5 days behind", fields.hov_card(self._state(5)))
+
+    def test_sea_level_the_west_coast_node_served_is_said_to_be_its_experimental_product(self):
+        state = self._state(17, served=lambda source: source.fallback[0])
+        for card in (fields.ssh_card(state), fields.hov_card(state)):
+            self.assertIn("experimental product of the altimeters", card)
+            self.assertIn("serving while CoastWatch", card)
+            self.assertNotIn("near-real-time", card)
+            self.assertNotIn("same altimetry", card)
+            self.assertNotIn("weeks behind", card)
+            self.assertIn("17 days behind", card)
+
+    def test_a_field_past_four_days_says_how_far_behind_in_its_chip_alone(self):
+        # CoastWatch's own copy serving through an outage of its ERDDAP: the
+        # words name the product and the chip says how far behind the field
+        # is, rather than words saying "a day or two" beside a chip saying 9.
+        state = self._state(9)
+        for card in (fields.ssh_card(state), fields.hov_card(state)):
+            self.assertIn("9 days behind", card)
+            self.assertEqual(card.count("behind"), 1)
+
+    def test_a_sea_level_copy_of_the_old_shape_is_said_to_be_altimetry_and_no_more(self):
+        old = ("https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day_Lon0360.csv"
+               "?sla%5Blast%5D")
+        state = self._state(17, served=lambda source: old)
+        self.assertIn("This is satellite altimetry;", fields.ssh_card(state))
+        self.assertIn('<p class="subcaption">Altimetry. ', fields.hov_card(state))
+
+
+class TestSeaLevelCopies(_Fetching, unittest.TestCase):
+    """The copies the runner kept of the West Coast node's 0-360 dataset, gone
+    since 14 October, against CoastWatch's own ERDDAP and the West Coast node."""
+
+    OLD = ("https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day_Lon0360.csv"
+           "?sla%5Blast%5D%5B%28-25%29:10:%2825%29%5D%5B%28120%29:10:%28290%29%5D")
+
+    def setUp(self):
+        super().setUp()
+        self.source = sources.SOURCES_BY_KEY["ssh_pacific"]
+        old = _sla(["2026-09-28"], (0.125,), (120.125, 200.125)).encode("utf-8")
+        (self.raw / "ssh_pacific.cache").write_bytes(old)
+        (self.raw / "ssh_pacific.meta.json").write_text(json.dumps({
+            "url": self.OLD, "fetched_at": "2026-10-14T16:25:29+00:00",
+            "sha256": hashlib.sha256(old).hexdigest(), "probe": "2026-09-28T00:00:00Z"}),
+            encoding="utf-8")
+
+    def test_an_old_copy_gives_way_to_the_west_coast_node_s_same_day_while_coastwatch_is_down(self):
+        west = self.source.fallback[0]
+        text = _sla(["2026-09-28"], (0.125,), (-179.875, 120.125))
+        got = self.fetch({self.probe(west): "time\nUTC\n2026-09-28T00:00:00Z\n", west: text})
+        self.assertEqual(self.asked[0], self.probe(self.source.url))
+        self.assertEqual((got.text, got.url, got.from_cache), (text, west, False))
+        self.assertIn(f"served by {west}", got.warnings[0])
+
+    def test_an_old_copy_serves_while_both_servers_are_down(self):
+        got = self.fetch({})
+        self.assertEqual((got.url, got.from_cache), (self.OLD, True))
+        state = pipeline.build_spatial({"ssh_pacific": got})
+        self.assertEqual(state.ssh_map.x, (120.125, 200.125))
+        self.assertEqual(state.ssh_map.note, "")
 
 
 class TestPreliminaryOnThePage(unittest.TestCase):

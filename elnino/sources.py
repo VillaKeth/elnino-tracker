@@ -42,9 +42,9 @@ MAX_PARALLEL = 6  # polite against CPC; the whole registry still lands in ~15s
 
 CPC = "https://www.cpc.ncep.noaa.gov/data/indices"
 
-# ERDDAP endpoints for the spatial tier. Two servers: CoastWatch carries the
-# gridded satellite products and a monthly aggregate of the mooring array, PMEL
-# carries the daily mooring data.
+# ERDDAP endpoints for the spatial tier. CoastWatch's West Coast node carries
+# OISST and a monthly aggregate of the mooring array, PMEL the daily mooring
+# data; NCEI's own ERDDAP and CoastWatch's central one come in below.
 COASTWATCH = "https://coastwatch.pfeg.noaa.gov/erddap"
 PMEL = "https://data.pmel.noaa.gov/pmel/erddap"
 
@@ -131,11 +131,36 @@ _RECENT_DAYS = "[last-27:1:last]"
 # the final replaces it, hours before NCEI's ERDDAP stops listing the day,
 # and asking for it meanwhile is an error (29 September's, on 14 October).
 _NCEI_RECENT_DAYS = ("[0:1:last]", "[1:1:last]")
-# The Hovmoller's record: a row a week back from the final's latest day for
-# sixty-nine weeks, about sixteen months. Ending on that day, it leaves the
-# preliminary only the days the final has not reached.
+# A Hovmoller's record: a row every seventh of the dataset's days back from
+# its latest for sixty-nine of them, about sixteen months, a week apart where
+# the dataset has every day and a step longer across a day it lacks. Ending on
+# the latest day, the SST record leaves the preliminary only the days the
+# final has not reached; the sea-level strip asks the same.
 _RECORD_WEEKS = "[last-483:7:last]"
 _TAO_EQ = "&latitude>=-0.6&latitude<=0.6"
+
+# Sea level, from NOAA CoastWatch's own ERDDAP: its blend of the altimeters'
+# near-real-time passes, a day or two behind, with the West Coast node's
+# experimental product of the altimeters' passes, weeks behind, behind it. Both
+# run their longitudes from -180 to 180, so the tropical Pacific, which
+# crosses the date line, is asked for whole circles of latitude on the very
+# points the earlier requests sampled east of Greenwich, and the grids keep
+# the Pacific's longitudes, 0 to 360: the map's 120E to 70W and the strip's
+# 120E to 80W.
+SSH = "https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.csv"
+SSH_EXPERIMENTAL = f"{COASTWATCH}/griddap/nesdisSSH1day.csv"
+_SSH_MAP = "[(-24.875):10:(25.125)][(-179.875):10:(179.875)]"
+_SSH_STRIP = "[(-1.875):4:(2.125)][(-179.875):4:(179.875)]"
+SSH_MAP_LONS = (120.125, 290.125)
+SSH_STRIP_LONS = (120.125, 280.125)
+# What each is, as the panels say it of the field it served. How far behind
+# the field is, the panels' chips say from its own day: a copy serving through
+# an outage is as far behind as it is, whatever its product usually is.
+SSH_PRODUCTS = {
+    SSH: "NOAA CoastWatch's blend of the altimeters' near-real-time passes",
+    SSH_EXPERIMENTAL: ("the West Coast node's experimental product of the altimeters' passes, "
+                       "serving while CoastWatch's own ERDDAP fails"),
+}
 
 
 @dataclass(frozen=True)
@@ -152,9 +177,9 @@ class Source:
     # the preliminary. Both are asked their latest day and the later serves;
     # on a day both carry, the final's, which is the better analysis of it.
     final: str = ""
-    # The same subsets of NCEI's own ERDDAP, asked in turn when CoastWatch
-    # fails its product: ``fallback`` for ``url``'s, ``final_fallback`` for
-    # ``final``'s.
+    # The same subsets on a second server, asked in turn when the first fails
+    # its product: NCEI's own ERDDAP for OISST, the West Coast node's for sea
+    # level; ``fallback`` for ``url``'s, ``final_fallback`` for ``final``'s.
     fallback: tuple[str, ...] = ()
     final_fallback: tuple[str, ...] = ()
     # Whether each day's download is kept in the archive as well. Not for a
@@ -514,24 +539,20 @@ SOURCES: tuple[Source, ...] = (
     Source(
         key="ssh_pacific",
         name="Sea surface height anomaly from altimetry, tropical Pacific",
-        url=erddap(
-            f"{COASTWATCH}/griddap/nesdisSSH1day_Lon0360.csv",
-            "sla[last][(-25):10:(25)][(120):10:(290)]",
-        ),
-        agency="NOAA NESDIS via CoastWatch ERDDAP",
-        cadence="daily, experimental",
+        url=erddap(SSH, f"sla[last]{_SSH_MAP}"),
+        fallback=(erddap(SSH_EXPERIMENTAL, f"sla[last]{_SSH_MAP}"),),
+        agency="NOAA CoastWatch, at its own ERDDAP or its West Coast node's",
+        cadence="daily, a day or two behind",
         tier="spatial",
-        note="Height stands in for upper-ocean heat content. Often weeks behind.",
+        note="Height stands in for upper-ocean heat content.",
     ),
     Source(
         key="ssh_hovmoller",
         name="Sea surface height anomaly, equatorial time by longitude",
-        url=erddap(
-            f"{COASTWATCH}/griddap/nesdisSSH1day_Lon0360.csv",
-            f"sla[({_since(HOVMOLLER_MONTHS)}):7:last]{_EQ_STRIP}",
-        ),
-        agency="NOAA NESDIS via CoastWatch ERDDAP",
-        cadence="weekly samples, experimental",
+        url=erddap(SSH, f"sla{_RECORD_WEEKS}{_SSH_STRIP}"),
+        fallback=(erddap(SSH_EXPERIMENTAL, f"sla{_RECORD_WEEKS}{_SSH_STRIP}"),),
+        agency="NOAA CoastWatch, at its own ERDDAP or its West Coast node's",
+        cadence="weekly samples, a day or two behind",
         tier="spatial",
         note="Kelvin and Rossby wave tracking, independent of the moorings.",
     ),

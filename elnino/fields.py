@@ -985,14 +985,15 @@ def hov_card(state) -> str:
             extra='<p class="subcaption">TAO/TRITON moorings. Positive is deeper.</p>',
         ))
     if state.ssh_hov is not None:
-        chip = _stale_chip(state, "ssh_hov", 21)
+        chip = _stale_chip(state, "ssh_hov", BEHIND_DAYS)
+        said = f"Altimetry: {esc(state.ssh_hov.note)}." if state.ssh_hov.note else "Altimetry."
         panels.append(hovmoller(
             state.ssh_hov,
             "Sea surface height anomaly, time by longitude",
             "Hovmoller diagram of sea surface height anomaly from altimetry on the "
             "equator.",
             fmt="{:+.2f}", units="m", ramp_caption="height anomaly",
-            extra=f'<p class="subcaption">Altimetry, experimental product. {chip}</p>',
+            extra=f'<p class="subcaption">{said} {chip}</p>',
         ))
     if not panels:
         return ""
@@ -1362,14 +1363,14 @@ def ssh_card(state) -> str:
     lat_axis(plot, lat_min, lat_max, 10.0)
     frame(plot)
 
-    chip = _stale_chip(state, "ssh_map", 21)
+    chip = _stale_chip(state, "ssh_map", BEHIND_DAYS)
+    product = grid.note or "satellite altimetry"
     return f"""<section class="card" id="sea-level">
   <h2>Sea level, which is heat content you can see from orbit</h2>
   <p class="caption">Sea surface height anomaly for {esc(grid.as_of)}. {chip}
     Warm water expands, so height is a direct proxy for the heat stored in the upper
-    ocean and an independent check on the mooring array. This is an experimental
-    product and it runs behind the rest of the system; the date above is the date of
-    the field, not of this run.</p>
+    ocean and an independent check on the mooring array. This is {esc(product)}; the
+    date above is the date of the field, not of this run.</p>
   {ramp.bar('m', 'height anomaly')}
   <div class="chart wide">{plot.svg(
       'Sea surface height anomaly map',
