@@ -1983,7 +1983,7 @@ empty stripe.
 **Two analyses of one ocean.** NOAA publishes OISST twice: a preliminary
 analysis a day or two after the day (`ncdcOisst21NrtAgg`, from 4 May 2020,
 with gaps) and the final about two weeks after (`ncdcOisst21Agg`), which
-replaces it in NOAA's files; ERDDAP's preliminary dataset keeps its days. The
+replaces it in NOAA's files; CoastWatch's preliminary dataset keeps its days. The
 maps ask both for the same subset, and the one whose latest day is the later
 serves: the preliminary as a rule, the final when the preliminary has failed or
 stalled behind it, and the final on a day both have, as the better analysis of
@@ -1998,19 +1998,55 @@ preliminary rows begin. The daily card shades the preliminary's days and says
 how far the final moved them on the days both analyses carry: on 14 October
 2026, 0.07 °C warmer in Niño-3.4 on average and up to 0.20 °C on a day (0.34 °C
 in Niño-1+2). The boxes are on the Pacific map's own cells, so that a day both
-carry has the map's box means to the last bit. Both
+carry has the map's box means to the last bit, when one server served both. Both
 products' anomalies are against OISST's own 1971–2000 climatology (ERDDAP:
 "Climatology is based on 1971-2000 OI.v2 SST"), where CPC's weekly index is
 against 1991–2020, so the daily Niño-3.4 runs warm of CPC's by the warming
 between the two base periods; the daily card measures it on the weeks both
 carry, a CPC week being the seven days centred on its Wednesday.
 
+**A second server.** NCEI, which makes OISST, serves both analyses from its
+own ERDDAP too
+([`ncdc_oisst_v2_avhrr_prelim_by_time_zlev_lat_lon`](https://www.ncei.noaa.gov/erddap/griddap/ncdc_oisst_v2_avhrr_prelim_by_time_zlev_lat_lon.html)
+and
+[`ncdc_oisst_v2_avhrr_by_time_zlev_lat_lon`](https://www.ncei.noaa.gov/erddap/griddap/ncdc_oisst_v2_avhrr_by_time_zlev_lat_lon.html)),
+and each of the six OISST feeds keeps the same subset of it behind
+CoastWatch's. A product whose CoastWatch address fails, asked its latest day
+or on the way to its subset, is asked there and serves as CoastWatch's
+would, and its copy, from whichever server, claims beside the answer: NCEI
+behind a copy CoastWatch made, or on its very day, does not overwrite it,
+CoastWatch's preliminary reaching further back and carrying what the final
+changed, and the feed says so. On 14 October CoastWatch's ERDDAP lost every
+dataset the tracker asks of it for some hours. NCEI is not asked while
+CoastWatch answers: it is not the fresher (that evening its ERDDAP still
+ended on the 12th, hours after NCEI had made the 13th, which CoastWatch
+had), and racing the two would download each new day twice. CoastWatch back
+behind a copy NCEI made leaves the copy serving, unchanged, until it reaches
+the copy's day; CoastWatch going back a day on a copy of its own is
+followed, the day being its own to withdraw. NCEI's preliminary dataset
+keeps only the days its final has not replaced, about two weeks, so it is
+asked for all of those rather than the last 28, and for all but the oldest
+when that fails: that day's file is taken away when the final replaces it,
+hours before NCEI's ERDDAP stops listing the day, and asking for it
+meanwhile is an error. With nothing of the preliminary that the final has
+too, a run NCEI serves cannot say what the final changed, and the daily card
+leaves it out. NCEI calls the depth axis `depth` and its units `Celsius`,
+where CoastWatch has `zlev` and `degree_C`; the cells are the same, and so
+are the values, but that NCEI writes some to more digits (1.8499999 where
+CoastWatch writes 1.85), so a map and daily boxes from the two servers agree
+on a day's box means to about the seventh decimal place, not the last bit.
+The moorings and the altimetry have no second server:
+PMEL's ERDDAP sends a request for a TAO dataset back to CoastWatch, and no
+other server has the altimetry in this form.
+
 **A gridded feed is downloaded again only when it has a new day.** Before a
 griddap request the tracker asks the dataset for its last time (`time[last]`,
 a few hundred bytes); when that is the time its cached copy was downloaded at,
 from the same address, the copy stands and the feed says *unchanged since* its
 download. A probe that fails counts as the address failing, and one that
-answers anything but a time is a full download. The global field is 41 MB, and
+answers anything but a time is a full download, but for NCEI's beside a copy:
+an answer that does not say its day is not taken for the later, and the copy
+serves. The global field is 41 MB, and
 was downloaded every hour for a day that changes once a day. An answer is kept
 only when it is ERDDAP's CSV of the subset, whole, its last line a row like the
 rest, so a proxy's page or an answer cut short is never recorded against the
@@ -2116,7 +2152,7 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1665 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1692 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -2169,8 +2205,10 @@ final analysis); `spatial.nino_daily`, the four boxes day by day (`day`,
 for each box what the final changed on the days both analyses carry (`days`, the
 `mean` of final less preliminary, and the `most` on a day); and for each feed the
 `url` that served it, the final's when the preliminary failed or fell behind it,
-`unchanged`, true when its dataset had no new day and it was not downloaded
-again, and `warnings`, what went wrong on the way to it.
+or NCEI's when CoastWatch failed or was behind the copy NCEI made,
+`unchanged`, true when its dataset had no new day, or CoastWatch was behind the
+copy NCEI made, and it was not downloaded again, and `warnings`, what went
+wrong on the way to it.
 `output/run.json`, written after every other file of a run, names that run and
 nothing else: an open page asks for it to learn whether the site has a newer one
 (*The live site*).
@@ -2368,7 +2406,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1665 tests, no network required. They cover:
+1692 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2406,7 +2444,16 @@ python -m unittest discover -s tests -v
 - **the ocean a day or two ago**: the maps served by whichever of OISST's two
   analyses has the later day, the final on a day both have, each product's own
   copy standing in for it when it fails and never overwritten by the other's,
-  and saying so when the final served; a griddap feed downloaded again only when
+  and saying so when the final served; NCEI's ERDDAP asked for the same subset
+  of a product CoastWatch fails, at its latest day or on the way to its subset,
+  its addresses in turn, each once, and never while CoastWatch answers, its
+  preliminary for all its days and then all but the oldest, the product's copy
+  claiming beside its answer and serving before it on the very day CoastWatch
+  made the copy, a copy NCEI made serving as current while CoastWatch is behind
+  it but not a copy of CoastWatch's own once CoastWatch goes back, every answer
+  passed over named with the day it said or as saying none, and a map NCEI
+  served marked as the analysis it is; a griddap
+  feed downloaded again only when
   its dataset's last time moves at the same address, a probe that fails counting
   as the address failing and one that answers no time a full download; an answer
   kept only whole, a copy used only when it matches its digest, a failed write

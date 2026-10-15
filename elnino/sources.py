@@ -50,7 +50,7 @@ PMEL = "https://data.pmel.noaa.gov/pmel/erddap"
 
 # OISST comes as two products of one analysis. The final is about two weeks
 # behind; the preliminary is a day or two behind. NOAA's own files replace
-# each preliminary day with the final's once it lands, but ERDDAP's
+# each preliminary day with the final's once it lands, but CoastWatch's
 # preliminary dataset keeps its days, so the two overlap by about two weeks,
 # which is what lets the run measure what the final changed. CPC's weekly
 # index, out on the Monday after the week it means, can only be built from
@@ -61,6 +61,17 @@ PMEL = "https://data.pmel.noaa.gov/pmel/erddap"
 # why its days are never picked by a stride.
 OISST_FINAL = f"{COASTWATCH}/griddap/ncdcOisst21Agg.csv"
 OISST_NRT = f"{COASTWATCH}/griddap/ncdcOisst21NrtAgg.csv"
+
+# NCEI, which makes OISST, serves both products from its own ERDDAP too, and
+# stands behind CoastWatch: a product CoastWatch fails is asked there for the
+# same subset. Its preliminary dataset keeps only the days its final has not
+# yet replaced, about two weeks, so a run it serves cannot measure what the
+# final changed. It names the depth axis "depth" where CoastWatch has "zlev",
+# and its units "Celsius" for "degree_C"; the cells and their values are
+# CoastWatch's.
+NCEI = "https://www.ncei.noaa.gov/erddap"
+NCEI_FINAL = f"{NCEI}/griddap/ncdc_oisst_v2_avhrr_by_time_zlev_lat_lon.csv"
+NCEI_NRT = f"{NCEI}/griddap/ncdc_oisst_v2_avhrr_prelim_by_time_zlev_lat_lon.csv"
 
 # How far back the rolling Hovmoller windows reach. Sixteen months is two
 # boreal winters' worth of context without making the vertical axis unreadable.
@@ -86,6 +97,11 @@ def erddap(base: str, query: str) -> str:
     return f"{base}?{urllib.parse.quote(query, safe=',:&=')}"
 
 
+def is_preliminary(url: str) -> bool:
+    """Whether an address asks OISST's preliminary analysis, of either server."""
+    return url.partition("?")[0] in (OISST_NRT, NCEI_NRT)
+
+
 # The equatorial strip is requested a few rows wide and meaned when it is
 # shaped, rather than sampled on one row of a quarter-degree product.
 #
@@ -109,6 +125,12 @@ _NINO_CELLS = "[(-9.875):2:(4.625)][(160.125):2:(279.625)]"
 # covers the final's two weeks behind it with room for the final to slip.
 _RECORD_DAYS = "[last-89:1:last]"
 _RECENT_DAYS = "[last-27:1:last]"
+# NCEI's preliminary holds only the days its final has not reached, and
+# refuses a window that reaches back past its first: all of them, then all
+# but the oldest when that fails. The oldest day's file is taken away when
+# the final replaces it, hours before NCEI's ERDDAP stops listing the day,
+# and asking for it meanwhile is an error (29 September's, on 14 October).
+_NCEI_RECENT_DAYS = ("[0:1:last]", "[1:1:last]")
 # The Hovmoller's record: a row a week back from the final's latest day for
 # sixty-nine weeks, about sixteen months. Ending on that day, it leaves the
 # preliminary only the days the final has not reached.
@@ -130,6 +152,11 @@ class Source:
     # the preliminary. Both are asked their latest day and the later serves;
     # on a day both carry, the final's, which is the better analysis of it.
     final: str = ""
+    # The same subsets of NCEI's own ERDDAP, asked in turn when CoastWatch
+    # fails its product: ``fallback`` for ``url``'s, ``final_fallback`` for
+    # ``final``'s.
+    fallback: tuple[str, ...] = ()
+    final_fallback: tuple[str, ...] = ()
     # Whether each day's download is kept in the archive as well. Not for a
     # rolling window of days, each day's of which repeats all but a day of the
     # day before's, of a product NOAA keeps every day of itself.
@@ -378,7 +405,13 @@ SOURCES: tuple[Source, ...] = (
         name="OISST v2.1 daily SST and anomaly, tropical Pacific (preliminary)",
         url=erddap(OISST_NRT, f"anom[last][(0.0)]{_PACIFIC},sst[last][(0.0)]{_PACIFIC}"),
         final=erddap(OISST_FINAL, f"anom[last][(0.0)]{_PACIFIC},sst[last][(0.0)]{_PACIFIC}"),
-        agency="NOAA NCEI via CoastWatch ERDDAP",
+        fallback=(
+            erddap(NCEI_NRT, f"anom[last][(0.0)]{_PACIFIC},sst[last][(0.0)]{_PACIFIC}"),
+        ),
+        final_fallback=(
+            erddap(NCEI_FINAL, f"anom[last][(0.0)]{_PACIFIC},sst[last][(0.0)]{_PACIFIC}"),
+        ),
+        agency="NOAA NCEI, via CoastWatch's ERDDAP or its own",
         cadence="daily, a day or two behind",
         tier="spatial",
         note=("The anomaly field the Nino indices are averaged out of. The final "
@@ -389,7 +422,9 @@ SOURCES: tuple[Source, ...] = (
         name="OISST v2.1 daily SST anomaly, global (preliminary)",
         url=erddap(OISST_NRT, f"anom[last][(0.0)]{_WORLD}"),
         final=erddap(OISST_FINAL, f"anom[last][(0.0)]{_WORLD}"),
-        agency="NOAA NCEI via CoastWatch ERDDAP",
+        fallback=(erddap(NCEI_NRT, f"anom[last][(0.0)]{_WORLD}"),),
+        final_fallback=(erddap(NCEI_FINAL, f"anom[last][(0.0)]{_WORLD}"),),
+        agency="NOAA NCEI, via CoastWatch's ERDDAP or its own",
         cadence="daily, a day or two behind",
         tier="spatial",
         note=("Basin-wide context; the reason relative ONI exists. The final "
@@ -399,7 +434,8 @@ SOURCES: tuple[Source, ...] = (
         key="sst_hovmoller",
         name="OISST v2.1 equatorial SST anomaly, time by longitude",
         url=erddap(OISST_FINAL, f"anom{_RECORD_WEEKS}[(0.0)]{_EQ_STRIP}"),
-        agency="NOAA NCEI via CoastWatch ERDDAP",
+        fallback=(erddap(NCEI_FINAL, f"anom{_RECORD_WEEKS}[(0.0)]{_EQ_STRIP}"),),
+        agency="NOAA NCEI, via CoastWatch's ERDDAP or its own",
         cadence="weekly samples",
         tier="spatial",
         note="Eastward propagation of the surface anomaly.",
@@ -408,7 +444,9 @@ SOURCES: tuple[Source, ...] = (
         key="sst_hovmoller_recent",
         name="OISST v2.1 equatorial SST anomaly, the last four weeks (preliminary)",
         url=erddap(OISST_NRT, f"anom{_RECENT_DAYS}[(0.0)]{_EQ_STRIP}"),
-        agency="NOAA NCEI via CoastWatch ERDDAP",
+        fallback=tuple(erddap(NCEI_NRT, f"anom{days}[(0.0)]{_EQ_STRIP}")
+                       for days in _NCEI_RECENT_DAYS),
+        agency="NOAA NCEI, via CoastWatch's ERDDAP or its own",
         cadence="daily, a day or two behind",
         tier="spatial",
         archive=False,
@@ -418,7 +456,8 @@ SOURCES: tuple[Source, ...] = (
         key="nino_daily",
         name="OISST v2.1 SST anomaly over the Nino boxes, the last 90 days",
         url=erddap(OISST_FINAL, f"anom{_RECORD_DAYS}[(0.0)]{_NINO_CELLS}"),
-        agency="NOAA NCEI via CoastWatch ERDDAP",
+        fallback=(erddap(NCEI_FINAL, f"anom{_RECORD_DAYS}[(0.0)]{_NINO_CELLS}"),),
+        agency="NOAA NCEI, via CoastWatch's ERDDAP or its own",
         cadence="daily, about two weeks behind",
         tier="spatial",
         archive=False,
@@ -428,7 +467,9 @@ SOURCES: tuple[Source, ...] = (
         key="nino_daily_recent",
         name="OISST v2.1 SST anomaly over the Nino boxes, the last four weeks (preliminary)",
         url=erddap(OISST_NRT, f"anom{_RECENT_DAYS}[(0.0)]{_NINO_CELLS}"),
-        agency="NOAA NCEI via CoastWatch ERDDAP",
+        fallback=tuple(erddap(NCEI_NRT, f"anom{days}[(0.0)]{_NINO_CELLS}")
+                       for days in _NCEI_RECENT_DAYS),
+        agency="NOAA NCEI, via CoastWatch's ERDDAP or its own",
         cadence="daily, a day or two behind",
         tier="spatial",
         archive=False,
@@ -684,10 +725,12 @@ class Fetched:
     error: str | None = None
     warnings: list[str] = field(default_factory=list)
     # Where the text came from: the source's own address, its final analysis's,
-    # or the one the cached copy was downloaded from.
+    # either one's on the second server, or the one the cached copy was
+    # downloaded from.
     url: str = ""
-    # The dataset had no new day, so the copy downloaded at ``fetched_at`` is
-    # current and was not downloaded again.
+    # The copy downloaded at ``fetched_at`` is current, and was not downloaded
+    # again: its dataset had no new day, or the product's own address is
+    # behind the copy the second server made.
     unchanged: bool = False
 
     @property
@@ -753,15 +796,23 @@ def probe_url(url: str) -> str:
 
 @dataclass(frozen=True)
 class _Product:
-    """One address a feed is served from, and the copy kept of it: ``<name>.cache``
-    beside ``<name>.meta.json``, the record of where and when the copy was
-    downloaded, the latest day its dataset said it had then, and the digest of
-    the bytes written."""
+    """One product a feed is served from, at its own address or a second
+    server's, and the copy kept of it: ``<name>.cache`` beside
+    ``<name>.meta.json``, the record of where and when the copy was downloaded,
+    the latest day its dataset said it had then, and the digest of the bytes
+    written."""
 
     name: str
     url: str
     raw_dir: Path
     final: bool = False
+    # The same subset on the second server, its addresses asked in turn when
+    # ``url`` fails.
+    fallback: tuple[str, ...] = ()
+
+    @property
+    def addresses(self) -> tuple[str, ...]:
+        return (self.url, *self.fallback)
 
     @property
     def cache(self) -> Path:
@@ -796,34 +847,75 @@ class _Product:
                 part.unlink(missing_ok=True)
                 raise
 
-    def served(self, source: Source) -> Fetched:
-        """The copy, served for want of a live answer."""
+    def served(self, source: Source, current: bool = False) -> Fetched:
+        """The copy, served for want of a live answer, or as ``current`` while
+        the product's own address answers behind it."""
         meta = self.meta()
         return Fetched(source, self.kept(meta), meta.get("fetched_at", "unknown"),
-                       from_cache=True, sha256=meta.get("sha256", ""), url=meta.get("url", ""))
+                       from_cache=not current, sha256=meta.get("sha256", ""),
+                       url=meta.get("url", ""), unchanged=current)
 
 
 class _Bid(NamedTuple):
-    """A product's claim to serve: the latest day its dataset says it has while
-    it answers, and the day its copy was downloaded at once it does not."""
+    """A product's claim to serve: the latest day an address of it says its
+    dataset has, or the day its copy was downloaded at, with the address that
+    said the day or that the copy came from."""
 
     day: str
     live: bool
     product: _Product
+    url: str
+    # Whether the answer is the second server's for the very day of a copy
+    # the product's own address made, which is no reason to download the day
+    # again, and CoastWatch's window of the preliminary's days reaches
+    # further back than NCEI's.
+    echo: bool = False
 
     def rank(self) -> tuple:
-        # The later day first, and a live answer before a copy. A day both
-        # products carry is the final's, the better analysis of it; with no day
-        # said, the preliminary's, which is as a rule the later.
+        # The later day first; on a day, a live answer before a copy, and the
+        # copy before an echo of its day. A day both products carry is the
+        # final's, the better analysis of it; with no day said, the
+        # preliminary's, which is as a rule the later.
+        standing = 0 if self.echo else 2 if self.live else 1
         first = self.product.final if self.day else not self.product.final
-        return (self.day, self.live, first)
+        return (self.day, standing, first)
 
 
 def _copy_bid(product: _Product) -> list[_Bid]:
     """The product's copy as a bid, when it has one."""
     if not product.cache.exists():
         return []
-    return [_Bid(product.meta().get("probe", ""), False, product)]
+    meta = product.meta()
+    return [_Bid(meta.get("probe", ""), False, product, meta.get("url") or product.url)]
+
+
+def _beside(answer: _Bid, copy: list[_Bid]) -> bool:
+    """Whether the product's copy claims beside an answer of it: beside the
+    second server's, which may be days behind it, and beside the day the
+    product's own address says when the second server made the copy, which
+    CoastWatch back from an outage may be behind."""
+    product = answer.product
+    return answer.url != product.url or (
+        bool(answer.day) and any(made.url in product.fallback for made in copy))
+
+
+def _live_bids(product: _Product, urls: tuple[str, ...], problems: list[str],
+               copied: bool = False) -> list[_Bid]:
+    """The product's claim from the first of ``urls`` to say its dataset's latest
+    day, and its copy's beside it, unless the copy claims already; with none
+    answering, the copy claims alone."""
+    copy = _copy_bid(product)
+    for url in urls:
+        try:
+            bid = _Bid(_latest_day(url), True, product, url)
+        except Exception as exc:  # noqa: BLE001 - surfaced to the user in the report
+            problems.append(_failure(exc, url))
+            continue
+        if url != product.url:
+            bid = bid._replace(echo=bool(bid.day) and any(
+                made.url == product.url and made.day == bid.day for made in copy))
+        return [bid, *copy] if not copied and _beside(bid, copy) else [bid]
+    return [] if copied else copy
 
 
 def fetch(source: Source, raw_dir: Path, offline: bool = False) -> Fetched:
@@ -832,43 +924,53 @@ def fetch(source: Source, raw_dir: Path, offline: bool = False) -> Fetched:
     A feed with OISST's final analysis behind its preliminary has two
     products, and each keeps its own copy. Both are asked their latest day and
     the later serves; when it fails, its copy stands in for it against the
-    other. A gridded product keeps its copy, without downloading the subset
-    again, while its dataset's latest day is the one the copy was downloaded at.
+    other. A product whose address fails, there or on the way to its subset, is
+    asked of the second server's addresses in turn, and its copy claims beside
+    the answer, and ahead of it on the copy's own day when the product's own
+    address made the copy. A copy the second server made claims beside the
+    product's own address as well, and serves as current while that is behind
+    it. A gridded product
+    keeps its copy, without downloading the subset again, while its dataset's
+    latest day is the one the copy was downloaded at.
     """
     raw_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    products = [_Product(source.key, source.url, raw_dir)]
+    products = [_Product(source.key, source.url, raw_dir, fallback=source.fallback)]
     if source.final:
-        products.append(_Product(f"{source.key}.final", source.final, raw_dir, final=True))
+        products.append(_Product(f"{source.key}.final", source.final, raw_dir, final=True,
+                                 fallback=source.final_fallback))
 
     problems: list[str] = ["offline mode requested"] if offline else []
     bids: list[_Bid] = []
     for product in products:
-        if offline:
-            bids += _copy_bid(product)
-            continue
-        try:
-            bids.append(_Bid(_latest_day(product.url), True, product))
-        except Exception as exc:  # noqa: BLE001 - surfaced to the user in the report
-            problems.append(_failure(exc, product.url))
-            bids += _copy_bid(product)
+        bids += _copy_bid(product) if offline else _live_bids(product, product.addresses, problems)
 
     while bids:
         bid = max(bids, key=_Bid.rank)
         bids.remove(bid)
+        # A copy chosen over an answer of the product's own address, which is
+        # behind it, is as current as any answer.
+        current = not bid.live and any(
+            other.live and other.url == bid.product.url for other in bids)
         try:
-            got = (_download(source, bid.product, bid.day, now) if bid.live
-                   else bid.product.served(source))
+            got = (_download(source, bid.product, bid.url, bid.day, now) if bid.live
+                   else bid.product.served(source, current))
         except Exception as exc:  # noqa: BLE001 - surfaced to the user in the report
-            problems.append(_failure(exc, bid.product.url))
+            problems.append(_failure(exc, bid.url))
+            # On to the product's addresses after the one that failed, and
+            # its copy, unless that claims already beside the answer that
+            # failed.
             if bid.live:
-                bids += _copy_bid(bid.product)
+                addresses = bid.product.addresses
+                bids += _live_bids(bid.product, addresses[addresses.index(bid.url) + 1:],
+                                   problems, copied=_beside(bid, _copy_bid(bid.product)))
             continue
-        # The preliminary passed over for the final while it answers has
-        # stalled, which is worth a word.
-        problems += [f"latest day {other.day[:10] or 'not said'}, no later than the "
-                     f"final's ({other.product.url})"
-                     for other in bids if bid.product.final and other.live]
+        # An answer passed over is worth a word: the preliminary's for the
+        # final, which has stalled, and any of the product's own for its copy.
+        problems += [_passed_over(other, "the final's") for other in bids
+                     if bid.product.final and other.live and other.product is not bid.product]
+        problems += [_passed_over(other, f"its copy's {bid.day[:10]}") for other in bids
+                     if not bid.live and other.live and other.product is bid.product]
         if got.from_cache:
             got.warnings.insert(0, f"live fetch failed ({'; '.join(problems)})")
         elif problems:
@@ -876,6 +978,14 @@ def fetch(source: Source, raw_dir: Path, offline: bool = False) -> Fetched:
         return got
 
     return Fetched(source, "", now, from_cache=False, sha256="", error="; ".join(problems))
+
+
+def _passed_over(answer: _Bid, than: str) -> str:
+    """Why an answer did not serve: the latest day it said was no later than
+    ``than``, or it said none, which is no reason to take it for the later."""
+    if not answer.day:
+        return f"latest day not said ({answer.url})"
+    return f"latest day {answer.day[:10]}, no later than {than} ({answer.url})"
 
 
 def _failure(exc: Exception, url: str) -> str:
@@ -930,33 +1040,34 @@ def _read_meta(path: Path) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
-def _download(source: Source, product: _Product, said: str, now: str) -> Fetched:
-    """A product's text, downloaded and kept, or its copy when its dataset's
-    latest day, as it ``said``, is the one the copy was downloaded at. Raises
-    when the address fails or answers with anything but its data."""
+def _download(source: Source, product: _Product, url: str, said: str, now: str) -> Fetched:
+    """A product's text, downloaded from ``url`` and kept, or its copy when the
+    copy came from there and the dataset's latest day, as it ``said``, is the
+    one the copy was downloaded at. Raises when the address fails or answers
+    with anything but its data."""
     meta = product.meta()
-    if said and meta.get("probe") == said and meta.get("url") == product.url:
+    if said and meta.get("probe") == said and meta.get("url") == url:
         # A copy that is gone, or is not what its record was written for, is
         # downloaded again.
         with contextlib.suppress(OSError, ValueError):
             return Fetched(source, product.kept(meta), meta.get("fetched_at", now),
                            from_cache=False, sha256=meta.get("sha256", ""),
-                           url=product.url, unchanged=True)
+                           url=url, unchanged=True)
     # One line ending from here on, and the copy written as the very bytes its
     # digest is taken over. In text mode on Windows every "\n" was written as
     # "\r\n" and every CRLF a feed sent became "\r\r\n", which read back as
     # two lines; and the archive's digest never matched the translated file,
     # so it was rewritten on every run.
-    text = _http_get(product.url).replace("\r\n", "\n")
-    if probe_url(product.url):
+    text = _http_get(url).replace("\r\n", "\n")
+    if probe_url(url):
         if not _is_griddap_csv(text):
             raise ValueError("its answer is not ERDDAP's CSV")
     elif not text.strip():
         raise ValueError("its answer is empty")
     data = text.encode("utf-8")
     digest = hashlib.sha256(data).hexdigest()
-    got = Fetched(source, text, now, from_cache=False, sha256=digest, url=product.url)
-    record = {"url": product.url, "fetched_at": now, "sha256": digest, "bytes": len(data)}
+    got = Fetched(source, text, now, from_cache=False, sha256=digest, url=url)
+    record = {"url": url, "fetched_at": now, "sha256": digest, "bytes": len(data)}
     if said:
         record["probe"] = said
     # The text serves whether or not it can be kept.

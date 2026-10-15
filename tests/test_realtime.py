@@ -89,6 +89,58 @@ class TestOisstProducts(unittest.TestCase):
         windows = {"sst_hovmoller_recent", "nino_daily", "nino_daily_recent"}
         self.assertEqual({s.key for s in sources.SOURCES if not s.archive}, windows)
 
+    def test_ncei_s_own_erddap_serves_the_two_products_as_well(self):
+        self.assertEqual(sources.NCEI, "https://www.ncei.noaa.gov/erddap")
+        self.assertEqual(sources.NCEI_FINAL,
+                         f"{sources.NCEI}/griddap/ncdc_oisst_v2_avhrr_by_time_zlev_lat_lon.csv")
+        self.assertEqual(sources.NCEI_NRT,
+                         f"{sources.NCEI}/griddap/ncdc_oisst_v2_avhrr_prelim_by_time_zlev_lat_lon.csv")
+
+    def test_each_oisst_product_falls_back_on_the_same_subset_of_it_at_ncei(self):
+        ncei = {sources.OISST_NRT: sources.NCEI_NRT, sources.OISST_FINAL: sources.NCEI_FINAL}
+        for source in sources.SOURCES:
+            for url, fallback in ((source.url, source.fallback),
+                                  (source.final, source.final_fallback)):
+                with self.subTest(key=source.key, final=url == source.final):
+                    base = url.partition("?")[0]
+                    if base not in ncei:
+                        self.assertEqual(fallback, ())
+                        continue
+                    windows = (("[0:1:last]", "[1:1:last]") if "[last-27:1:last]" in _query(url)
+                               else ("[last-27:1:last]",))
+                    self.assertEqual(
+                        [(address.partition("?")[0], _query(address)) for address in fallback],
+                        [(ncei[base], _query(url).replace("[last-27:1:last]", days))
+                         for days in windows])
+
+    def test_ncei_s_preliminary_is_asked_for_all_its_days_then_all_but_the_oldest(self):
+        # It holds only the days its final has not replaced, about two weeks,
+        # and refuses a window that reaches back past its first: CoastWatch's
+        # last 28 days are an error there. Its oldest day's file is taken away
+        # when the final replaces it, hours before its ERDDAP stops listing
+        # the day, and asking for it meanwhile is an error too (on 14 October,
+        # 29 September's), so then it is asked for the rest.
+        for key in ("sst_hovmoller_recent", "nino_daily_recent"):
+            with self.subTest(key=key):
+                fallback = sources.SOURCES_BY_KEY[key].fallback
+                self.assertEqual([address.partition("?")[0] for address in fallback],
+                                 [sources.NCEI_NRT, sources.NCEI_NRT])
+                self.assertEqual([_query(address).partition("[(0.0)]")[0] for address in fallback],
+                                 ["anom[0:1:last]", "anom[1:1:last]"])
+
+    def test_only_oisst_has_a_second_server(self):
+        # TAO's moorings and the altimetry have none that serves their data:
+        # PMEL's ERDDAP sends a request for the moorings back to CoastWatch.
+        seconded = {s.key for s in sources.SOURCES if s.fallback or s.final_fallback}
+        self.assertEqual(seconded, {"sst_pacific", "sst_global", "sst_hovmoller",
+                                    "sst_hovmoller_recent", "nino_daily", "nino_daily_recent"})
+
+    def test_a_feed_with_two_servers_names_both_above_the_address_that_served(self):
+        for source in sources.SOURCES:
+            if source.fallback:
+                with self.subTest(key=source.key):
+                    self.assertEqual(source.agency, "NOAA NCEI, via CoastWatch's ERDDAP or its own")
+
 
 class TestProbe(unittest.TestCase):
     """The question asked before a gridded download: has the dataset a new day?"""
@@ -110,6 +162,7 @@ LAST = "time\nUTC\n2026-10-12T12:00:00Z\n"
 LATER = "time\nUTC\n2026-10-13T12:00:00Z\n"
 NEXT = "time\nUTC\n2026-10-14T12:00:00Z\n"
 FINAL_LAST = "time\nUTC\n2026-09-28T12:00:00Z\n"
+FINAL_BEFORE = "time\nUTC\n2026-09-27T12:00:00Z\n"
 STALLED = "time\nUTC\n2026-09-01T12:00:00Z\n"
 FIELD = "time,zlev,latitude,longitude,anom\nUTC,m,degrees_north,degrees_east,degree_C\n"
 
@@ -119,17 +172,13 @@ def csv(tag: str) -> str:
     return FIELD + f"2026-10-13T12:00:00Z,0.0,0.125,180.125,{tag}\n"
 
 
-class TestFetchFallbackAndProbe(unittest.TestCase):
-    """A gridded feed's preliminary product, its final one, and the copy kept of each."""
-
-    PRIMARY = "https://example.invalid/erddap/griddap/nrt.csv?anom%5Blast%5D"
-    FINAL = "https://example.invalid/erddap/griddap/final.csv?anom%5Blast%5D"
+class _Fetching:
+    """A feed fetched with each address answered from a table, its copies kept
+    in a directory of their own. The test case sets ``source``."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.raw = Path(self.tmp.name)
-        self.source = sources.Source(key="grid", name="grid", url=self.PRIMARY,
-                                     agency="test", cadence="daily", final=self.FINAL)
         self.asked: list[str] = []
 
     def tearDown(self):
@@ -149,16 +198,28 @@ class TestFetchFallbackAndProbe(unittest.TestCase):
     def probe(self, url):
         return sources.probe_url(url)
 
-    def hour(self, field="a", day=LATER):
-        """An hour like most: the preliminary at 13 October, the final at 28 September."""
-        return {self.probe(self.PRIMARY): day, self.probe(self.FINAL): FINAL_LAST,
-                self.PRIMARY: csv(field), self.FINAL: csv("final")}
-
     def meta(self, name="grid"):
         return json.loads((self.raw / f"{name}.meta.json").read_text(encoding="utf-8"))
 
     def kept(self, name="grid"):
         return (self.raw / f"{name}.cache").read_text(encoding="utf-8")
+
+
+class TestFetchFallbackAndProbe(_Fetching, unittest.TestCase):
+    """A gridded feed's preliminary product, its final one, and the copy kept of each."""
+
+    PRIMARY = "https://example.invalid/erddap/griddap/nrt.csv?anom%5Blast%5D"
+    FINAL = "https://example.invalid/erddap/griddap/final.csv?anom%5Blast%5D"
+
+    def setUp(self):
+        super().setUp()
+        self.source = sources.Source(key="grid", name="grid", url=self.PRIMARY,
+                                     agency="test", cadence="daily", final=self.FINAL)
+
+    def hour(self, field="a", day=LATER):
+        """An hour like most: the preliminary at 13 October, the final at 28 September."""
+        return {self.probe(self.PRIMARY): day, self.probe(self.FINAL): FINAL_LAST,
+                self.PRIMARY: csv(field), self.FINAL: csv("final")}
 
     def test_the_preliminary_serves_when_its_latest_day_is_the_later(self):
         got = self.fetch(self.hour())
@@ -197,6 +258,13 @@ class TestFetchFallbackAndProbe(unittest.TestCase):
         (warning,) = got.warnings
         self.assertIn("2026-09-01", warning)
         self.assertIn(self.PRIMARY, warning)
+
+    def test_a_preliminary_saying_no_day_beside_a_dated_final_is_said_to_have_said_none(self):
+        got = self.fetch({self.probe(self.PRIMARY): "", self.probe(self.FINAL): FINAL_LAST,
+                          self.PRIMARY: csv("a"), self.FINAL: csv("b")})
+        self.assertEqual((got.text, got.url), (csv("b"), self.FINAL))
+        self.assertEqual(got.warnings,
+                         [f"latest day not said ({self.PRIMARY}); served by {self.FINAL}"])
 
     def test_on_a_day_both_carry_the_final_s_analysis_serves(self):
         got = self.fetch(self.hour(day=FINAL_LAST))
@@ -404,6 +472,234 @@ class TestFetchFallbackAndProbe(unittest.TestCase):
         self.assertEqual((got.text, got.url, got.unchanged), ("x\n", plain, False))
         self.fetch({plain: "x\n"})
         self.assertEqual(self.asked, [plain, plain])
+
+
+class TestSecondServer(_Fetching, unittest.TestCase):
+    """NCEI's own ERDDAP behind CoastWatch's: a product whose address fails is
+    asked for the same subset there, and the product's copy claims beside it."""
+
+    PRIMARY = "https://coastwatch.invalid/erddap/griddap/nrt.csv?anom%5Blast%5D"
+    FINAL = "https://coastwatch.invalid/erddap/griddap/final.csv?anom%5Blast%5D"
+    SECOND = "https://ncei.invalid/erddap/griddap/prelim.csv?anom%5Blast%5D"
+    SECOND_FINAL = "https://ncei.invalid/erddap/griddap/final.csv?anom%5Blast%5D"
+    # The same dataset of NCEI's, asked for a window less its oldest day.
+    SECOND_LESS = "https://ncei.invalid/erddap/griddap/prelim.csv?anom%5B1%5D"
+
+    def setUp(self):
+        super().setUp()
+        self.source = sources.Source(key="grid", name="grid", url=self.PRIMARY, agency="test",
+                                     cadence="daily", final=self.FINAL, fallback=(self.SECOND,),
+                                     final_fallback=(self.SECOND_FINAL,))
+
+    def hour(self, coastwatch=LATER, ncei=LATER):
+        """Each server's preliminary at its day, and each one's final at 28 September."""
+        return {self.probe(self.PRIMARY): coastwatch, self.probe(self.FINAL): FINAL_LAST,
+                self.probe(self.SECOND): ncei, self.probe(self.SECOND_FINAL): FINAL_LAST,
+                self.PRIMARY: csv("cw"), self.FINAL: csv("cw final"),
+                self.SECOND: csv("ncei"), self.SECOND_FINAL: csv("ncei final")}
+
+    def down(self, answers):
+        """The same hour with CoastWatch down."""
+        return {url: answer for url, answer in answers.items() if "coastwatch" not in url}
+
+    def failed(self, url):
+        """What the report says of an address whose probe found no route."""
+        return f"no route to {self.probe(url)} ({url})"
+
+    def test_while_coastwatch_answers_ncei_is_not_asked(self):
+        got = self.fetch(self.hour())
+        self.assertEqual(self.asked, [self.probe(self.PRIMARY), self.probe(self.FINAL), self.PRIMARY])
+        self.assertEqual((got.url, got.warnings), (self.PRIMARY, []))
+        # Not even when it has a later day: it stands behind CoastWatch, it
+        # does not race it.
+        self.asked.clear()
+        self.assertEqual(self.fetch(self.hour(coastwatch=LAST, ncei=NEXT)).url, self.PRIMARY)
+        self.assertFalse([url for url in self.asked if "ncei" in url], self.asked)
+
+    def test_ncei_serves_a_product_coastwatch_fails_and_says_why(self):
+        got = self.fetch(self.down(self.hour()))
+        self.assertEqual((got.text, got.url, got.from_cache), (csv("ncei"), self.SECOND, False))
+        self.assertEqual(got.warnings, [f"{self.failed(self.PRIMARY)}; {self.failed(self.FINAL)}; "
+                                        f"served by {self.SECOND}"])
+        # The product keeps one copy, whichever server it came from.
+        self.assertEqual((self.kept(), self.meta()["url"]), (csv("ncei"), self.SECOND))
+        self.assertEqual(self.meta()["probe"], "2026-10-13T12:00:00Z")
+        self.assertEqual([p.name.rpartition("_")[0] for p in (self.raw / "archive").iterdir()],
+                         ["grid"])
+
+    def test_the_copy_ncei_served_is_not_downloaded_again_while_its_day_stands(self):
+        first = self.fetch(self.down(self.hour()))
+        self.asked.clear()
+        again = self.fetch(self.down(self.hour()))
+        self.assertNotIn(self.SECOND, self.asked)
+        self.assertEqual((again.text, again.url, again.unchanged, again.fetched_at),
+                         (csv("ncei"), self.SECOND, True, first.fetched_at))
+
+    def test_coastwatch_back_serves_again(self):
+        self.fetch(self.down(self.hour()))
+        got = self.fetch(self.hour())
+        self.assertEqual((got.text, got.url, got.unchanged, got.warnings),
+                         (csv("cw"), self.PRIMARY, False, []))
+        self.assertEqual(self.meta()["url"], self.PRIMARY)
+
+    def test_ncei_is_asked_when_coastwatch_says_its_day_but_fails_the_subset(self):
+        answers = self.hour()
+        answers[self.PRIMARY] = RuntimeError("HTTP Error 502: Bad Gateway")
+        got = self.fetch(answers)
+        self.assertEqual((got.text, got.url), (csv("ncei"), self.SECOND))
+        self.assertEqual(got.warnings, [f"HTTP Error 502: Bad Gateway ({self.PRIMARY}); "
+                                        f"served by {self.SECOND}"])
+
+    def test_a_copy_of_a_later_day_than_ncei_s_serves_and_says_so(self):
+        self.fetch(self.hour(coastwatch=NEXT))
+        self.asked.clear()
+        got = self.fetch(self.down(self.hour(ncei=LATER)))
+        self.assertEqual((got.text, got.url, got.from_cache), (csv("cw"), self.PRIMARY, True))
+        self.assertNotIn(self.SECOND, self.asked)
+        self.assertEqual(got.warnings, [
+            f"live fetch failed ({self.failed(self.PRIMARY)}; {self.failed(self.FINAL)}; "
+            f"latest day 2026-10-13, no later than its copy's 2026-10-14 ({self.SECOND}))"])
+        self.assertEqual((self.kept(), self.meta()["probe"]), (csv("cw"), "2026-10-14T12:00:00Z"))
+
+    def test_ncei_s_answer_for_the_day_of_coastwatch_s_copy_leaves_the_copy(self):
+        # CoastWatch's preliminary window reaches back four weeks and NCEI's
+        # two: a day both have is not swapped for NCEI's, and the daily card
+        # keeps what the final changed.
+        self.fetch(self.hour())
+        self.asked.clear()
+        got = self.fetch(self.down(self.hour(ncei=LATER)))
+        self.assertEqual((got.text, got.url, got.from_cache), (csv("cw"), self.PRIMARY, True))
+        self.assertNotIn(self.SECOND, self.asked)
+        self.assertEqual(got.warnings, [
+            f"live fetch failed ({self.failed(self.PRIMARY)}; {self.failed(self.FINAL)}; "
+            f"latest day 2026-10-13, no later than its copy's 2026-10-13 ({self.SECOND}))"])
+        self.assertEqual((self.kept(), self.meta()["url"]), (csv("cw"), self.PRIMARY))
+
+    def test_coastwatch_failing_its_new_day_s_subset_leaves_its_copy_before_ncei_s_same_day(self):
+        self.fetch(self.hour())
+        self.asked.clear()
+        answers = self.hour(coastwatch=NEXT, ncei=LATER)
+        answers[self.PRIMARY] = RuntimeError("HTTP Error 502: Bad Gateway")
+        got = self.fetch(answers)
+        self.assertEqual((got.text, got.url, got.from_cache), (csv("cw"), self.PRIMARY, True))
+        self.assertNotIn(self.SECOND, self.asked)
+        self.assertEqual(got.warnings, [
+            f"live fetch failed (HTTP Error 502: Bad Gateway ({self.PRIMARY}); "
+            f"latest day 2026-10-13, no later than its copy's 2026-10-13 ({self.SECOND}))"])
+
+    def test_coastwatch_back_behind_the_copy_ncei_made_leaves_it_current_and_says_so(self):
+        # NCEI served the 14th through the outage and CoastWatch comes back on
+        # the 13th: the maps do not go back a day, and NCEI is not asked.
+        self.fetch(self.down(self.hour(ncei=NEXT)))
+        self.asked.clear()
+        got = self.fetch(self.hour(coastwatch=LATER, ncei=NEXT))
+        self.assertEqual((got.text, got.url, got.from_cache, got.unchanged),
+                         (csv("ncei"), self.SECOND, False, True))
+        self.assertEqual(self.asked, [self.probe(self.PRIMARY), self.probe(self.FINAL)])
+        self.assertEqual(got.warnings, [
+            f"latest day 2026-10-13, no later than its copy's 2026-10-14 ({self.PRIMARY}); "
+            f"served by {self.SECOND}"])
+        self.assertEqual((self.kept(), self.meta()["url"]), (csv("ncei"), self.SECOND))
+        # CoastWatch at the copy's day serves again.
+        got = self.fetch(self.hour(coastwatch=NEXT))
+        self.assertEqual((got.text, got.url, got.unchanged), (csv("cw"), self.PRIMARY, False))
+        self.assertEqual(self.meta()["url"], self.PRIMARY)
+
+    def test_a_copy_coastwatch_made_gives_way_to_coastwatch_going_back_a_day(self):
+        # CoastWatch is the authority on its own days: one it no longer has
+        # is not kept on.
+        self.fetch(self.hour(coastwatch=NEXT))
+        got = self.fetch(self.hour(coastwatch=LATER))
+        self.assertEqual((got.url, got.from_cache, got.unchanged), (self.PRIMARY, False, False))
+        self.assertEqual(self.meta()["probe"], "2026-10-13T12:00:00Z")
+
+    def test_coastwatch_saying_no_day_is_downloaded_over_the_copy_ncei_made(self):
+        # An answer of CoastWatch's that says no day is a full download.
+        self.fetch(self.down(self.hour(ncei=NEXT)))
+        answers = self.hour(coastwatch="")
+        del answers[self.probe(self.FINAL)], answers[self.probe(self.SECOND_FINAL)]
+        got = self.fetch(answers)
+        self.assertEqual((got.text, got.url, got.from_cache), (csv("cw"), self.PRIMARY, False))
+
+    def test_ncei_saying_no_day_leaves_the_copy_and_is_said_to_have_said_none(self):
+        # Its answer is not shown to be the later; the copy's day is known.
+        self.fetch(self.hour())
+        got = self.fetch(self.down(self.hour(ncei="")))
+        self.assertEqual((got.text, got.url, got.from_cache), (csv("cw"), self.PRIMARY, True))
+        self.assertEqual(got.warnings, [
+            f"live fetch failed ({self.failed(self.PRIMARY)}; {self.failed(self.FINAL)}; "
+            f"latest day not said ({self.SECOND}))"])
+
+    def test_the_final_s_own_answer_from_ncei_is_not_named_as_a_stalled_preliminary(self):
+        self.fetch({self.probe(self.FINAL): FINAL_LAST, self.FINAL: csv("cw final")})
+        got = self.fetch({self.probe(self.SECOND_FINAL): FINAL_BEFORE,
+                          self.SECOND_FINAL: csv("ncei final")})
+        self.assertEqual((got.text, got.url, got.from_cache), (csv("cw final"), self.FINAL, True))
+        self.assertEqual(got.warnings, [
+            f"live fetch failed ({self.failed(self.PRIMARY)}; {self.failed(self.SECOND)}; "
+            f"{self.failed(self.FINAL)}; "
+            f"latest day 2026-09-27, no later than its copy's 2026-09-28 ({self.SECOND_FINAL}))"])
+
+    def test_a_copy_ncei_made_that_is_not_what_its_record_says_is_named_by_ncei_s_address(self):
+        self.fetch(self.down(self.hour()))
+        (self.raw / "grid.cache").write_bytes(b"tampered\n")
+        got = self.fetch({})
+        self.assertFalse(got.ok)
+        self.assertIn(f"the copy kept of it does not match its record ({self.SECOND})", got.error)
+
+    def test_ncei_s_next_address_is_asked_when_one_fails_its_subset(self):
+        self.source = replace(self.source, fallback=(self.SECOND, self.SECOND_LESS))
+        answers = self.down(self.hour())
+        answers[self.SECOND] = RuntimeError("HTTP Error 500: Internal Server Error")
+        answers[self.SECOND_LESS] = csv("ncei less")
+        got = self.fetch(answers)
+        self.assertEqual((got.text, got.url, got.from_cache), (csv("ncei less"), self.SECOND_LESS, False))
+        self.assertEqual(got.warnings, [
+            f"{self.failed(self.PRIMARY)}; {self.failed(self.FINAL)}; "
+            f"HTTP Error 500: Internal Server Error ({self.SECOND}); served by {self.SECOND_LESS}"])
+        self.assertEqual((self.asked.count(self.SECOND), self.asked.count(self.SECOND_LESS)), (1, 1))
+        self.assertEqual(self.meta()["url"], self.SECOND_LESS)
+
+    def test_ncei_failing_its_subset_leaves_the_copy_and_is_asked_once(self):
+        self.fetch(self.hour())
+        self.asked.clear()
+        answers = self.down(self.hour(ncei=NEXT))
+        answers[self.SECOND] = RuntimeError("HTTP Error 500: Internal Server Error")
+        got = self.fetch(answers)
+        self.assertEqual((got.text, got.url, got.from_cache), (csv("cw"), self.PRIMARY, True))
+        self.assertEqual((self.asked.count(self.probe(self.SECOND)), self.asked.count(self.SECOND)),
+                         (1, 1))
+        self.assertEqual(got.warnings, [
+            f"live fetch failed ({self.failed(self.PRIMARY)}; {self.failed(self.FINAL)}; "
+            f"HTTP Error 500: Internal Server Error ({self.SECOND}))"])
+
+    def test_ncei_s_final_serves_when_all_else_fails(self):
+        got = self.fetch({self.probe(self.SECOND_FINAL): FINAL_LAST,
+                          self.SECOND_FINAL: csv("ncei final")})
+        self.assertEqual((got.text, got.url), (csv("ncei final"), self.SECOND_FINAL))
+        self.assertEqual(got.warnings, [
+            f"{self.failed(self.PRIMARY)}; {self.failed(self.SECOND)}; {self.failed(self.FINAL)}; "
+            f"served by {self.SECOND_FINAL}"])
+        self.assertEqual(self.meta("grid.final")["url"], self.SECOND_FINAL)
+
+    def test_a_preliminary_stalled_at_ncei_is_named_against_the_final(self):
+        got = self.fetch(self.down(self.hour(ncei=STALLED)))
+        self.assertEqual(got.url, self.SECOND_FINAL)
+        (warning,) = got.warnings
+        self.assertIn(f"latest day 2026-09-01, no later than the final's ({self.SECOND})", warning)
+
+    def test_nothing_at_all_is_an_error_naming_all_four_addresses(self):
+        got = self.fetch({})
+        self.assertFalse(got.ok)
+        self.assertEqual(got.error, "; ".join(self.failed(url) for url in (
+            self.PRIMARY, self.SECOND, self.FINAL, self.SECOND_FINAL)))
+
+    def test_offline_the_copy_serves_whichever_server_it_came_from(self):
+        self.fetch(self.down(self.hour()))
+        self.asked.clear()
+        got = self.fetch({}, offline=True)
+        self.assertEqual(self.asked, [])
+        self.assertEqual((got.text, got.url, got.from_cache), (csv("ncei"), self.SECOND, True))
 
 
 # --- the day by day boxes and the Hovmoller's latest rows ---------------------
@@ -623,6 +919,20 @@ class TestSpatialInRealTime(unittest.TestCase):
     def test_a_map_the_final_served_is_not_preliminary(self):
         final = sources.SOURCES_BY_KEY["sst_pacific"].final
         state = pipeline.build_spatial({"sst_pacific": _fetched("sst_pacific", PACIFIC, final)})
+        self.assertEqual(state.sst_map.preliminary, "")
+
+    def test_a_map_ncei_served_says_which_analysis_it_is_alike(self):
+        # NCEI names the depth axis "depth" and its units "Celsius"; the cells
+        # and their values are CoastWatch's.
+        pacific = sources.SOURCES_BY_KEY["sst_pacific"]
+        ncei = PACIFIC.replace(",zlev,", ",depth,").replace("degree_C", "Celsius")
+        coastwatch = pipeline.build_spatial({"sst_pacific": _fetched("sst_pacific", PACIFIC)})
+        state = pipeline.build_spatial({"sst_pacific": _fetched("sst_pacific", ncei,
+                                                                pacific.fallback[0])})
+        self.assertEqual(state.sst_map.preliminary, "2026-10-12")
+        self.assertEqual(state.sst_map.values, coastwatch.sst_map.values)
+        state = pipeline.build_spatial({"sst_pacific": _fetched("sst_pacific", ncei,
+                                                                pacific.final_fallback[0])})
         self.assertEqual(state.sst_map.preliminary, "")
 
     def test_the_global_map_says_which_product_served_it_as_well(self):

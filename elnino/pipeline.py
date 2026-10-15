@@ -170,8 +170,9 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
 
     def preliminary(key: str, grid):
         """The map as served: its day marked preliminary when OISST's
-        preliminary product served it, rather than the final behind it."""
-        if grid is None or not fetched[key].url.startswith(sources.OISST_NRT + "?"):
+        preliminary product served it, of either server, rather than the final
+        behind it."""
+        if grid is None or not sources.is_preliminary(fetched[key].url):
             return grid
         return replace(grid, preliminary=grid.as_of)
 
