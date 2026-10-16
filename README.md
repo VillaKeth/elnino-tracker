@@ -622,7 +622,14 @@ news stays a day, whatever the cadence: an alert is marked `NEW` for a day from
 when it was raised, a rise for a day while the alert stays above the level it
 rose from, both when it rose in the day it was raised, and an alert cleared is
 listed for a day unless raised again; each says when it was raised, to the
-minute. The two change rules, CPC's advisory
+minute. Some alerts are rungs of one ladder, raised one at a time, the highest
+that holds: the index's steps, an episode forming and formal, a season in the
+top three and the record, warm water volume in the top five and the record, the
+Walker circulation coupled and extreme, a forecast very strong and historic,
+and a storm's strength, a hurricane and a major one. Up a ladder, the higher
+rung is new and the one it leaves is not listed as cleared, since its condition
+still holds; down, the lower rung stands since the ladder was first raised, and
+the one it leaves has cleared. The two change rules, CPC's advisory
 status and the official index moving 0.15 °C or more, compare the run with the
 state a day before it: the latest snapshot at least 24 hours older, or with none
 so old the earliest, and say that state's time. Marked on its run alone, any of
@@ -2363,7 +2370,7 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1906 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1914 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -2441,7 +2448,8 @@ Schema 13 adds each feed's `rested`, true for an ERDDAP table downloaded within
 the hour and served without being asked again; `unchanged` is now true also
 when a file's server answered 304 Not Modified. An alert's `is_new` and
 `escalated_from`, and `alerts_cleared`, now say the day before the run, not the
-run alone.
+run alone; a rung of a ladder stepped down to keeps the ladder's `first_seen`,
+and one stepped up from is not in `alerts_cleared`.
 `output/run.json`, written after every other file of a run, names that run and
 nothing else: an open page asks for it to learn whether the site has a newer one
 (*The live site*).
@@ -2654,7 +2662,7 @@ run every hour, or as often as `--watch` asks, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1906 tests, no network required. They cover:
+1914 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2792,7 +2800,9 @@ python -m unittest discover -s tests -v
 - **storage**: snapshot round-trips; an alert keeping its first-seen time
   across runs and clearing when it stops firing; its news kept a day, raised,
   raised a level while it stays above, both, or cleared unless raised again, in a
-  record made before the news columns too, and said to the minute; the change
+  record made before the news columns too, and said to the minute; a ladder's
+  rung stepped up to new and the one left not cleared, and stepped down to
+  standing since the ladder was raised and the one left cleared; the change
   rules against the state a day before, or the earliest, never the run itself,
   and naming its time; the fetch log kept a week, and a series value kept once,
   from the run that first saw it;

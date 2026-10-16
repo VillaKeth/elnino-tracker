@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS alerts (
     last_seen   TEXT NOT NULL,
     cleared_at  TEXT,
     raised_from TEXT,
-    raised_at   TEXT
+    raised_at   TEXT,
+    ladder_since TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS alerts_open
@@ -87,8 +88,9 @@ class Snapshot:
 
 # The columns added to a table since it was first made, which a database made
 # before them gains on connecting: the level an open alert last rose from, and
-# when.
-ADDED = {"alerts": (("raised_from", "TEXT"), ("raised_at", "TEXT"))}
+# when, and, for an alert raised a rung up its ladder, since when the ladder
+# has stood.
+ADDED = {"alerts": (("raised_from", "TEXT"), ("raised_at", "TEXT"), ("ladder_since", "TEXT"))}
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -241,6 +243,20 @@ def raise_alert(conn: sqlite3.Connection, code: str, was: str, seen_at: str) -> 
     conn.execute(
         "UPDATE alerts SET raised_from = ?, raised_at = ? WHERE code = ? AND cleared_at IS NULL",
         (was, seen_at, code),
+    )
+    conn.commit()
+
+
+def step_alert(conn: sqlite3.Connection, code: str, first_seen: str | None = None,
+               ladder_since: str | None = None) -> None:
+    """Note of the open alert ``code``, raised as a rung of a ladder in place
+    of another, since when it stands, ``first_seen``, as a rung below the one
+    it replaced, or since when its ladder has stood, ``ladder_since``, as a
+    rung above it."""
+    conn.execute(
+        "UPDATE alerts SET first_seen = COALESCE(?, first_seen), "
+        "ladder_since = COALESCE(?, ladder_since) WHERE code = ? AND cleared_at IS NULL",
+        (first_seen, ladder_since, code),
     )
     conn.commit()
 

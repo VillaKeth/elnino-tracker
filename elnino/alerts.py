@@ -52,6 +52,22 @@ STALE_DAYS = 45  # an index this old means the monthly update was missed
 # does (the change rules' baseline).
 NEWS = timedelta(hours=24)
 
+# The alerts the rules raise as rungs of one ladder, lowest first: one rung at
+# a time, the highest that holds, each implying those below it. A storm's
+# strength (its tc_hurricane_ and tc_major_) and the index's steps (index_ge_)
+# are ladders too. Up a ladder, the higher rung is new and the one it leaves
+# has not cleared, since its condition still holds; down, the lower rung
+# stands since the ladder was first raised, and the one it leaves has cleared.
+# As alerts of their own, EP21's hurricane alert was listed as cleared for a
+# day while it was a major hurricane (16 October 2026).
+LADDERS = (
+    ("episode_forming", "episode_qualified"),
+    ("top3_season", "record_season"),
+    ("wwv_top5", "wwv_record"),
+    ("walker_coupled", "walker_extreme"),
+    ("forecast_very_strong", "forecast_historic"),
+)
+
 
 @dataclass
 class Alert:
@@ -993,16 +1009,21 @@ def reconcile(conn, alerts: list[Alert], seen_at: str) -> AlertSet:
     from . import storage
 
     ordered = sorted(alerts, key=lambda alert: (alert.rank, alert.code))
-    before = {row["code"]: row["level"] for row in storage.open_alerts(conn)}
+    before = {row["code"]: row for row in storage.open_alerts(conn)}
     for alert in ordered:
         storage.upsert_alert(conn, alert.code, alert.level, alert.title, alert.detail,
                              alert.value, seen_at)
         # A standing alert that got worse is news even though its condition
         # is not: a threat that was a watch yesterday and a strike today.
         was = before.get(alert.code)
-        if was is not None and alert.rank < LEVEL_ORDER.get(was, 9):
-            storage.raise_alert(conn, alert.code, was, seen_at)
-    storage.clear_missing_alerts(conn, {a.code for a in ordered}, seen_at)
+        if was is not None and alert.rank < LEVEL_ORDER.get(was["level"], 9):
+            storage.raise_alert(conn, alert.code, was["level"], seen_at)
+    raised = {alert.code for alert in ordered}
+    storage.clear_missing_alerts(conn, raised, seen_at)
+    left = [row for code, row in before.items() if code not in raised]
+    for alert in ordered:
+        if alert.code not in before:
+            _step(conn, alert, left, seen_at)
 
     open_rows = {row["code"]: row for row in storage.open_alerts(conn)}
     for alert in ordered:
@@ -1014,9 +1035,60 @@ def reconcile(conn, alerts: list[Alert], seen_at: str) -> AlertSet:
                                 and alert.rank < LEVEL_ORDER.get(rose, 9) else None)
     cleared = []
     for row in storage.cleared_since(conn, seen_at, NEWS):
-        if row["code"] not in open_rows and row["code"] not in cleared and _news(row["cleared_at"], seen_at):
-            cleared.append(row["code"])
+        code = row["code"]
+        if (code not in open_rows and code not in cleared and _news(row["cleared_at"], seen_at)
+                and not _held(code, open_rows)):
+            cleared.append(code)
     return AlertSet(alerts=ordered, cleared=cleared)
+
+
+def rung(code: str) -> tuple[str, float] | None:
+    """The ladder an alert's code is a rung of (LADDERS) and how high on it,
+    or None for an alert on none."""
+    for prefix, height in (("tc_hurricane_", 1.0), ("tc_major_", 2.0)):
+        if code.startswith(prefix):
+            return "tc_strength_" + code[len(prefix):], height
+    if code.startswith("index_ge_"):
+        try:
+            return "index_ge", float(code[len("index_ge_"):])
+        except ValueError:
+            return None
+    for rungs in LADDERS:
+        if code in rungs:
+            return rungs[0], float(rungs.index(code))
+    return None
+
+
+def _step(conn, alert: Alert, left, seen_at: str) -> None:
+    """An alert raised in place of a rung of its ladder that stood before this
+    run, one of those ``left``: up, it is new, notes since when the ladder has
+    stood, and a level it rose is said; down, it stands since then."""
+    from . import storage
+
+    step = rung(alert.code)
+    if step is None:
+        return
+    for row in left:
+        other = rung(row["code"])
+        if other is None or other[0] != step[0]:
+            continue
+        since = row["ladder_since"] or row["first_seen"]
+        if step[1] > other[1]:
+            storage.step_alert(conn, alert.code, ladder_since=since)
+            if alert.rank < LEVEL_ORDER.get(row["level"], 9):
+                storage.raise_alert(conn, alert.code, row["level"], seen_at)
+        else:
+            storage.step_alert(conn, alert.code, first_seen=since)
+        return
+
+
+def _held(code: str, standing) -> bool:
+    """Whether a higher rung of the ladder ``code`` is on is among the codes
+    ``standing``: its condition then still holds, and it has not cleared."""
+    step = rung(code)
+    return step is not None and any(
+        other is not None and other[0] == step[0] and other[1] > step[1]
+        for other in map(rung, standing))
 
 
 def _news(stamp, now: str) -> bool:

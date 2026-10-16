@@ -92,8 +92,12 @@ hour late.
    it rose from (the alerts table gains `raised_from` and `raised_at`, added to
    a database made before them), and both when it rose in the day it was
    raised; an alert cleared is listed for a day unless raised again. The page
-   and the report say when each was raised, to the
-   minute.
+   and the report say when each was raised, to the minute. An alert that is
+   a rung of a ladder (`alerts.LADDERS`, a storm's strength, the index's
+   steps) moves on it: up, the higher rung is new and the one left is not
+   listed as cleared; down, the lower rung stands since the ladder was first
+   raised (`ladder_since`, added as the news columns are), and the one left
+   has cleared.
 6. **A bounded record.** `fetch_log` keeps a week: 50 rows a run are 0.7 MB a
    day in the carried database, 20 MB over thirty days. `series` writes a value
    only when it is not the latest recorded for its key and period, so each
@@ -142,4 +146,7 @@ Designs 3 to 8 follow on the same branch.
 - An alert raised and raised a level within the day, marked both ways; a day
   of cleared alerts wrapped in the report.
 - The state let go of only after a good run on `main`.
+- A ladder stepped up, new and the rung left not cleared, and down, standing
+  since the ladder was raised; one storm's ladder not another's; a record from
+  before the ladders.
 - The README and the workflow text, as before.

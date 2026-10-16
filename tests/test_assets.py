@@ -309,9 +309,11 @@ console.log(JSON.stringify([first.text, second.text, FETCHED.length, kept()]));"
 
     def test_a_page_tells_it_the_assets_it_names_and_they_are_kept_from_a_first_visit(self):
         a, b = self.named("desk", "var desk = 1;\n"), self.named("follower", "var follower = 1;\n")
+        # Kept in the order their digests come back, which on a busy machine
+        # is the thread pool's: the two were once kept follower first.
         got = self.run_worker("""
 await tell({keep: [A, B, "https://example.org/x.js", 5, SITE + "dashboard.html"]});
-var first = [kept(), FETCHED.slice()];
+var first = [kept().sort(), FETCHED.slice()];
 await tell({keep: [A, B]});
 await tell({});
 await tell("nonsense");

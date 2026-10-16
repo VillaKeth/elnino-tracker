@@ -7249,6 +7249,108 @@ class TestAlertNews(unittest.TestCase):
                                    (alerts.WATCH, "2026-10-15T13:50:00+00:00"))]
         self.assertEqual(said, [alerts.WATCH, alerts.WATCH, None])
 
+    def test_an_alert_on_a_ladder_is_found_on_it_below_its_higher_rungs(self):
+        for low, high in (("tc_hurricane_ep212026", "tc_major_ep212026"), ("index_ge_1.5", "index_ge_2.0"),
+                          ("index_ge_0.5", "index_ge_2.5"), ("episode_forming", "episode_qualified"),
+                          ("top3_season", "record_season"), ("wwv_top5", "wwv_record"),
+                          ("walker_coupled", "walker_extreme"),
+                          ("forecast_very_strong", "forecast_historic")):
+            with self.subTest(low=low, high=high):
+                (ladder, below), (same, above) = alerts.rung(low), alerts.rung(high)
+                self.assertEqual(ladder, same)
+                self.assertLess(below, above)
+        self.assertNotEqual(alerts.rung("tc_major_ep212026")[0], alerts.rung("tc_major_ep222026")[0])
+        # The atmosphere lagging a warm ocean is a state of its own, not a rung
+        # below coupling; a threat to a place moves within its own code.
+        for code in ("warm_but_uncoupled", "tc_threat_ep212026_manzanillo", "index_ge_x", "oni_ge_1.5",
+                     "feeds_failed", "wwv_record_x"):
+            with self.subTest(code=code):
+                self.assertIsNone(alerts.rung(code))
+
+    def test_each_rung_named_is_a_code_the_rules_raise(self):
+        source = Path(alerts.__file__).read_text(encoding="utf-8")
+        for rungs in alerts.LADDERS:
+            for code in rungs:
+                with self.subTest(code=code):
+                    self.assertIn(f'code="{code}"', source)
+        for code in ('code=f"tc_hurricane_{storm.key}"', 'code=f"tc_major_{storm.key}"',
+                     'code=f"index_ge_{threshold:.1f}"'):
+            self.assertIn(code, source)
+
+    def test_a_storm_made_major_is_new_and_its_hurricane_alert_has_not_cleared(self):
+        alerts.reconcile(self.conn, [self.alert("tc_hurricane_ep212026", alerts.WATCH)],
+                         "2026-10-14T06:00:00+00:00")
+        for run in ("2026-10-16T06:00:00+00:00", "2026-10-16T12:00:00+00:00"):
+            made = alerts.reconcile(self.conn, [self.alert("tc_major_ep212026", alerts.WARNING)], run)
+            [major] = made.alerts
+            self.assertEqual((major.news, major.first_seen, made.cleared),
+                             (["NEW", "ESCALATED from WATCH"], "2026-10-16T06:00:00+00:00", []))
+
+    def test_a_major_storm_weakened_stands_as_a_hurricane_and_its_major_alert_has_cleared(self):
+        # As a Category 2 again, its hurricane alert was raised as new for a
+        # day, as if it had only now become a hurricane.
+        for code, level, run in (("tc_hurricane_ep212026", alerts.WATCH, "2026-10-12T06:00:00+00:00"),
+                                 ("tc_major_ep212026", alerts.WARNING, "2026-10-13T06:00:00+00:00")):
+            alerts.reconcile(self.conn, [self.alert(code, level)], run)
+        weaker = alerts.reconcile(self.conn, [self.alert("tc_hurricane_ep212026", alerts.WATCH)],
+                                  "2026-10-16T06:00:00+00:00")
+        [hurricane] = weaker.alerts
+        self.assertEqual((hurricane.news, hurricane.first_seen, weaker.cleared),
+                         ([], "2026-10-12T06:00:00+00:00", ["tc_major_ep212026"]))
+
+    def test_a_ladder_up_and_back_within_the_day_stands_since_it_was_first_raised(self):
+        # A forecast that touches historic intensity for a run and falls back:
+        # very strong held all the while.
+        runs = ("2026-10-01T00:00:00+00:00", "2026-10-16T06:00:00+00:00", "2026-10-16T06:10:00+00:00")
+        alerts.reconcile(self.conn, [self.alert("forecast_very_strong", alerts.WARNING)], runs[0])
+        up = alerts.reconcile(self.conn, [self.alert("forecast_historic", alerts.CRITICAL)], runs[1])
+        self.assertEqual((up.alerts[0].news, up.cleared), (["NEW", "ESCALATED from WARNING"], []))
+        back = alerts.reconcile(self.conn, [self.alert("forecast_very_strong", alerts.WARNING)], runs[2])
+        [strong] = back.alerts
+        self.assertEqual((strong.news, strong.first_seen, back.cleared), ([], runs[0], ["forecast_historic"]))
+        again = alerts.reconcile(self.conn, [self.alert("forecast_historic", alerts.CRITICAL)],
+                                 "2026-10-16T06:20:00+00:00")
+        self.assertEqual((again.alerts[0].news, again.cleared), (["NEW", "ESCALATED from WARNING"], []))
+
+    def test_the_index_a_step_higher_at_the_same_level_is_new(self):
+        # +1.5 and +2.0 are both warnings: very strong is news though its level
+        # is not, and strong still holds.
+        alerts.reconcile(self.conn, [self.alert("index_ge_1.5", alerts.WARNING)], "2026-09-01T00:00:00+00:00")
+        up = alerts.reconcile(self.conn, [self.alert("index_ge_2.0", alerts.WARNING)],
+                              "2026-10-16T06:00:00+00:00")
+        self.assertEqual((up.alerts[0].news, up.cleared), (["NEW"], []))
+
+    def test_an_alert_on_no_ladder_or_another_is_raised_and_cleared_as_before(self):
+        alerts.reconcile(self.conn, [self.alert("walker_coupled", alerts.WARNING)], "2026-10-01T00:00:00+00:00")
+        out = alerts.reconcile(self.conn, [self.alert("warm_but_uncoupled", alerts.WATCH)],
+                               "2026-10-16T06:00:00+00:00")
+        self.assertEqual((out.alerts[0].news, out.cleared), (["NEW"], ["walker_coupled"]))
+        alerts.reconcile(self.conn, [self.alert("tc_hurricane_ep212026", alerts.WATCH)], "2026-10-16T07:00:00+00:00")
+        other = alerts.reconcile(self.conn, [self.alert("tc_major_ep222026", alerts.WARNING)],
+                                 "2026-10-16T08:00:00+00:00")
+        self.assertEqual((other.alerts[0].news, other.cleared[0]), (["NEW"], "tc_hurricane_ep212026"))
+
+    def test_a_record_from_before_the_ladders_gains_them(self):
+        old = Path(self.tmp.name) / "old.db"
+        made = sqlite3.connect(str(old))
+        made.executescript(
+            "CREATE TABLE alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, "
+            "level TEXT NOT NULL, title TEXT NOT NULL, detail TEXT, value REAL, "
+            "first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, cleared_at TEXT, "
+            "raised_from TEXT, raised_at TEXT);"
+            "INSERT INTO alerts (code, level, title, first_seen, last_seen) VALUES "
+            f"('tc_major_ep212026', '{alerts.WARNING}', 't', '2026-10-15T00:00:00+00:00', "
+            "'2026-10-16T13:20:00+00:00');")
+        made.commit()
+        made.close()
+        conn = storage.connect(old)
+        try:
+            [alert] = alerts.reconcile(conn, [self.alert("tc_hurricane_ep212026", alerts.WATCH)],
+                                       "2026-10-16T13:30:00+00:00").alerts
+            self.assertEqual((alert.news, alert.first_seen), ([], "2026-10-15T00:00:00+00:00"))
+        finally:
+            conn.close()
+
     def test_a_record_from_before_the_news_keeps_its_alerts_and_gains_it(self):
         old = Path(self.tmp.name) / "old.db"
         made = sqlite3.connect(str(old))
