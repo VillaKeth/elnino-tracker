@@ -8,9 +8,9 @@
 [latest.json](https://villaketh.github.io/elnino-tracker/latest.json) ·
 [storms.json](https://villaketh.github.io/elnino-tracker/storms.json)
 
-Free, no account, nothing to install. The site refreshes itself every hour:
-GitHub runs the tracker and publishes the run, and a page left open takes each
-new run on its own. The dashboard, the storm desk and the map say when their
+Free, no account, nothing to install. The site refreshes itself every ten
+minutes: GitHub runs the tracker and publishes the run, and a page left open
+takes each new run on its own. The dashboard, the storm desk and the map say when their
 run was. Every page opens on one menu of the four, Dashboard, El Niño Map,
 Storm Desk and Atlas, so each is a click from any other; on the dashboard it
 stays at the top as you scroll. The mark beside the site's name, which is also
@@ -2226,8 +2226,8 @@ daily; the Diagnostic Discussion is issued on the second Thursday. For the ENSO
 state alone, running more often than daily gains nothing. The tropical cyclone
 products change faster: advisories every six hours with intermediates between,
 outlooks four times a day, JTWC's warnings six-hourly. That is why the site runs
-every hour (*The live site*); `--watch` refuses only intervals under 15 minutes,
-which would be load on NOAA for nothing new.
+every ten minutes (*The live site*); `--watch` runs no more often than every
+15 minutes.
 
 If a feed is unreachable the tracker falls back to the last cached copy and says
 so and why: in the report, under the feed in the dashboard's provenance panel, in
@@ -2262,8 +2262,8 @@ Every run is written to `data/elnino.db` (SQLite, stdlib):
 ```
 track.py                 CLI entry point, exit codes, watch loop, storm desk server
 publish.py               puts output/ up as the site on GitHub Pages, under the site's name
-publish.sh               runs the tracker, then publishes the run: what the hourly run calls
-.github/workflows/       live.yml, the hourly run that keeps the site live; tests.yml
+publish.sh               runs the tracker, then publishes the run: what the live run calls
+.github/workflows/       live.yml, the ten-minute run that keeps the site live; tests.yml
 elnino/sources.py        50-feed registry, parallel fetch, retry, cache + archive
 elnino/parsers.py        one parser per NOAA format, each with its quirks documented
 elnino/classify.py       episodes, ranking, scale, flavour, analogs, power index
@@ -2322,7 +2322,7 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1859 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1861 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -2407,8 +2407,8 @@ never has to distinguish "missing" from "not applicable".
 
 ## Scheduling a daily refresh
 
-The published site needs none of this: GitHub refreshes it every hour (*The live
-site*). On this machine nothing is set up automatically. To have Windows refresh it
+The published site needs none of this: GitHub refreshes it every ten minutes (*The
+live site*). On this machine nothing is set up automatically. To have Windows refresh it
 every morning at 07:30, from a Command Prompt (the quoting is cmd's, not
 PowerShell's):
 
@@ -2434,8 +2434,8 @@ schtasks /create /f /tn "El Nino Tracker" /tr "\"%USERPROFILE%\Desktop\elnino-tr
 The pages are published at **<https://villaketh.github.io/elnino-tracker/>**: the
 dashboard, with the storm desk, the map, the atlas, both JSON files and the run's
 `run.json` beside it, served by GitHub Pages from this repository's `gh-pages`
-branch. GitHub puts each hour's run there (*The live site*); to put this
-machine's last run there:
+branch. GitHub puts each run there (*The live site*); to put this machine's
+last run there:
 
 ```
 python publish.py                 # publish the pages output/ holds now
@@ -2444,7 +2444,7 @@ python publish.py --allow-older   # publish even though the site shows a later r
 ```
 
 or double-click **`publish.bat`**, which runs the tracker and then publishes it
-(`./publish.sh` is its twin for Linux and macOS, and what the hourly run calls). A
+(`./publish.sh` is its twin for Linux and macOS, and what the live run calls). A
 run with open alerts (exit 1) or failed feeds (exit 3) is published, and its pages
 say so; a run that could not happen publishes nothing. `publish.bat` exits with
 the run's own code once it is published, 2 when the tracker did not run, and 4
@@ -2476,32 +2476,42 @@ Served from GitHub, the pages draw everything the local ones do (*Maps, imagery
 and search*, under *Data sources*), OpenStreetMap included, which refuses a page
 opened from a file. The site's data are the last run's: the imagery under the
 storms is live, but the storms, the outlooks and the ENSO state are as that run
-found them, within the hour while the hourly run keeps up, and each page says
+found them, within ten minutes while the live run keeps up, and each page says
 when that was.
 
 ---
 
 ## The live site
 
-GitHub runs the tracker every hour and publishes the run, so the site is never
-much more than an hour, plus GitHub's queue, behind the feeds
-(`.github/workflows/live.yml`):
+GitHub runs the tracker every ten minutes, as its schedule fires, and
+publishes the run (`.github/workflows/live.yml`):
 
-- **The run.** At twelve minutes past each hour (the products land on the hour,
-  and GitHub queues scheduled runs longest at the top of it), on every push to
-  `main`, and on request. GitHub may hold a scheduled run under load, or drop
-  it, as it dropped the first of all, so 42 past is a second chance: it asks
-  when `gh-pages` was last published and stands down if that was this hour
-  (UTC), running on any doubt. Held into the next hour, as GitHub held it to
-  08:01 and 14:03 on 14 October 2026, it is that hour's run: standing down on
-  a site under 45 minutes old, as it then did, left the site two hours old.
-  One runs at a time. Each calls
+- **The run.** At two minutes past each ten (off the marks most schedules
+  use), on every push to `main`, and on request. Six publishes an hour are six
+  GitHub Pages builds, under Pages' soft limit of ten an hour for a site built
+  from a branch, with room for pushes. A run takes under a minute: 53 s at
+  13:25 UTC on 16 October, the tracker 29 s of it and its 50 feeds 3 s of that.
+  GitHub holds scheduled runs under load, most at the start of each hour, and
+  drops some: the first of all, and about four slots in five from 6 to 15
+  October 2026. So each slot is a second chance for the one before: it asks
+  when `gh-pages` was last published and stands down if that was in its ten
+  minutes (UTC, counted from :00), running on any doubt, a publish dated ahead
+  of the clock among them. Held into the next ten, as GitHub held runs to 08:01
+  and 14:03 on 14 October 2026, it is that ten's run: the hourly second chance
+  stood down then on a site under 45 minutes old, and left it two hours old. A
+  push or a request runs unless a later run takes its place while it waits, as
+  GitHub keeps only the latest waiting: a scheduled one in its place stands
+  down on a site published in its ten minutes by the code before, and the new
+  code goes up with the next ten's run. One runs at a time. Each calls
   `./publish.sh`, which runs `track.py --brief` and then publishes the run with
   `publish.py`, its refusals and all, under the run's own short-lived token.
 - **The state.** `data/elnino.db` and the cached downloads are carried from one
   run to the next in the Actions cache, so the alerts are reconciled against the
   last run and a failed feed falls back on its last copy. The dated archive is
-  left out: nothing reads it back. GitHub drops a cache unused for seven days, so
+  left out: nothing reads it back. Once a run's own state is saved and listed,
+  it lets go of the one it started from: at 21 MB a run they came to 3 GB a
+  day, against the repository's 10 GB, and only the latest is ever restored.
+  GitHub drops a cache unused for seven days, so
   after a longer gap the next run starts afresh: every open alert reads as new,
   and no feed has a copy to fall back on for that run.
 - **What stays.** The pages' code, and the data that do not change from run to
@@ -2525,7 +2535,7 @@ much more than an hour, plus GitHub's queue, behind the feeds
   visit on. A page opened as a file, or from an address that is not secure, has
   no worker, and the browser's own cache.
   Measured on a phone's line (1.6 Mbps, 150 ms, its processor slowed four
-  times), the median of repeated visits each made after an hourly publish: the
+  times), the median of repeated visits each made after a publish: the
   map loads in 1.4 s where the page of one file took 4.9 s, the storm desk in
   0.7 s where it took 4.2, the atlas in 0.8 s where it took 14.9, and the
   dashboard in 5.8 s where it took 8.4, fetching the page alone, 81 KB (the map
@@ -2578,12 +2588,12 @@ Run it now from the Actions tab (*Live site*, then *Run workflow*) or with
 fails, and GitHub notifies the repository's owner; the site keeps its last run.
 A run with open alerts or failed feeds is published, with a notice or a warning
 on the run, as its pages say. GitHub pauses the schedules of a public repository
-after 60 days without activity: each scheduled run enables its own workflow
-again, which keeps that pause off, and should it ever be paused, the Actions tab
-turns it back on.
+after 60 days without activity: each scheduled run that publishes enables its
+own workflow again, which keeps that pause off, and should it ever be paused,
+the Actions tab turns it back on.
 
-On this machine, `python track.py --serve --watch` does the same for a tablet: a
-run every hour, and served pages that follow it.
+On this machine, `python track.py --serve --watch` does likewise for a tablet: a
+run every hour, or as often as `--watch` asks, and served pages that follow it.
 
 ---
 
@@ -2593,7 +2603,7 @@ run every hour, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1859 tests, no network required. They cover:
+1861 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -3006,11 +3016,15 @@ python -m unittest discover -s tests -v
   were not written again); the dashboard's run time ageing, and its body named
   to the follower, every part of it wearing an id of its own; the atlas's view
   and layers kept, the plain page with no base among them, junk refused and a
-  view turned any number of times put back on the world; and the hourly run's schedule, token, state, remote, keep-alive,
-  time limit and actions pinned to commits, no pull request starting it, and the
-  suite's Python and node, read as text, and its second chance at 42 past, whose
-  check runs under bash against a gh that answers or fails and a clock, standing
-  down only on a site published this hour, held past the hour or not;
+  view turned any number of times put back on the world; and the live run's
+  ten-minute schedule, token, state, remote, keep-alive, time limit and actions
+  pinned to commits, no pull request starting it, and the suite's Python and
+  node, read as text, and the check each scheduled run makes, run under bash
+  against a gh that answers or fails and a clock, standing down only on a site
+  published in its ten minutes, held past them or not, never on one dated
+  ahead of the clock, while a push or a dispatch runs; and the state a run
+  started from let go of, run under bash against a gh that lists or fails,
+  only once the run's own is listed by its whole key;
 - **the street**: the card's composite matching the atlas tool's own on a full
   record, the event under way and the months still under way left out, a season
   short of three events or six neutral years said and not drawn, rain in

@@ -8890,7 +8890,7 @@ class TestExitCodes(unittest.TestCase):
         self.assertIn('if ! python3 publish.py "$@"; then\n', script)
 
     def test_the_posix_publisher_keeps_lf_endings_in_every_checkout(self):
-        # The hourly run is Linux: "sh\r" is no shell, and a checkout under
+        # The live run is Linux: "sh\r" is no shell, and a checkout under
         # core.autocrlf would otherwise give it one.
         script = (ROOT / "publish.sh").read_bytes()
         self.assertTrue(script.startswith(b"#!/bin/sh\n"))

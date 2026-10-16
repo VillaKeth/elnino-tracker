@@ -1,5 +1,5 @@
 """The live site: pages that follow the run the site serves (elnino/live.py),
-the beacon a run writes last, and the hourly run on GitHub that publishes it."""
+the beacon a run writes last, and the live run on GitHub that publishes it."""
 
 from __future__ import annotations
 
@@ -2522,7 +2522,7 @@ console.log(JSON.stringify(out));
                                          "calls": ["syncBar", "schedule"]}})
 
 
-class TestTheHourlyRun(unittest.TestCase):
+class TestTheLiveRun(unittest.TestCase):
     """.github/workflows/live.yml and tests.yml, read as text."""
 
     def setUp(self):
@@ -2530,27 +2530,33 @@ class TestTheHourlyRun(unittest.TestCase):
         self.live = (workflows / "live.yml").read_text(encoding="utf-8")
         self.tests = (workflows / "tests.yml").read_text(encoding="utf-8")
 
-    def test_it_runs_every_hour_by_hand_and_on_new_code(self):
-        self.assertIn('    - cron: "12 * * * *"\n', self.live)
+    def test_it_runs_every_ten_minutes_by_hand_and_on_new_code(self):
+        # Two past each ten minutes, off the marks most schedules use: six
+        # publishes an hour, under GitHub Pages' soft limit of ten builds an
+        # hour for a site built from a branch, with room for pushes.
+        self.assertEqual(re.findall(r"- cron: (.*)", self.live), ['"2,12,22,32,42,52 * * * *"'])
         self.assertIn("  workflow_dispatch:\n", self.live)
         self.assertIn("  push:\n    branches: [main]\n", self.live)
 
-    def test_a_dropped_hour_has_a_second_chance_at_42_past(self):
+    def test_a_scheduled_run_waits_on_the_check_that_decides(self):
         # GitHub may hold a scheduled run under load, or drop it, as it dropped
-        # the first of all. The run waits on the check that decides.
-        self.assertIn('    - cron: "42 * * * *"\n', self.live)
+        # the first of all, so every slot is a second chance for the one before.
         self.assertIn("  run:\n    needs: due\n"
                       "    if: ${{ !cancelled() && needs.due.outputs.skip != 'true' }}\n", self.live)
         self.assertIn("--jq '(now - (.commit.committer.date | fromdateiso8601)) | floor'", self.live)
+        self.assertIn("          EVENT: ${{ github.event_name }}\n", self.live)
+        # Under the shell its test runs it with: bash's own -eo pipefail.
+        self.assertIn("        id: age\n        shell: bash\n", self.live)
 
-    @unittest.skipIf(sys.platform == "win32", "the hourly run is Linux")
-    def test_the_second_chance_stands_down_only_when_the_site_was_published_this_hour(self):
+    @unittest.skipIf(sys.platform == "win32", "the live run is Linux")
+    def test_a_scheduled_run_stands_down_only_when_the_site_was_published_in_its_ten_minutes(self):
         # The check's own script, under bash as the run has it, with a gh that
         # answers how many seconds ago gh-pages was published, or fails, and a
-        # date that answers the clock. Held into the next hour, as GitHub held
-        # the 42 past runs at 08:01 and 14:03 on 14 October 2026, the second
-        # chance is that hour's run: those two stood down on a site 36 and 37
-        # minutes old, and it went two hours unpublished.
+        # date that answers the clock. The time is cut into ten minutes from
+        # :00. Held into the next ten, as GitHub held runs to 08:01 and 14:03 on
+        # 14 October 2026, a run is that ten minutes' run: the old second chance
+        # stood down then on a site under 45 minutes old, and left it two hours
+        # old.
         body = self.live.split("        id: age\n", 1)[1].split("        run: |\n", 1)[1]
         lines = []
         for line in body.splitlines():
@@ -2569,20 +2575,29 @@ class TestTheHourlyRun(unittest.TestCase):
             clock.chmod(0o755)
             out, calls = here / "output", here / "calls"
             hour = 1791986400  # 14:00 UTC on 14 October 2026
-            for slot, now, ago, skip in (
-                    ("", 42 * 60, "300", "false"), ("12 * * * *", 42 * 60, "300", "false"),
-                    # On time at 14:42: published at 14:25, 14:00:01 and 14:00:00 this hour.
-                    ("42 * * * *", 42 * 60, "1020", "true"), ("42 * * * *", 42 * 60, "2519", "true"),
-                    ("42 * * * *", 42 * 60, "2520", "true"),
-                    # Published at 13:59:59 and 13:58: the 14:00 hour has no run yet.
-                    ("42 * * * *", 42 * 60, "2521", "false"), ("42 * * * *", 42 * 60, "2640", "false"),
-                    # Held to 14:03: published at 13:26, as on 14 October, or at 14:01.
-                    ("42 * * * *", 3 * 60, "2220", "false"), ("42 * * * *", 3 * 60, "120", "true"),
-                    ("42 * * * *", 42 * 60, "", "false"), ("42 * * * *", 42 * 60, "soon", "false")):
-                with self.subTest(slot=slot, now=now, ago=ago):
+            for event, now, ago, skip in (
+                    # A push and a dispatch always run, and ask nothing.
+                    ("push", 2 * 60, "60", "false"), ("workflow_dispatch", 2 * 60, "60", "false"),
+                    # On time at 14:42: published at 14:41, 14:40:01 and 14:40:00, these ten minutes.
+                    ("schedule", 42 * 60, "60", "true"), ("schedule", 42 * 60, "119", "true"),
+                    ("schedule", 42 * 60, "120", "true"),
+                    # Published at 14:39:59 and 14:33: these ten minutes have no run yet.
+                    ("schedule", 42 * 60, "121", "false"), ("schedule", 42 * 60, "540", "false"),
+                    # Held to 14:48: published at 14:46 by a dispatch, or at 14:33 by the run before.
+                    ("schedule", 48 * 60, "120", "true"), ("schedule", 48 * 60, "900", "false"),
+                    # Held into the next ten, to 14:51: published at 14:43 by its own ten's run,
+                    # or at 14:50:30 by another held run.
+                    ("schedule", 51 * 60, "480", "false"), ("schedule", 51 * 60, "30", "true"),
+                    # At the top of the hour, 15:02: published at 14:59, or at 15:00:30.
+                    ("schedule", 62 * 60, "180", "false"), ("schedule", 62 * 60, "90", "true"),
+                    # Published ahead of the clock, as publish.py stamps a commit with
+                    # the clock of the machine it runs on: any doubt runs it.
+                    ("schedule", 42 * 60, "-30", "false"), ("schedule", 42 * 60, "-3600", "false"),
+                    ("schedule", 42 * 60, "", "false"), ("schedule", 42 * 60, "soon", "false")):
+                with self.subTest(event=event, now=now, ago=ago):
                     out.write_text("", encoding="utf-8")
                     calls.unlink(missing_ok=True)
-                    env = dict(os.environ, PATH=f"{here}{os.pathsep}{os.environ['PATH']}", SLOT=slot, AGO=ago,
+                    env = dict(os.environ, PATH=f"{here}{os.pathsep}{os.environ['PATH']}", EVENT=event, AGO=ago,
                                NOW=str(hour + now), CALLS=str(calls), GITHUB_OUTPUT=str(out),
                                GITHUB_REPOSITORY="owner/repo")
                     done = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(here / "check.sh")],
@@ -2590,10 +2605,10 @@ class TestTheHourlyRun(unittest.TestCase):
                                           timeout=60)
                     self.assertEqual(done.returncode, 0, done.stderr)
                     self.assertEqual(out.read_text(encoding="utf-8"), f"skip={skip}\n")
-                    # Only the second chance asks GitHub anything.
+                    # Only a scheduled run asks GitHub anything.
                     asked = calls.read_text(encoding="utf-8") if calls.exists() else ""
                     self.assertEqual(asked.startswith("api repos/owner/repo/commits/gh-pages --jq "),
-                                     slot == "42 * * * *", asked)
+                                     event == "schedule", asked)
 
     def test_one_runs_at_a_time_and_none_is_cancelled(self):
         self.assertIn("concurrency:\n  group: live-site\n  cancel-in-progress: false\n", self.live)
@@ -2613,6 +2628,67 @@ class TestTheHourlyRun(unittest.TestCase):
         self.assertRegex(self.live, r"if: \$\{\{ !cancelled\(\) \}\}\n"
                                     r"        uses: actions/cache/save@[0-9a-f]{40} # v6\.\d+\.\d+\n")
 
+    def test_a_run_lets_go_of_the_state_it_started_from_once_its_own_is_saved(self):
+        # Each publishing run saved 21 MB: about 3 GB a day at a run every ten
+        # minutes, against the repository's 10 GB, and only the latest is ever
+        # restored.
+        self.assertIn("      - name: Restore the tracker's state\n        id: state\n", self.live)
+        self.assertIn("      - name: Save the tracker's state\n        id: saved\n", self.live)
+        step = self.live.split("- name: Let go of the state this run started from\n", 1)[1]
+        self.assertIn("if: ${{ !cancelled() && steps.saved.outcome == 'success' && "
+                      "steps.state.outputs.cache-matched-key != '' }}\n", step)
+        self.assertIn("continue-on-error: true\n", step)
+        self.assertIn("OLD: ${{ steps.state.outputs.cache-matched-key }}\n", step)
+        self.assertIn("NEW: tracker-state-${{ github.run_id }}-${{ github.run_attempt }}\n", step)
+        self.assertIn("shell: bash\n", step)
+
+    @unittest.skipIf(sys.platform == "win32", "the live run is Linux")
+    def test_the_state_let_go_of_is_the_one_restored_and_only_once_the_new_is_listed(self):
+        # The step's own script, under bash as the run has it, with a gh that
+        # lists the caches it is told to and records what it is asked to
+        # delete. A save that cannot reserve its key warns and goes on, so the
+        # new state is looked for by its key before the old is let go of.
+        body = self.live.split("- name: Let go of the state this run started from\n", 1)[1]
+        body = body.split("        run: |\n", 1)[1]
+        lines = []
+        for line in body.splitlines():
+            if line.strip() and not line.startswith(" " * 10):
+                break
+            lines.append(line[10:])
+        with tempfile.TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            (here / "letgo.sh").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+            gh = here / "gh"
+            gh.write_text('#!/bin/sh\n'
+                          'case "$1 $2" in\n'
+                          '  "cache list") [ -n "$FAIL" ] && exit 1; printf "%s" "$LISTED" ;;\n'
+                          '  "cache delete") echo "$3" >> "$CALLS" ;;\n'
+                          '  *) exit 2 ;;\n'
+                          'esac\n', encoding="utf-8", newline="\n")
+            gh.chmod(0o755)
+            calls = here / "calls"
+            old, new = "tracker-state-41-1", "tracker-state-42-1"
+            for listed, fail, before, deleted in (
+                    # This run's state is listed: the one it started from goes.
+                    (f"{new}\n", "", old, f"{old}\n"),
+                    # Not listed, as after a save that warned: nothing goes.
+                    ("", "", old, ""),
+                    # Only a key it begins, a later attempt's: nothing goes.
+                    ("tracker-state-42-10\n", "", old, ""),
+                    # GitHub could not be asked: nothing goes.
+                    (f"{new}\n", "1", old, ""),
+                    # Restored its own key: nothing goes.
+                    (f"{new}\n", "", new, "")):
+                with self.subTest(listed=listed, fail=fail, before=before):
+                    calls.unlink(missing_ok=True)
+                    env = dict(os.environ, PATH=f"{here}{os.pathsep}{os.environ['PATH']}", LISTED=listed,
+                               FAIL=fail, OLD=before, NEW=new, CALLS=str(calls))
+                    done = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(here / "letgo.sh")],
+                                          env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                          timeout=60)
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertEqual(calls.read_text(encoding="utf-8") if calls.exists() else "", deleted)
+
     def test_it_publishes_to_its_own_repository_over_https(self):
         self.assertIn("GH_TOKEN: ${{ github.token }}\n", self.live)
         self.assertIn("gh auth setup-git\n", self.live)
@@ -2629,7 +2705,7 @@ class TestTheHourlyRun(unittest.TestCase):
         self.assertIn("continue-on-error: true\n", step)
         self.assertIn('gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/live.yml/enable"', step)
 
-    def test_the_suite_runs_on_the_python_the_hourly_run_uses(self):
+    def test_the_suite_runs_on_the_python_the_live_run_uses(self):
         self.assertEqual(re.findall(r'python-version: "([\d.]+)"', self.live + self.tests), ["3.12", "3.12"])
         self.assertIn("run: python -m unittest discover -s tests -v\n", self.tests)
         self.assertIn("permissions:\n  contents: read\n", self.tests)
@@ -2642,7 +2718,7 @@ class TestTheHourlyRun(unittest.TestCase):
                                      r'        with:\n          node-version: "24"\n')
 
     def test_every_action_is_pinned_to_a_commit_and_names_its_release(self):
-        # A tag can be moved to other code; a commit cannot. The hourly run's
+        # A tag can be moved to other code; a commit cannot. The live run's
         # token may push to this repository.
         for name, text in (("live.yml", self.live), ("tests.yml", self.tests)):
             uses = re.findall(r"uses: (.*)", text)

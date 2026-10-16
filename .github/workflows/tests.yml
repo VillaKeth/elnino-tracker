@@ -1,4 +1,4 @@
-# The unit suite, on the Linux and the Python the hourly run uses, and with
+# The unit suite, on the Linux and the Python the live run uses, and with
 # the node that runs the pages' scripts in the page tests.
 name: Tests
 

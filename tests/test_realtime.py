@@ -343,7 +343,7 @@ class TestFetchFallbackAndProbe(_Fetching, unittest.TestCase):
 
     def test_with_no_day_said_by_either_the_preliminary_serves(self):
         # Were ERDDAP to answer the probe in some other form, the maps would
-        # stay on the preliminary and be downloaded every hour.
+        # stay on the preliminary and be downloaded every run.
         answers = {self.probe(self.PRIMARY): "", self.probe(self.FINAL): "",
                    self.PRIMARY: csv("a"), self.FINAL: csv("b")}
         self.assertEqual(self.fetch(answers).url, self.PRIMARY)

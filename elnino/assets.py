@@ -1,8 +1,8 @@
 """Code and data that are the same from run to run, in files beside the pages.
 
-Every page carried all of its code and data inline, and every hourly run
-rewrote every page, so a reader's browser fetched the gazetteer, the composite
-grids and the scripts again each hour, for each page. Those parts go instead
+Every page carried all of its code and data inline, and every run rewrote
+every page, so a reader's browser fetched the gazetteer, the composite grids
+and the scripts again after each run, for each page. Those parts go instead
 in files named by their contents, ``assets/<name>.<sha256[:10]>.js``, which a
 page names in its head as deferred classic scripts. A file's name changes only
 when its text does, so a browser keeps each one across runs and across the

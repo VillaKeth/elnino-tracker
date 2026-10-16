@@ -1640,8 +1640,8 @@ def payload(state) -> dict:
              "boxes": [[b.lon0, b.lon1, b.lat0, b.lat1] for b in f.boxes]}
             for f in geo.FOOTPRINTS
         ],
-        # Storms: the part of this file that changes between two runs an hour
-        # apart. Positions are decimal degrees, east and north positive, which
+        # Storms: the part of this file that changes most between two runs.
+        # Positions are decimal degrees, east and north positive, which
         # is not the convention ATCF stores them in - a consumer should never
         # have to know that 1015W means -101.5.
         "cyclones": {
@@ -1855,7 +1855,7 @@ def _atlas_json(state) -> dict | None:
 
     The grids themselves are not in here. They are a megabyte of vendored
     constants that have not changed since they were generated and will not
-    change between runs, so a snapshot that repeated them every hour would be
+    change between runs, so a snapshot that repeated them every run would be
     mostly the same megabyte over and over. A consumer that wants them imports
     ``elnino.composite``.
     """

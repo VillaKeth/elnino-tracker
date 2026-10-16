@@ -1,18 +1,20 @@
-# The live site: run the tracker every hour and publish the run to GitHub
-# Pages, so the site is never much more than an hour behind NOAA's feeds.
-# Open pages follow it on their own (elnino/live.py). Each action is pinned to
-# the commit of a release: a tag can be moved, and this run's token may push.
+# The live site: run the tracker every ten minutes, as GitHub's schedule
+# fires, and publish the run to GitHub Pages. Open pages follow it on their own
+# (elnino/live.py). Each action is pinned to the commit of a release: a tag can
+# be moved, and this run's token may push.
 name: Live site
 
 on:
   schedule:
-    # Twelve past each hour: the products land on the hour, and GitHub queues
-    # scheduled runs longest at the top of it.
-    - cron: "12 * * * *"
-    # A second chance: GitHub may hold a scheduled run under load, or drop
-    # it, as it dropped the first of all. It stands down when the hour's run
-    # has come; held into the next hour, it is that hour's run.
-    - cron: "42 * * * *"
+    # Two past each ten minutes, off the marks most schedules use: six
+    # publishes an hour, under GitHub Pages' soft limit of ten builds an hour
+    # for a site built from a branch, with room for pushes. GitHub holds
+    # scheduled runs under load, most at the start of each hour, and drops
+    # some: the first of all, and about four slots in five from 6 to 15
+    # October 2026. So each slot is a second chance for the one before: it
+    # stands down when its ten minutes' run has come, and held into the next
+    # ten it is that ten's run.
+    - cron: "2,12,22,32,42,52 * * * *"
   workflow_dispatch:
   push:
     branches: [main]
@@ -24,33 +26,37 @@ concurrency:
 
 permissions:
   contents: write  # to push gh-pages
-  actions: write   # to keep the schedule from pausing
+  actions: write   # to keep the schedule from pausing, and let go of old state
 
 jobs:
-  # Whether this run is due: only the second chance asks, and it stands down
-  # when the site was published this hour (UTC). Held past the hour, as GitHub
-  # held it to 08:01 and 14:03 on 14 October 2026, it publishes that hour's
-  # run: standing down on a site under 45 minutes old, as it did then, left
-  # the site two hours old. Any doubt runs it.
+  # Whether this run is due: one run in each ten minutes, the time cut into
+  # tens from :00 UTC. A scheduled run stands down when the site was published
+  # in its ten minutes, by a push, a dispatch or a run held into them. Held
+  # past its ten, as GitHub held runs to 08:01 and 14:03 on 14 October 2026,
+  # it is the next ten's run. A push or a dispatch runs, unless a later run
+  # takes its place while it waits: GitHub keeps only the latest waiting. Any
+  # doubt runs it, as a publish dated ahead of the clock does: publish.py
+  # stamps the commit with the clock of the machine it runs on.
   due:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       skip: ${{ steps.age.outputs.skip }}
     steps:
-      - name: Stand the second chance down if the hour's run has come
+      - name: Stand down if these ten minutes' run has come
         id: age
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SLOT: ${{ github.event.schedule }}
+          EVENT: ${{ github.event_name }}
         run: |
           skip=false
-          if [ "$SLOT" = "42 * * * *" ] &&
+          if [ "$EVENT" = schedule ] &&
              age=$(gh api "repos/$GITHUB_REPOSITORY/commits/gh-pages" \
                      --jq '(now - (.commit.committer.date | fromdateiso8601)) | floor'); then
-            into=$(( $(date -u +%s) % 3600 ))
-            echo "The site was published $age seconds ago, and the hour began $into seconds ago."
-            if [ "$age" -le "$into" ] 2>/dev/null; then skip=true; fi
+            into=$(( $(date -u +%s) % 600 ))
+            echo "The site was published $age seconds ago, and these ten minutes began $into seconds ago."
+            if [ "$age" -ge 0 ] 2>/dev/null && [ "$age" -le "$into" ]; then skip=true; fi
           fi
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
 
@@ -72,6 +78,7 @@ jobs:
       # reconciled against, and the copy a failed feed falls back on. The
       # dated archive stays out; nothing reads it back.
       - name: Restore the tracker's state
+        id: state
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -96,6 +103,7 @@ jobs:
           esac
 
       - name: Save the tracker's state
+        id: saved
         if: ${{ !cancelled() }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -104,6 +112,25 @@ jobs:
             data/raw/*.cache
             data/raw/*.meta.json
           key: tracker-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # Each publishing run saves 21 MB, 3 GB a day at a run every ten minutes
+      # against the repository's 10 GB, and only the latest is ever restored:
+      # the one this run started from goes once this run's own is saved. A
+      # save that cannot reserve its key warns and goes on, so this run's is
+      # looked for by its key first.
+      - name: Let go of the state this run started from
+        if: ${{ !cancelled() && steps.saved.outcome == 'success' && steps.state.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLD: ${{ steps.state.outputs.cache-matched-key }}
+          NEW: tracker-state-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          listed=$(gh cache list -R "$GITHUB_REPOSITORY" --key "$NEW" --json key --jq '.[].key') || listed=
+          if [ "$OLD" != "$NEW" ] && printf '%s\n' "$listed" | grep -Fxq -- "$NEW"; then
+            gh cache delete "$OLD" -R "$GITHUB_REPOSITORY"
+          fi
 
       # GitHub pauses the schedules of a public repository after 60 days
       # without activity; a workflow enabled from its own run keeps going.

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Refresh the El Nino tracker, then publish its pages as the site on GitHub
-# Pages: publish.bat's twin for Linux and macOS, and what the hourly run on
+# Pages: publish.bat's twin for Linux and macOS, and what the live run on
 # GitHub calls (.github/workflows/live.yml). See publish.py, and "The live
 # site" in the README.
 #
