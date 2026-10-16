@@ -945,11 +945,14 @@ def storm_desk_card(state) -> str:
 def _provenance_card(fetches: dict[str, Fetched]) -> str:
     """Where every number came from this run, feed by feed.
 
-    A gridded feed whose dataset has no new day since it was downloaded is
-    checked live and not downloaded again: it is as current as a live one,
-    and says since when. Each links the address that served it, and says
-    under it what went wrong on the way: why the final analysis served
-    rather than the preliminary, why a copy did, why nothing could.
+    A gridded feed whose dataset has no new day since it was downloaded, or a
+    file whose server says it has not changed since, is checked live and not
+    downloaded again: it is as current as a live one, and says since when. An
+    ERDDAP table downloaded within the hour is not asked for again, since
+    ERDDAP cannot say whether it changed, and says when it was. Each links the
+    address that served it, and says under it what went wrong on the way: why
+    the final analysis served rather than the preliminary, why a copy did, why
+    nothing could.
     """
     source_items, pills = [], []
     for fetched in fetches.values():
@@ -957,6 +960,8 @@ def _provenance_card(fetches: dict[str, Fetched]) -> str:
             kind, pill, status = "fail", "fail", "fetch failed"
         elif fetched.unchanged:
             kind, pill, status = "same", "live", f"unchanged since {fetched.fetched_at}"
+        elif fetched.rested:
+            kind, pill, status = "rest", "live", f"downloaded {fetched.fetched_at}, asked again hourly"
         elif fetched.from_cache:
             kind, pill, status = "cache", "cache", f"cached {fetched.fetched_at}"
         else:
@@ -978,6 +983,9 @@ def _provenance_card(fetches: dict[str, Fetched]) -> str:
         came.append(f"{pills.count('live')} fetched live this run")
     if pills.count("same"):
         came.append(f"{pills.count('same')} checked live and unchanged since they were downloaded")
+    if pills.count("rest"):
+        came.append(f"{pills.count('rest')} downloaded within the hour and asked again hourly, "
+                    "as ERDDAP&rsquo;s tables cannot say whether they changed")
     if pills.count("cache"):
         came.append(f"{pills.count('cache')} read from the local cache, each "
                     "stamped with when it was fetched")
@@ -1446,7 +1454,7 @@ def payload(state) -> dict:
     return {
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_at": state.run_at,
-        "schema": 12,
+        "schema": 13,
         "headline": a.headline,
         "cpc_status": a.status or None,
         "degraded": state.degraded,
@@ -1840,9 +1848,12 @@ def payload(state) -> dict:
                 "ok": item.ok, "from_cache": item.from_cache,
                 "fetched_at": item.fetched_at, "error": item.error or None,
                 # The address that served it, whether its dataset had no new
-                # day, so it was checked and not downloaded again, and what
+                # day or its server said it had not changed, so it was checked
+                # and not downloaded again, whether it is an ERDDAP table
+                # downloaded within the hour and not asked again, and what
                 # went wrong on the way.
                 "url": item.url or item.source.url, "unchanged": item.unchanged,
+                "rested": item.rested,
                 "warnings": list(item.warnings),
             }
             for key, item in state.fetched.items()

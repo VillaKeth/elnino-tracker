@@ -25,7 +25,7 @@ Every run checks 50 feeds live, diagnoses the ocean and the atmosphere separatel
 maps where the event physically sits in the basin and at depth, tracks every
 tropical cyclone NHC, CPHC or JTWC is warning on, worldwide, projects the event
 forward with three methods whose weights come from its own cross-validated
-hindcast, raises alerts against the previous run, and writes a terminal report, an
+hindcast, raises alerts and keeps their news a day, and writes a terminal report, an
 HTML dashboard, a storm desk, a world map and JSON snapshots.
 
 The dashboard opens on a globe. Spin it, zoom it, click any point on Earth, and
@@ -613,12 +613,20 @@ reason a forecast made in winter is worth less than one made in September.
 
 ## 7. Alerts
 
-Rules are evaluated on every run against thresholds **and against the previous
-run held in the local SQLite database**, so an alert fires once when a condition
-appears, is marked `NEW` on that run only, and clears itself when the condition
-lifts. A standing alert whose level rises is news even though its condition is
-not — a threat that was a watch yesterday and a strike today — so it is marked
-with the level it rose from. Levels are CRITICAL / WARNING / WATCH / INFO. Each
+Rules are evaluated on every run against thresholds **and against the alerts
+held in the local SQLite database**, so an alert fires once when a condition
+appears and clears itself when the condition lifts. A standing alert whose level
+rises is news even though its condition is not — a threat that was a watch
+yesterday and a strike today — so it is marked with the level it rose from. The
+news stays a day, whatever the cadence: an alert is marked `NEW` for a day from
+when it was raised, a rise for a day while the alert stays above the level it
+rose from, both when it rose in the day it was raised, and an alert cleared is
+listed for a day unless raised again; each says when it was raised, to the
+minute. The two change rules, CPC's advisory
+status and the official index moving 0.15 °C or more, compare the run with the
+state a day before it: the latest snapshot at least 24 hours older, or with none
+so old the earliest, and say that state's time. Marked on its run alone, any of
+this was on the site ten minutes. Levels are CRITICAL / WARNING / WATCH / INFO. Each
 carries an icon and a written level, never colour alone. Alert text is written
 once, in ASCII for the report and the console ("+1.0 degC", "x10^14 m3"), and the
 page prints the same sentences with their units signed: °C, × 10¹⁴ m³, σ.
@@ -1962,7 +1970,8 @@ Extreme ≥85.
 ## Data sources
 
 All 50 feeds are checked live on every run, in parallel. Each is downloaded
-but a gridded feed whose dataset has no new day (below), and each download is
+but a gridded feed whose dataset has no new day, a file its server says has not
+changed, and a TAO table downloaded within the hour (below), and each download is
 archived under `data/raw/archive/` with a daily snapshot, so past readings stay
 auditable; not the five rolling windows of OISST days, each day's download of
 which repeats all but a day of the day before's, of products NOAA keeps every
@@ -2214,6 +2223,31 @@ serves for its other days, and is recorded at its last day with values rather
 than the day its dataset said, so that it is asked for again each run until
 the day fills.
 
+**A file is downloaded again only when its server says it changed.** A
+download keeps the date its server gave it (`Last-Modified`) and its tag
+(`ETag`), and the next run asks with the date (`If-Modified-Since`), or with no
+date the tag (`If-None-Match`), only when its copy came from that address and
+reads back whole. A 304 Not Modified serves the copy, *unchanged since* its
+download, as a gridded feed with no new day does. Never both: a server weighs a
+tag over a date, and PSL's tag, which Apache's compression ends in `-gzip`,
+never matches, so asked by both PSL answered in full, and by its date alone 304.
+On 16 October every file feed that gives a date answered 304 by it: CPC's,
+PMEL's, LongPaddock's, NHC's and JTWC's, HURDAT2's two files (11 MB, every
+run) and each active storm's decks (an a-deck runs to 16 MB). One that gives
+neither, as CPC's `.shtml` pages and NHC's directory listings do, is downloaded
+whole as before, and a 304 to a request that asked nothing is a failure. A
+server's word serves a day from the copy's download: a file put back from a
+backup keeps the backup's older date, so a copy of what it replaced would be
+told it has not changed until the file next did, a month for ONI. A copy a day
+old, or whose record says no fair time, is asked for whole.
+ERDDAP's tables cannot say whether they changed: ERDDAP makes each afresh for
+each request, its `Last-Modified` the moment it answered, and answers a
+conditional request in full. So a TAO table downloaded from the same address
+under an hour before serves without being asked again: the moorings are
+averaged by the day and the month, and the temperature record is 5.7 MB. The
+provenance says such a feed was *downloaded* at its time, *asked again hourly*,
+and the report counts it apart.
+
 Note the weekly file: CPC's older `wksst8110.for` (1981-2010 base period) stopped
 updating in early 2021 and is a trap. This tracker uses `wksst9120.for`, on the
 current 1991-2020 base period.
@@ -2226,8 +2260,9 @@ daily; the Diagnostic Discussion is issued on the second Thursday. For the ENSO
 state alone, running more often than daily gains nothing. The tropical cyclone
 products change faster: advisories every six hours with intermediates between,
 outlooks four times a day, JTWC's warnings six-hourly. That is why the site runs
-every ten minutes (*The live site*); `--watch` runs no more often than every
-15 minutes.
+every ten minutes (*The live site*), and `--watch` no more often: each run asks
+most servers only whether their files changed (above), and a run sooner would be
+load on NOAA for nothing new.
 
 If a feed is unreachable the tracker falls back to the last cached copy and says
 so and why: in the report, under the feed in the dashboard's provenance panel, in
@@ -2248,12 +2283,18 @@ file, so every snapshot was rewritten on every run.
 
 Every run is written to `data/elnino.db` (SQLite, stdlib):
 
-- **snapshots** — the headline numbers of each run, so `--history` can show drift;
-- **series** — what each index said on each run, so an upstream **revision** to a
-  past value is visible as a revision rather than silently replacing history;
-- **alerts** — open alerts with their first-seen time, which is what makes
-  `NEW` and `cleared` meaningful;
-- **fetches** — per-feed success, so feed reliability is measurable.
+- **snapshots** — the headline numbers of each run, so `--history` can show
+  drift, and the state a day before a run, which the change rules compare it
+  with;
+- **series** — each value each index gave a period, from the run that first
+  saw it, so an upstream **revision** to a past value is visible as a revision
+  rather than silently replacing history; a value its period already holds is
+  not written again, as every run gives the last 24 seasons;
+- **alerts** — every alert with its first-seen time, the level it last rose
+  from and when, and when it cleared, which is what makes `NEW`, a rise and
+  `cleared` meaningful for a day;
+- **fetches** — per-feed success, kept a week, so feed reliability is
+  measurable.
 
 ---
 
@@ -2281,7 +2322,7 @@ elnino/tcproducts.py     NHC's watches and warnings, cone, surge, wind probabili
 elnino/jtwc.py           JTWC warnings and disturbances, as storms and areas
 elnino/outlook.py        formation outlooks across the centres, invests, who warns where
 elnino/exposure.py       wind arrival times at places; satellite zenith and parallax
-elnino/alerts.py         threshold and change rules, reconciled against the last run
+elnino/alerts.py         threshold and change rules, their news kept a day
 elnino/history.py        13 catalogued historical events
 elnino/storage.py        SQLite: snapshots, series revisions, alerts, feed health
 elnino/pipeline.py       one run: fetch -> parse -> diagnose -> forecast -> alert
@@ -2322,14 +2363,14 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1861 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1906 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
                          storms.json, run.json, sw.js, and assets/ beside them
 ```
 
-`output/latest.json` (schema 12) is the machine-readable snapshot: classification,
+`output/latest.json` (schema 13) is the machine-readable snapshot: classification,
 every diagnostic behind it, the spatial block (each field's stamp, age and
 coverage; the map-derived box means; the warm-pool edge; the isotherm profile),
 the forecast with its verified error bars, open alerts, active impacts, and the
@@ -2396,6 +2437,11 @@ began, each with its `region`, `first_utc`, `last_utc`, `days`, `centre_utc`,
 `under_way`, `began_before_window`, the regions it `overlaps` and the one it is
 `counted_as`; and `building`, the runs under way not yet three days long
 (`region`, `since_utc`, `days`, `latest_m_s`).
+Schema 13 adds each feed's `rested`, true for an ERDDAP table downloaded within
+the hour and served without being asked again; `unchanged` is now true also
+when a file's server answered 304 Not Modified. An alert's `is_new` and
+`escalated_from`, and `alerts_cleared`, now say the day before the run, not the
+run alone.
 `output/run.json`, written after every other file of a run, names that run and
 nothing else: an open page asks for it to learn whether the site has a newer one
 (*The live site*).
@@ -2486,10 +2532,11 @@ when that was.
 GitHub runs the tracker every ten minutes, as its schedule fires, and
 publishes the run (`.github/workflows/live.yml`):
 
-- **The run.** At two minutes past each ten (off the marks most schedules
-  use), on every push to `main`, and on request. Six publishes an hour are six
-  GitHub Pages builds, under Pages' soft limit of ten an hour for a site built
-  from a branch, with room for pushes. A run takes under a minute: 53 s at
+- **The run.** Asked every five minutes from two past the hour (GitHub's
+  shortest, off the marks most schedules use), on every push to `main`, and on
+  request: two slots in each ten minutes, the first to come publishing. Six
+  publishes an hour are six GitHub Pages builds, under Pages' soft limit of
+  ten an hour for a site built from a branch, with room for pushes. A run takes under a minute: 53 s at
   13:25 UTC on 16 October, the tracker 29 s of it and its 50 feeds 3 s of that.
   GitHub holds scheduled runs under load, most at the start of each hour, and
   drops some: the first of all, and about four slots in five from 6 to 15
@@ -2506,11 +2553,15 @@ publishes the run (`.github/workflows/live.yml`):
   `./publish.sh`, which runs `track.py --brief` and then publishes the run with
   `publish.py`, its refusals and all, under the run's own short-lived token.
 - **The state.** `data/elnino.db` and the cached downloads are carried from one
-  run to the next in the Actions cache, so the alerts are reconciled against the
-  last run and a failed feed falls back on its last copy. The dated archive is
-  left out: nothing reads it back. Once a run's own state is saved and listed,
-  it lets go of the one it started from: at 21 MB a run they came to 3 GB a
-  day, against the repository's 10 GB, and only the latest is ever restored.
+  run to the next in the Actions cache, so the alerts are reconciled against
+  their record, a file is asked whether it changed since its copy, and a failed
+  feed falls back on its last copy. The dated archive is
+  left out: nothing reads it back. Once a good run on `main` has saved its own
+  state and found it listed, it lets go of the one it started from: at 21 MB a
+  run they came to 3 GB a day, against the repository's 10 GB, and only the
+  latest is ever restored. A run that failed keeps the state it started from,
+  and a run on another branch, whose own state `main` cannot restore, never
+  deletes `main`'s.
   GitHub drops a cache unused for seven days, so
   after a longer gap the next run starts afresh: every open alert reads as new,
   and no feed has a copy to fall back on for that run.
@@ -2603,7 +2654,7 @@ run every hour, or as often as `--watch` asks, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1861 tests, no network required. They cover:
+1906 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2656,10 +2707,15 @@ python -m unittest discover -s tests -v
   copies of the gone 0-360 dataset giving way to the West Coast node's same
   day and serving while both servers fail, and the sea-level map and strip
   saying whose altimetry they are, with only their chips saying how far
-  behind, past four days; a griddap
-  feed downloaded again only when
-  its dataset's last time moves at the same address, a probe that fails counting
-  as the address failing and one that answers no time a full download; an answer
+  behind, past four days; a griddap feed downloaded again only when its
+  dataset's last time moves at the same address, a probe that fails counting
+  as the address failing and one that answers no time a full download; a file
+  asked by the date its server gave it, or with none by its tag, never both, a
+  304 serving its copy unchanged with its record as it was, a 304 to a request
+  that asked nothing failing, and a copy that does not read back, came from
+  another address, is a day old or has no fair time in its record not asked
+  after; an ERDDAP table resting an hour from its
+  address, and asked again after it, from the future, or not reading back; an answer
   kept only whole, a copy used only when it matches its digest, a failed write
   or archive costing a warning, an empty answer a failure and one of nothing but
   `NaN` too, one whose last day is all `NaN` recorded at its last day with
@@ -2675,8 +2731,9 @@ python -m unittest discover -s tests -v
   the end labels apart; CPC's weeks named by the Wednesday they are centred on;
   a web page for a feed's file no answer, past white space or a byte order mark,
   but for the feeds that are pages, RSS or KML, and each feed's own sample
-  markup only if it is one of those; schema 12, each feed's warnings beside it,
-  and the provenance's *unchanged since*;
+  markup only if it is one of those; schema 13, each feed's warnings beside it,
+  and whether it rested, and the provenance's *unchanged since* and *asked
+  again hourly*;
 - **the dipole and the SOI day by day**: the poles asked on the Niño boxes'
   half-degree cells, each pole its cells' cosine-weighted mean, the DMI the west
   less the east on a day both poles have, the record then the preliminary's
@@ -2732,8 +2789,13 @@ python -m unittest discover -s tests -v
   cloud inside the frame at every tested angle while still filling it; and the
   inline script carries the same fit and the same painter ordering as the server
   renderer, because a mismatch makes the scene jump on the first drag;
-- **storage**: snapshot round-trips, and an alert keeping its first-seen time
-  across runs and clearing when it stops firing;
+- **storage**: snapshot round-trips; an alert keeping its first-seen time
+  across runs and clearing when it stops firing; its news kept a day, raised,
+  raised a level while it stays above, both, or cleared unless raised again, in a
+  record made before the news columns too, and said to the minute; the change
+  rules against the state a day before, or the earliest, never the run itself,
+  and naming its time; the fetch log kept a week, and a series value kept once,
+  from the run that first saw it;
 - **the geography**: every teleconnection has a footprint and every footprint a
   teleconnection, longitudes wrap into a single half-open range, a region
   straddling the antimeridian is found from both sides, the most specific claim
@@ -3017,14 +3079,16 @@ python -m unittest discover -s tests -v
   to the follower, every part of it wearing an id of its own; the atlas's view
   and layers kept, the plain page with no base among them, junk refused and a
   view turned any number of times put back on the world; and the live run's
-  ten-minute schedule, token, state, remote, keep-alive, time limit and actions
+  five-minute schedule, token, state, remote, keep-alive, time limit and actions
   pinned to commits, no pull request starting it, and the suite's Python and
   node, read as text, and the check each scheduled run makes, run under bash
   against a gh that answers or fails and a clock, standing down only on a site
   published in its ten minutes, held past them or not, never on one dated
   ahead of the clock, while a push or a dispatch runs; and the state a run
   started from let go of, run under bash against a gh that lists or fails,
-  only once the run's own is listed by its whole key;
+  only after a good run on `main` and once the run's own is listed by its
+  whole key; and `--watch` running no
+  more often than every ten minutes, and hourly without a number;
 - **the street**: the card's composite matching the atlas tool's own on a full
   record, the event under way and the months still under way left out, a season
   short of three events or six neutral years said and not drawn, rain in

@@ -1,9 +1,11 @@
 """The ocean as of a day or two ago: OISST's preliminary analysis for the maps,
-the day-by-day Nino boxes and the Hovmoller's latest rows, and a gridded feed
-downloaded again only when its dataset has a new day."""
+the day-by-day Nino boxes and the Hovmoller's latest rows, a gridded feed
+downloaded again only when its dataset has a new day, and a file only when its
+server says it changed."""
 
 from __future__ import annotations
 
+import email.message
 import hashlib
 import json
 import math
@@ -11,8 +13,10 @@ import re
 import sys
 import tempfile
 import unittest
+import urllib.error
 import urllib.parse
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -187,6 +191,32 @@ def csv(tag: str) -> str:
     return FIELD + f"2026-10-13T12:00:00Z,0.0,0.125,180.125,{tag}\n"
 
 
+# What a server answers when asked whether a file changed and it has not.
+NOT_MODIFIED = object()
+
+
+def answering(answers, asked=None, asking=None, missing=None):
+    """An address's answers from a table, as ``sources._http_get`` gives them:
+    text, or an ``Answer`` with its server's tag and date, an Exception raised,
+    or NOT_MODIFIED, which a server sends only to a request that asked. An
+    address not in the table fails, with ``missing`` if given. Each URL is
+    noted in ``asked``, and the headers that asked in ``asking``."""
+    def get(url, headers=None):
+        if asked is not None:
+            asked.append(url)
+        if asking is not None:
+            asking.append(dict(headers or {}))
+        answer = answers.get(url, RuntimeError(missing or f"no route to {url}"))
+        if isinstance(answer, Exception):
+            raise answer
+        if answer is NOT_MODIFIED:
+            if not headers:
+                raise RuntimeError("HTTPError: HTTP Error 304: Not Modified")
+            return None
+        return answer if isinstance(answer, sources.Answer) else sources.Answer(answer)
+    return get
+
+
 class _Fetching:
     """A feed fetched with each address answered from a table, its copies kept
     in a directory of their own. The test case sets ``source``."""
@@ -195,18 +225,14 @@ class _Fetching:
         self.tmp = tempfile.TemporaryDirectory()
         self.raw = Path(self.tmp.name)
         self.asked: list[str] = []
+        self.asking: list[dict] = []
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def fetch(self, answers, offline=False):
-        """Fetch with each URL answered from ``answers``; an Exception is raised."""
-        def get(url):
-            self.asked.append(url)
-            answer = answers.get(url, RuntimeError(f"no route to {url}"))
-            if isinstance(answer, Exception):
-                raise answer
-            return answer
+        """Fetch with each URL answered from ``answers`` (see ``answering``)."""
+        get = answering(answers, self.asked, self.asking)
         with mock.patch.object(sources, "_http_get", side_effect=get):
             return sources.fetch(self.source, self.raw, offline=offline)
 
@@ -543,6 +569,311 @@ class TestFetchFallbackAndProbe(_Fetching, unittest.TestCase):
         self.assertEqual((got.text, got.url, got.unchanged), ("x\n", plain, False))
         self.fetch({plain: "x\n"})
         self.assertEqual(self.asked, [plain, plain])
+
+
+class TestConditionalRequests(_Fetching, unittest.TestCase):
+    """A file is downloaded again only when its server says it changed: the
+    date it gave the copy is sent back (If-Modified-Since), or with none, its
+    tag (If-None-Match), and 304 Not Modified serves the copy, as current as a
+    download. HURDAT2's two files are 11 MB, and were downloaded every run."""
+
+    URL = "https://example.invalid/data/hurdat2.txt"
+    TAG, DATE = '"6be750-65bb41b1a4eb7"', "Thu, 17 Sep 2026 21:02:47 GMT"
+    ASKING = {"If-Modified-Since": DATE}
+
+    def setUp(self):
+        super().setUp()
+        self.source = sources.Source(key="file", name="file", url=self.URL,
+                                     agency="test", cadence="annual")
+
+    def test_a_tagged_and_dated_file_is_asked_whether_it_changed(self):
+        first = self.fetch({self.URL: sources.Answer("AL011851\n", self.TAG, self.DATE)})
+        record = self.meta("file")
+        self.assertEqual((record["etag"], record["modified"]), (self.TAG, self.DATE))
+        got = self.fetch({self.URL: NOT_MODIFIED})
+        self.assertEqual(self.asking, [{}, self.ASKING])
+        self.assertEqual((got.text, got.unchanged, got.from_cache, got.warnings, got.error),
+                         ("AL011851\n", True, False, [], None))
+        # Unchanged since it was downloaded, as a gridded feed with no new day
+        # is, and its record as the download left it.
+        self.assertEqual((got.fetched_at, got.url, got.sha256), (first.fetched_at, self.URL, first.sha256))
+        self.assertEqual(self.meta("file"), record)
+
+    def downloaded(self, change):
+        """The file downloaded, tagged and dated, its record then changed by
+        ``change``."""
+        self.fetch({self.URL: sources.Answer("AL011851\n", self.TAG, self.DATE)})
+        record = self.meta("file")
+        change(record)
+        (self.raw / "file.meta.json").write_text(json.dumps(record), encoding="utf-8")
+
+    @staticmethod
+    def ago(span):
+        def change(record):
+            record["fetched_at"] = (datetime.now(timezone.utc) - span).isoformat(timespec="seconds")
+        return change
+
+    def test_a_copy_a_day_after_its_download_is_asked_for_whole(self):
+        # A file put back from a backup keeps the backup's older date, so a
+        # copy of what it replaced would be told it has not changed until the
+        # file next did, a month for ONI. A server's word serves a day.
+        for span in (timedelta(days=1), timedelta(days=3)):
+            with self.subTest(span=span):
+                self.downloaded(self.ago(span))
+                got = self.fetch({self.URL: sources.Answer("AL011851 restored\n", self.TAG, self.DATE)})
+                self.assertEqual(self.asking[-1], {})
+                self.assertEqual((got.text, got.unchanged), ("AL011851 restored\n", False))
+                self.assertEqual(self.kept("file"), "AL011851 restored\n")
+
+    def test_a_copy_under_a_day_old_is_asked_whether_it_changed(self):
+        for span in (timedelta(0), timedelta(hours=23, minutes=59)):
+            with self.subTest(span=span):
+                self.downloaded(self.ago(span))
+                got = self.fetch({self.URL: NOT_MODIFIED})
+                self.assertEqual((self.asking[-1], got.text, got.unchanged), (self.ASKING, "AL011851\n", True))
+
+    def test_a_copy_whose_record_says_no_fair_time_is_asked_for_whole(self):
+        # No time, not a time, one without its zone, or one after now, as a
+        # clock put back would give.
+        hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+        for stamp in (None, "a while ago", hour_ago.replace(tzinfo=None).isoformat(timespec="seconds"),
+                      (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(timespec="seconds")):
+            with self.subTest(stamp=stamp):
+                self.downloaded(lambda record: record.pop("fetched_at") if stamp is None
+                                else record.update(fetched_at=stamp))
+                got = self.fetch({self.URL: "AL011851\n"})
+                self.assertEqual((self.asking[-1], got.unchanged), ({}, False))
+
+    def test_a_file_changed_since_replaces_its_copy_and_its_tag(self):
+        self.fetch({self.URL: sources.Answer("AL011851\n", self.TAG, self.DATE)})
+        got = self.fetch({self.URL: sources.Answer("AL011851\nAL021851\n", '"7c0"')})
+        self.assertEqual(self.asking[-1], self.ASKING)
+        self.assertEqual((got.text, got.unchanged), ("AL011851\nAL021851\n", False))
+        self.assertEqual(self.kept("file"), "AL011851\nAL021851\n")
+        # The new answer's own tag, and no date, as it gave none.
+        self.assertEqual(self.meta("file")["etag"], '"7c0"')
+        self.assertNotIn("modified", self.meta("file"))
+
+    def test_a_file_its_server_neither_tags_nor_dates_is_asked_for_whole(self):
+        self.fetch({self.URL: "x\n"})
+        got = self.fetch({self.URL: "x\n"})
+        self.assertEqual(self.asking, [{}, {}])
+        self.assertEqual((got.unchanged, "etag" in self.meta("file"), "modified" in self.meta("file")),
+                         (False, False, False))
+
+    def test_a_file_with_a_date_is_asked_by_its_date_alone(self):
+        # A server weighs a tag over a date, and a tag can be one it never
+        # matches again: PSL's, which Apache's compression ends in "-gzip",
+        # was answered in full when asked by both, and 304 by its date alone
+        # (16 October 2026), as every server here that gives a date answers.
+        url = "https://psl.invalid/enso/mei/data/meiv2.data"
+        self.source = sources.Source(key="mei", name="mei", url=url, agency="test", cadence="monthly")
+        self.fetch({url: sources.Answer("1979 -0.05\n", '"15df-65d2d75c728d3-gzip"', self.DATE)})
+        got = self.fetch({url: NOT_MODIFIED})
+        self.assertEqual(self.asking, [{}, {"If-Modified-Since": self.DATE}])
+        self.assertEqual((got.text, got.unchanged), ("1979 -0.05\n", True))
+
+    def test_a_tag_or_a_date_alone_is_sent_back_alone(self):
+        self.fetch({self.URL: sources.Answer("x\n", etag=self.TAG)})
+        self.fetch({self.URL: NOT_MODIFIED})
+        self.fetch({self.URL: sources.Answer("y\n", modified=self.DATE)})
+        got = self.fetch({self.URL: NOT_MODIFIED})
+        self.assertEqual(self.asking, [{}, {"If-None-Match": self.TAG}, {"If-None-Match": self.TAG},
+                                       {"If-Modified-Since": self.DATE}])
+        self.assertEqual((got.text, got.unchanged), ("y\n", True))
+
+    def test_a_copy_that_does_not_read_back_is_not_asked_after(self):
+        # A copy whose bytes are not its record's, or that is gone, is
+        # downloaded whole: a 304 would leave nothing to serve.
+        for spoil in ("tampered\n", None):
+            with self.subTest(spoil=spoil):
+                self.fetch({self.URL: sources.Answer("x\n", self.TAG, self.DATE)})
+                if spoil is None:
+                    (self.raw / "file.cache").unlink()
+                else:
+                    (self.raw / "file.cache").write_text(spoil, encoding="utf-8")
+                got = self.fetch({self.URL: sources.Answer("x\n", self.TAG, self.DATE)})
+                self.assertEqual((self.asking[-1], got.text, got.unchanged), ({}, "x\n", False))
+                self.assertEqual(self.kept("file"), "x\n")
+
+    def test_a_copy_from_another_address_is_not_asked_after(self):
+        self.fetch({self.URL: sources.Answer("x\n", self.TAG, self.DATE)})
+        record = self.meta("file")
+        record["url"] = "https://elsewhere.invalid/data/hurdat2.txt"
+        (self.raw / "file.meta.json").write_text(json.dumps(record), encoding="utf-8")
+        got = self.fetch({self.URL: "x\n"})
+        self.assertEqual((self.asking[-1], got.unchanged), ({}, False))
+
+    def test_a_tag_that_is_not_text_is_not_sent(self):
+        self.fetch({self.URL: "x\n"})
+        record = self.meta("file")
+        record.update(etag=7, modified=["Thu"])
+        (self.raw / "file.meta.json").write_text(json.dumps(record), encoding="utf-8")
+        self.fetch({self.URL: "x\n"})
+        self.assertEqual(self.asking[-1], {})
+
+    def test_a_gridded_feed_with_no_new_day_is_not_asked_at_all(self):
+        # The probe answers first: a dataset with no new day keeps its copy
+        # without a request for the subset, tagged or not.
+        url = "https://example.invalid/erddap/griddap/x.csv?anom%5Blast%5D"
+        self.source = sources.Source(key="grid", name="grid", url=url, agency="test", cadence="daily")
+        self.fetch({self.probe(url): LAST, url: sources.Answer(csv("a"), modified=self.DATE)})
+        self.asked.clear()
+        got = self.fetch({self.probe(url): LAST})
+        self.assertEqual((self.asked, got.unchanged), ([self.probe(url)], True))
+
+
+class TestResting(_Fetching, unittest.TestCase):
+    """ERDDAP's tables rest an hour. ERDDAP makes each table afresh for each
+    request, so it cannot say whether one changed: its Last-Modified is the
+    moment it answered, and it answers a conditional request in full. A copy
+    downloaded from the same address under an hour before serves without the
+    table being asked for, and says so; TAO's moorings, the tables read here,
+    are averaged by the day and the month. The temperature record is 5.7 MB."""
+
+    URL = "https://example.invalid/erddap/tabledap/pmelTaoMonT.csv?time,longitude,depth,T_20"
+    TABLE = "time,longitude,depth,T_20\nUTC,degrees_east,m,degree_C\n2026-10-01T00:00:00Z,165.0,100.0,27.1\n"
+
+    def setUp(self):
+        super().setUp()
+        self.source = sources.Source(key="table", name="table", url=self.URL,
+                                     agency="test", cadence="monthly")
+
+    def downloaded(self, ago: timedelta, url: str | None = None):
+        """A copy of the table, recorded as downloaded ``ago`` before now."""
+        self.fetch({self.URL: sources.Answer(self.TABLE, modified="Fri, 16 Oct 2026 13:39:43 GMT")})
+        record = self.meta("table")
+        stamp = (datetime.now(timezone.utc) - ago).isoformat(timespec="seconds")
+        record.update(fetched_at=stamp, url=url or self.URL)
+        (self.raw / "table.meta.json").write_text(json.dumps(record), encoding="utf-8")
+        self.asked.clear()
+        self.asking.clear()
+        return stamp
+
+    def test_a_table_downloaded_under_an_hour_ago_rests(self):
+        for ago in (timedelta(0), timedelta(minutes=10), timedelta(minutes=59, seconds=50)):
+            with self.subTest(ago=ago):
+                stamp = self.downloaded(ago)
+                got = self.fetch({})
+                self.assertEqual(self.asked, [])
+                self.assertEqual((got.text, got.rested, got.unchanged, got.from_cache, got.warnings),
+                                 (self.TABLE, True, False, False, []))
+                self.assertEqual((got.fetched_at, got.url, got.ok), (stamp, self.URL, True))
+
+    def test_a_table_an_hour_old_is_asked_for_again(self):
+        for ago in (timedelta(hours=1), timedelta(hours=1, minutes=5), timedelta(days=3)):
+            with self.subTest(ago=ago):
+                self.downloaded(ago)
+                newer = self.TABLE + "2026-10-01T00:00:00Z,170.0,100.0,26.9\n"
+                got = self.fetch({self.URL: newer})
+                self.assertEqual(self.asked, [self.URL])
+                self.assertEqual((got.text, got.rested), (newer, False))
+
+    def test_a_copy_that_cannot_rest_is_downloaded(self):
+        # From another address, from the future (a clock put back), or not
+        # reading back as its record says.
+        for spoil in ("address", "future", "bytes", "date"):
+            with self.subTest(spoil=spoil):
+                if spoil == "address":
+                    self.downloaded(timedelta(minutes=5), url="https://elsewhere.invalid/erddap/tabledap/x.csv")
+                elif spoil == "future":
+                    self.downloaded(-timedelta(minutes=5))
+                else:
+                    self.downloaded(timedelta(minutes=5))
+                    if spoil == "bytes":
+                        (self.raw / "table.cache").write_text("tampered\n", encoding="utf-8")
+                    else:
+                        record = self.meta("table")
+                        record["fetched_at"] = "a while ago"
+                        (self.raw / "table.meta.json").write_text(json.dumps(record), encoding="utf-8")
+                got = self.fetch({self.URL: self.TABLE})
+                self.assertEqual((self.asked, got.rested, got.text), ([self.URL], False, self.TABLE))
+
+    def test_a_file_or_a_grid_does_not_rest(self):
+        plain = "https://example.invalid/data/oni.txt"
+        self.source = sources.Source(key="plain", name="plain", url=plain, agency="test", cadence="monthly")
+        self.fetch({plain: "x\n"})
+        got = self.fetch({plain: "x\n"})
+        self.assertEqual((self.asked, got.rested), ([plain, plain], False))
+        self.assertFalse(sources.rests(plain))
+        self.assertFalse(sources.rests("https://example.invalid/erddap/griddap/x.csv?anom%5Blast%5D"))
+        # A query that only names a table is not one.
+        self.assertFalse(sources.rests("https://example.invalid/data/x.csv?from=/tabledap/"))
+
+    def test_the_tables_that_rest_are_tao_s(self):
+        self.assertEqual([s.key for s in sources.SOURCES if sources.rests(s.url)],
+                         ["tao_temperature", "tao_isotherm", "tao_mesh"])
+
+
+class _Response:
+    """What urlopen hands back: the body, and the headers it came with."""
+
+    def __init__(self, body: bytes, headers: dict):
+        self.body = body
+        self.headers = email.message.Message()
+        for name, value in headers.items():
+            self.headers[name] = value
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class TestHttpGet(unittest.TestCase):
+    """What an address answers, as read off the wire."""
+
+    URL = "https://example.invalid/data/oni.txt"
+
+    def get(self, *answers, headers=None):
+        """``_http_get`` with urlopen answering each try in turn: a _Response or
+        an Exception. Returns what it gave, and the headers of each request."""
+        sent = []
+
+        def urlopen(request, timeout=None, context=None):
+            sent.append({name.lower(): value for name, value in request.header_items()})
+            answer = answers[min(len(sent), len(answers)) - 1]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        with mock.patch.object(sources.urllib.request, "urlopen", urlopen), \
+                mock.patch.object(sources.time, "sleep"):
+            try:
+                return sources._http_get(self.URL, headers), sent
+            except RuntimeError as exc:
+                return exc, sent
+
+    def not_modified(self):
+        return urllib.error.HTTPError(self.URL, 304, "Not Modified", email.message.Message(), None)
+
+    def test_the_text_comes_with_its_server_s_tag_and_date(self):
+        got, sent = self.get(_Response(b"x\n", {"ETag": '"2555-65df"', "Last-Modified": "Fri, 16 Oct 2026 11:36:00 GMT"}))
+        self.assertEqual(got, sources.Answer("x\n", '"2555-65df"', "Fri, 16 Oct 2026 11:36:00 GMT"))
+        self.assertNotIn("if-none-match", sent[0])
+        got, _ = self.get(_Response(b"x\n", {}))
+        self.assertEqual(got, sources.Answer("x\n", "", ""))
+
+    def test_asked_whether_it_changed_a_server_saying_no_answers_none(self):
+        asking = {"If-None-Match": '"2555-65df"', "If-Modified-Since": "Fri, 16 Oct 2026 11:36:00 GMT"}
+        got, sent = self.get(self.not_modified(), headers=asking)
+        self.assertIsNone(got)
+        self.assertEqual((sent[0]["if-none-match"], sent[0]["if-modified-since"], len(sent)),
+                         ('"2555-65df"', "Fri, 16 Oct 2026 11:36:00 GMT", 1))
+
+    def test_a_304_to_a_request_that_asked_nothing_is_no_answer(self):
+        got, sent = self.get(self.not_modified())
+        self.assertIsInstance(got, RuntimeError)
+        self.assertIn("304", str(got))
+        self.assertEqual(len(sent), sources.RETRIES)
+
+    def test_asked_whether_it_changed_a_new_version_is_its_text(self):
+        got, _ = self.get(_Response(b"y\n", {"ETag": '"7c0"'}), headers={"If-None-Match": '"2555-65df"'})
+        self.assertEqual(got, sources.Answer("y\n", '"7c0"', ""))
 
 
 class TestAWebPageForAFile(_Fetching, unittest.TestCase):
@@ -1519,11 +1850,7 @@ class TestFeedWarnings(unittest.TestCase):
         self.tmp.cleanup()
 
     def fetch(self, key, answers, offline=False):
-        def get(url):
-            answer = answers.get(url, RuntimeError("HTTP Error 404: Not Found"))
-            if isinstance(answer, Exception):
-                raise answer
-            return answer
+        get = answering(answers, missing="HTTP Error 404: Not Found")
         with mock.patch.object(sources, "_http_get", side_effect=get):
             return sources.fetch(sources.SOURCES_BY_KEY[key], self.raw, offline=offline)
 
@@ -1562,6 +1889,36 @@ class TestFeedWarnings(unittest.TestCase):
         text = self.data({"sst_global": live("sst_global", True), "oni": live("oni", False)})
         self.assertIn("2 feeds fetched live (1 checked and unchanged since downloaded), "
                       "0 served from cache, 0 failed.", text)
+
+    def resting(self):
+        source = sources.SOURCES_BY_KEY["tao_temperature"]
+        return {
+            "tao_temperature": sources.Fetched(source, "x", "2026-10-16T13:25:21+00:00", False, "",
+                                               url=source.url, rested=True),
+            "sst_global": sources.Fetched(sources.SOURCES_BY_KEY["sst_global"], "x",
+                                          "2026-10-14T09:00:00+00:00", False, "", unchanged=True),
+            "oni": sources.Fetched(sources.SOURCES_BY_KEY["oni"], "x", "2026-10-16T13:35:20+00:00",
+                                   False, ""),
+        }
+
+    def test_the_report_counts_the_tables_downloaded_within_the_hour_apart(self):
+        text = self.data(self.resting())
+        self.assertIn("3 feeds fetched live (1 checked and unchanged since downloaded; 1 downloaded "
+                      "within the hour and asked again hourly, as ERDDAP's tables cannot say whether "
+                      "they changed), 0 served from cache, 0 failed.", text)
+
+    def test_the_provenance_card_says_a_resting_table_was_downloaded_within_the_hour(self):
+        card = dashboard._provenance_card(self.resting())
+        tao, grid, oni = re.findall(r"<li>.*?</li>", card, re.S)
+        self.assertIn('<span class="pill live">downloaded 2026-10-16T13:25:21+00:00, asked again hourly</span>',
+                      tao)
+        self.assertIn('<span class="pill live">unchanged since 2026-10-14T09:00:00+00:00</span>', grid)
+        self.assertIn('<span class="pill live">live 2026-10-16T13:35:20+00:00</span>', oni)
+        caption = " ".join(re.search(r'<p class="caption">(.*?)</p>', card, re.S).group(1).split())
+        self.assertEqual(caption, "Every number on this page comes from these feeds: 1 fetched live this run; "
+                                  "1 checked live and unchanged since they were downloaded; 1 downloaded "
+                                  "within the hour and asked again hourly, as ERDDAP&rsquo;s tables cannot "
+                                  "say whether they changed.")
 
     def test_one_reason_for_many_feeds_is_said_once(self):
         # An offline run reads every feed from its copy, for the one reason.
@@ -1606,6 +1963,7 @@ def _realtime_fetch_all(real):
             fetched[key] = sources.Fetched(source, text, "2026-10-14T10:12:00+00:00", False, "",
                                            url=source.url)
         fetched["nino_daily"].warnings.append("kept no copy: [Errno 28] No space left on device")
+        fetched["tao_temperature"] = replace(fetched["tao_temperature"], from_cache=False, rested=True)
         return fetched
     return fetch_all
 
@@ -1647,9 +2005,17 @@ class TestRealTimeRun(unittest.TestCase):
         self.assertEqual(self.state.spatial.sst_hov.y_labels[-1], "2026-10-12")
         self.assertTrue(self.state.spatial.sst_hov.preliminary)
 
+    def test_each_feed_in_the_json_says_whether_it_rested(self):
+        feeds = self.data["feeds"]
+        self.assertEqual(self.data["schema"], 13)
+        self.assertEqual((feeds["tao_temperature"]["rested"], feeds["tao_temperature"]["unchanged"]),
+                         (True, False))
+        self.assertEqual((feeds["sst_global"]["rested"], feeds["sst_global"]["unchanged"]), (False, True))
+        self.assertTrue(all(set(feed) >= {"rested", "unchanged", "from_cache"} for feed in feeds.values()))
+
     def test_the_json_carries_the_days_and_which_analysis_each_field_is(self):
         spatial = self.data["spatial"]
-        self.assertEqual(self.data["schema"], 12)
+        self.assertEqual(self.data["schema"], 13)
         self.assertEqual(spatial["fields"]["sst_map"]["preliminary"],
                          self.state.spatial.sst_map.as_of)
         self.assertEqual(spatial["fields"]["sst_hov"]["preliminary"],

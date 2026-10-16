@@ -14,6 +14,7 @@ import math
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -779,8 +780,82 @@ class TestStorage(unittest.TestCase):
             # Oldest first: the CLI prints this as a chronological log.
             self.assertAlmostEqual(history[0].get("oni"), 1.4)
             self.assertAlmostEqual(history[-1].get("oni"), 1.8)
-            earlier = storage.previous_snapshot(conn, "2026-09-17T00:00:00")
-            self.assertAlmostEqual(earlier.get("oni"), 1.4)
+            self.assertAlmostEqual(storage.baseline(conn, "2026-09-17T00:00:00").get("oni"), 1.4)
+            # The change rules' baseline is the only reader of an earlier run.
+            self.assertFalse(hasattr(storage, "previous_snapshot"))
+        finally:
+            conn.close()
+
+    def test_the_baseline_is_the_state_a_day_before_the_run(self):
+        # Change alerts compare a run with it: against the run before, a
+        # change was on the site ten minutes at the live run's cadence.
+        conn = storage.connect(self.path)
+        try:
+            for stamp, oni in (("2026-10-14T13:00:00+00:00", 1.1), ("2026-10-15T13:20:00+00:00", 1.2),
+                               ("2026-10-15T13:30:00+00:00", 1.3), ("2026-10-16T13:20:00+00:00", 1.4)):
+                storage.record_snapshot(conn, stamp, {"oni": oni})
+            # The latest at least a day older than the run: 13:30 the day
+            # before, not 13:20 today; a second earlier, 13:20 the day before.
+            self.assertEqual(storage.baseline(conn, "2026-10-16T13:30:00+00:00").run_at,
+                             "2026-10-15T13:30:00+00:00")
+            self.assertEqual(storage.baseline(conn, "2026-10-16T13:29:59+00:00").run_at,
+                             "2026-10-15T13:20:00+00:00")
+            self.assertAlmostEqual(storage.baseline(conn, "2026-10-16T13:30:00+00:00").get("oni"), 1.3)
+            # After a gap, the last before it.
+            self.assertEqual(storage.baseline(conn, "2026-10-19T09:00:00+00:00").run_at,
+                             "2026-10-16T13:20:00+00:00")
+        finally:
+            conn.close()
+
+    def test_with_no_state_a_day_old_the_baseline_is_the_earliest(self):
+        conn = storage.connect(self.path)
+        try:
+            self.assertIsNone(storage.baseline(conn, "2026-10-16T13:30:00+00:00"))
+            storage.record_snapshot(conn, "2026-10-16T10:00:00+00:00", {"oni": 1.1})
+            storage.record_snapshot(conn, "2026-10-16T13:20:00+00:00", {"oni": 1.2})
+            self.assertEqual(storage.baseline(conn, "2026-10-16T13:30:00+00:00").run_at,
+                             "2026-10-16T10:00:00+00:00")
+            # Never the run itself, nor one after it.
+            self.assertIsNone(storage.baseline(conn, "2026-10-16T10:00:00+00:00"))
+        finally:
+            conn.close()
+
+    def test_the_fetch_log_keeps_a_week(self):
+        # A row a feed a run: 7,200 rows a day at a run every ten minutes, 0.7
+        # MB a day in the database the live run carries from one run to the
+        # next, and 20 MB over thirty days.
+        conn = storage.connect(self.path)
+        try:
+            item = SimpleNamespace(ok=True, from_cache=False, text="x", error=None)
+            for stamp in ("2026-10-09T13:29:59+00:00", "2026-10-09T13:30:00+00:00", "2026-10-16T13:20:00+00:00"):
+                storage.record_fetches(conn, stamp, {"oni": item, "roni": item})
+            storage.prune(conn, "2026-10-16T13:30:00+00:00")
+            kept = sorted({row["run_at"] for row in conn.execute("SELECT run_at FROM fetch_log")})
+            self.assertEqual(kept, ["2026-10-09T13:30:00+00:00", "2026-10-16T13:20:00+00:00"])
+            self.assertEqual(storage.FETCH_LOG_DAYS, 7)
+        finally:
+            conn.close()
+
+    def test_a_series_value_is_kept_once_from_the_run_that_first_saw_it(self):
+        # Each run wrote the last 24 ONI and RONI seasons again, the same
+        # values, 7,000 rows a day at the live run's cadence. A revision, and
+        # a revision taken back, is still kept, with the run that saw it.
+        conn = storage.connect(self.path)
+        try:
+            runs = ("2026-10-16T13:20:00+00:00", "2026-10-16T13:30:00+00:00",
+                    "2026-10-16T13:40:00+00:00", "2026-10-16T13:50:00+00:00")
+            storage.record_series(conn, runs[0], "roni", [("JAS 2026", 1.2), ("AMJ 2026", 0.4)])
+            storage.record_series(conn, runs[1], "roni", [("JAS 2026", 1.2), ("AMJ 2026", 0.4)])
+            storage.record_series(conn, runs[2], "roni", [("JAS 2026", 1.3), ("AMJ 2026", 0.4)])
+            storage.record_series(conn, runs[3], "roni", [("JAS 2026", 1.2)])
+            storage.record_series(conn, runs[3], "oni", [("JAS 2026", 1.2)])
+            self.assertEqual([(row["value"], row["recorded_at"])
+                              for row in storage.revisions(conn, "roni", "JAS 2026")],
+                             [(1.2, runs[0]), (1.3, runs[2]), (1.2, runs[3])])
+            self.assertEqual([row["recorded_at"] for row in storage.revisions(conn, "roni", "AMJ 2026")],
+                             [runs[0]])
+            self.assertEqual([row["recorded_at"] for row in storage.revisions(conn, "oni", "JAS 2026")],
+                             [runs[3]])
         finally:
             conn.close()
 
@@ -823,7 +898,7 @@ class TestFetchCache(unittest.TestCase):
         self.tmp.cleanup()
 
     def fetch(self, payload):
-        with mock.patch.object(sources, "_http_get", return_value=payload):
+        with mock.patch.object(sources, "_http_get", return_value=sources.Answer(payload)):
             return sources.fetch(self.source, self.raw)
 
     def test_the_cache_reads_back_as_what_was_downloaded(self):
@@ -7086,6 +7161,141 @@ class TestAlertEscalation(unittest.TestCase):
         self.assertIn("up from watch", feed)
 
 
+class TestAlertNews(unittest.TestCase):
+    """An alert's news, that it was raised, raised a level or cleared, stays
+    on it a day from when it happened: marked on its run alone, it was on the
+    site ten minutes at the live run's cadence."""
+
+    RUNS = ("2026-10-15T13:30:00+00:00", "2026-10-15T13:40:00+00:00",
+            "2026-10-16T13:29:59+00:00", "2026-10-16T13:30:00+00:00")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = storage.connect(Path(self.tmp.name) / "test.db")
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    @staticmethod
+    def alert(code="oni_ge_1.5", level=alerts.WARNING):
+        return alerts.Alert(code=code, level=level, title=f"{code} holds", detail="d", kind="state")
+
+    def test_an_alert_is_new_for_a_day_from_when_it_was_raised(self):
+        news = [alerts.reconcile(self.conn, [self.alert()], run).alerts[0] for run in self.RUNS]
+        self.assertEqual([alert.is_new for alert in news], [True, True, True, False])
+        self.assertEqual({alert.first_seen for alert in news}, {self.RUNS[0]})
+
+    def test_an_alert_cleared_is_said_for_a_day_from_when_it_cleared(self):
+        alerts.reconcile(self.conn, [self.alert("wwv_record")], "2026-10-15T13:20:00+00:00")
+        self.assertEqual([alerts.reconcile(self.conn, [], run).cleared for run in self.RUNS],
+                         [["wwv_record"], ["wwv_record"], ["wwv_record"], []])
+
+    def test_an_alert_raised_again_is_news_again_and_no_longer_cleared(self):
+        alerts.reconcile(self.conn, [self.alert()], "2026-10-15T09:00:00+00:00")
+        alerts.reconcile(self.conn, [], "2026-10-16T09:00:00+00:00")
+        again = alerts.reconcile(self.conn, [self.alert()], "2026-10-16T09:20:00+00:00")
+        self.assertEqual((again.alerts[0].is_new, again.alerts[0].first_seen, again.cleared),
+                         (True, "2026-10-16T09:20:00+00:00", []))
+
+    def test_the_cleared_are_said_once_each_the_latest_first(self):
+        a, b = self.alert("oni_ge_1.5"), self.alert("wwv_record")
+        alerts.reconcile(self.conn, [a, b], "2026-10-16T09:00:00+00:00")
+        alerts.reconcile(self.conn, [b], "2026-10-16T09:10:00+00:00")
+        alerts.reconcile(self.conn, [a], "2026-10-16T09:20:00+00:00")
+        self.assertEqual(alerts.reconcile(self.conn, [], "2026-10-16T09:30:00+00:00").cleared,
+                         ["oni_ge_1.5", "wwv_record"])
+
+    def test_an_alert_raised_a_level_says_so_for_a_day(self):
+        alerts.reconcile(self.conn, [self.alert(level=alerts.WATCH)], "2026-10-13T00:00:00+00:00")
+        said = [alerts.reconcile(self.conn, [self.alert(level=alerts.CRITICAL)], run).alerts[0].escalated_from
+                for run in self.RUNS]
+        self.assertEqual(said, [alerts.WATCH, alerts.WATCH, alerts.WATCH, None])
+
+    def test_an_alert_new_and_raised_a_level_says_both(self):
+        # A threat raised as a watch at 06:00 and a strike at 12:00: NEW alone
+        # hid the rise for the rest of the day.
+        alerts.reconcile(self.conn, [self.alert("tc_threat", alerts.WATCH)], "2026-10-15T06:00:00+00:00")
+        state = SimpleNamespace(alert_set=alerts.reconcile(
+            self.conn, [self.alert("tc_threat", alerts.CRITICAL)], "2026-10-15T12:00:00+00:00"))
+        [alert] = state.alert_set.alerts
+        self.assertEqual((alert.is_new, alert.escalated_from), (True, alerts.WATCH))
+        self.assertEqual(alert.news, ["NEW", "ESCALATED from WATCH"])
+        self.assertIn("tc_threat holds  NEW, ESCALATED from WATCH\n", "\n".join(report._section_alerts(state)))
+        feed = panels.alert_feed(state)
+        self.assertIn('<span class="chip chip-new">new</span><span class="chip chip-new">up from watch</span>',
+                      feed)
+        self.assertIn('<td class="lbl">new, up from watch</td>', feed)
+
+    def test_an_alert_says_its_news_as_the_report_and_the_console_print_it(self):
+        def news(**marks):
+            return alerts.Alert(code="c", level=alerts.WARNING, title="t", detail="d", **marks).news
+        self.assertEqual(news(), [])
+        self.assertEqual(news(is_new=True), ["NEW"])
+        self.assertEqual(news(escalated_from=alerts.WATCH), ["ESCALATED from WATCH"])
+
+    def test_a_day_of_cleared_alerts_wraps_inside_the_report(self):
+        codes = [f"tc_threat_ep{n}2026_puerto_vallarta" for n in range(15, 19)]
+        lines = report._section_alerts(SimpleNamespace(alert_set=alerts.AlertSet(cleared=codes)))
+        self.assertTrue(all(len(line) <= report.WIDTH for line in lines), lines)
+        said = " ".join(" ".join(lines).split()).split("Cleared in the last day: ", 1)[1]
+        self.assertEqual(said.split(", "), codes)
+
+    def test_a_rise_is_said_while_the_alert_stays_above_where_it_rose_from(self):
+        alerts.reconcile(self.conn, [self.alert(level=alerts.WATCH)], "2026-10-13T00:00:00+00:00")
+        said = [alerts.reconcile(self.conn, [self.alert(level=level)], run).alerts[0].escalated_from
+                for level, run in ((alerts.CRITICAL, "2026-10-15T13:30:00+00:00"),
+                                   (alerts.WARNING, "2026-10-15T13:40:00+00:00"),
+                                   (alerts.WATCH, "2026-10-15T13:50:00+00:00"))]
+        self.assertEqual(said, [alerts.WATCH, alerts.WATCH, None])
+
+    def test_a_record_from_before_the_news_keeps_its_alerts_and_gains_it(self):
+        old = Path(self.tmp.name) / "old.db"
+        made = sqlite3.connect(str(old))
+        made.executescript(
+            "CREATE TABLE alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, "
+            "level TEXT NOT NULL, title TEXT NOT NULL, detail TEXT, value REAL, "
+            "first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, cleared_at TEXT);"
+            "INSERT INTO alerts (code, level, title, first_seen, last_seen) VALUES "
+            f"('oni_ge_1.5', '{alerts.WATCH}', 't', '2026-10-01T00:00:00+00:00', '2026-10-15T13:20:00+00:00');")
+        made.commit()
+        made.close()
+        conn = storage.connect(old)
+        try:
+            [alert] = alerts.reconcile(conn, [self.alert(level=alerts.CRITICAL)],
+                                       "2026-10-15T13:30:00+00:00").alerts
+            self.assertEqual((alert.is_new, alert.first_seen, alert.escalated_from),
+                             (False, "2026-10-01T00:00:00+00:00", alerts.WATCH))
+        finally:
+            conn.close()
+
+    def news(self):
+        """Standing since the 14th, raised on the 15th, and cleared on the
+        15th, as of 13:30 UTC on the 15th."""
+        alerts.reconcile(self.conn, [self.alert("walker_strong"), self.alert("wwv_record")],
+                         "2026-10-14T09:10:00+00:00")
+        alerts.reconcile(self.conn, [self.alert("walker_strong"), self.alert("oni_ge_1.5")],
+                         "2026-10-15T13:20:00+00:00")
+        return SimpleNamespace(alert_set=alerts.reconcile(
+            self.conn, [self.alert("walker_strong"), self.alert("oni_ge_1.5")], "2026-10-15T13:30:00+00:00"))
+
+    def test_the_report_says_when_each_was_raised_and_what_cleared_in_the_day(self):
+        text = "\n".join(report._section_alerts(self.news()))
+        self.assertIn("oni_ge_1.5 holds  NEW\n", text)
+        self.assertIn("        raised 15 Oct 2026 13:20 UTC\n", text)
+        self.assertIn("        standing since 14 Oct 2026 09:10 UTC\n", text)
+        self.assertTrue(text.endswith("\n  Cleared in the last day: wwv_record"), text)
+
+    def test_the_page_says_when_each_was_raised_and_what_cleared_in_the_day(self):
+        feed = panels.alert_feed(self.news())
+        self.assertIn('<span class="alert-since">raised 15 Oct 2026 13:20 UTC</span>', feed)
+        self.assertIn('<span class="alert-since">standing since 14 Oct 2026 09:10 UTC</span>', feed)
+        self.assertEqual(feed.count('<span class="chip chip-new">new</span>'), 1)
+        self.assertIn('<p class="note">Cleared in the last day: wwv_record</p>', feed)
+        caption = " ".join(re.search(r'<p class="caption">(.*?)</p>', feed, re.S).group(1).split())
+        self.assertIn("what was raised, raised a level or cleared is marked so for a day", caption)
+
+
 # ---------------------------------------------------------------------------
 # End to end, against the cached feeds this repo ships
 # ---------------------------------------------------------------------------
@@ -9274,6 +9484,37 @@ class TestPublish(unittest.TestCase):
             self.assertEqual(self.publish.main(["--out", str(self.out), "--remote", str(self.remote)]), 2)
 
 
+class TestWatch(unittest.TestCase):
+    """`--watch`: the tracker run on a schedule until interrupted."""
+
+    def naps(self, *argv):
+        """The sleeps `track.py --watch ...` takes between runs, stopped at the
+        first, as Ctrl-C would."""
+        import track
+
+        naps = []
+
+        def nap(seconds):
+            naps.append(seconds)
+            raise KeyboardInterrupt
+
+        with mock.patch.object(track, "_guarded", return_value=0) as run, \
+                mock.patch.object(track.time, "sleep", side_effect=nap), mock.patch("sys.stderr"):
+            self.assertEqual(track.main(["--watch", *argv]), 0)
+        run.assert_called_once()
+        return naps
+
+    def test_it_runs_no_more_often_than_the_live_site(self):
+        # Every ten minutes; most servers are asked only whether their file
+        # changed, so a run sooner is load on NOAA for nothing new.
+        for asked, minutes in (("1", 10), ("9", 10), ("10", 10), ("15", 15), ("60", 60)):
+            with self.subTest(asked=asked):
+                self.assertEqual(self.naps(asked), [minutes * 60])
+
+    def test_without_minutes_it_runs_hourly(self):
+        self.assertEqual(self.naps(), [3600])
+
+
 class TestServe(unittest.TestCase):
     """`--serve`: the output directory over HTTP, read-only, for a tablet."""
 
@@ -11018,7 +11259,7 @@ class TestEndToEnd(unittest.TestCase):
     def test_payload_is_json_serialisable_and_keyed_as_documented(self):
         payload = dashboard.payload(self.state)
         restored = json.loads(json.dumps(payload))
-        self.assertEqual(restored["schema"], 12)
+        self.assertEqual(restored["schema"], 13)
         for key in ("index", "oni", "power_index", "subsurface", "atmosphere", "forecast",
                     "skill", "alerts", "impacts", "feeds", "footprints",
                     "cyclones", "stormfury", "atlas", "outlook", "storm_desk"):
@@ -13331,6 +13572,42 @@ class TestOfficialIndex(unittest.TestCase):
         relative = parsers.parse_rel_weekly(fixture("rel_weekly.txt"))
         a = assess(oni, roni, weeks, soi, mei, relative_weeks=relative)
         self.assertEqual(a.scale.active_regions, 3)
+
+    # The rules that compare a run with the state before it; momentum_building
+    # is a change too, but season on season, from the index's own record.
+    AGAINST_BEFORE = ("index_moved", "cpc_status_change")
+
+    def changes(self, **before):
+        """The change alerts against a state recorded at 13:30 UTC on 15
+        October, for an assessment under the advisory CPC last gave."""
+        a = dataclasses.replace(assess(*_fixture_inputs()), status="El Nino Advisory")
+        baseline = storage.Snapshot("2026-10-15T13:30:00+00:00", before)
+        return a, {alert.code: alert for alert in alerts.evaluate(a, baseline=baseline)
+                   if alert.code in self.AGAINST_BEFORE}
+
+    def test_a_move_of_the_index_is_said_against_the_state_it_moved_from(self):
+        a, raised = self.changes(roni=self.latest() - 0.3, status="El Nino Advisory")
+        moved = raised["index_moved"]
+        self.assertEqual(moved.title, "RONI changed since 15 Oct 2026 13:30 UTC")
+        self.assertEqual(moved.detail,
+                         f"{a.index_latest.value - 0.3:+.2f} then, {a.index_latest.value:+.2f} degC now. "
+                         "A change this size usually means a new month posted, but it can also be "
+                         "a revision to an existing season.")
+        self.assertAlmostEqual(moved.value, 0.3)
+        self.assertEqual(self.changes(roni=self.latest() - 0.1, status="El Nino Advisory")[1], {})
+
+    def test_a_new_advisory_status_is_said_against_the_one_it_followed(self):
+        _, raised = self.changes(roni=self.latest(), status="El Nino Watch")
+        self.assertEqual(list(raised), ["cpc_status_change"])
+        self.assertEqual(raised["cpc_status_change"].detail,
+                         "Was 'El Nino Watch' at 15 Oct 2026 13:30 UTC, now 'El Nino Advisory'.")
+
+    def test_without_a_baseline_nothing_has_changed(self):
+        a = dataclasses.replace(assess(*_fixture_inputs()), status="El Nino Advisory")
+        self.assertFalse([alert for alert in alerts.evaluate(a) if alert.code in self.AGAINST_BEFORE])
+
+    def latest(self):
+        return assess(*_fixture_inputs()).index_latest.value
 
     def test_intensity_alerts_fire_on_the_official_index(self):
         raised = alerts.evaluate(assess(*_fixture_inputs()))

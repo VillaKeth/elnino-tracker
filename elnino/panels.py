@@ -24,7 +24,7 @@ labels on the values that matter, a hover layer, and a table view twin.
 
 from __future__ import annotations
 
-from .alerts import CRITICAL, INFO, WARNING, WATCH
+from .alerts import CRITICAL, INFO, WARNING, WATCH, utc_time
 from .forecast import weights_text
 from .impacts import flavour_words
 from .svg import (Plot, _hit, _legend, boxes_clear, crosses, esc,
@@ -751,6 +751,13 @@ _ICON_DOT = (
 )
 
 
+def _marks(alert) -> list[str]:
+    """What is news of an alert, as the page says it: new, the level it rose
+    from, or both, when it rose in the day it was raised (``Alert.news``)."""
+    return (["new"] if alert.is_new else []) + (
+        [f"up from {alert.escalated_from}"] if alert.escalated_from else [])
+
+
 def alert_feed(state) -> str:
     alert_set = state.alert_set
     if not alert_set.alerts and not alert_set.cleared:
@@ -759,12 +766,10 @@ def alert_feed(state) -> str:
     for alert in alert_set.alerts:
         status = _ALERT_STATUS.get(alert.level, "good")
         icon = _ICON_ALARM if status in ("critical", "serious") else _ICON_DOT
-        new = ('<span class="chip chip-new">new</span>' if alert.is_new
-               else f'<span class="chip chip-new">up from {esc(alert.escalated_from)}</span>'
-               if alert.escalated_from else "")
+        new = "".join(f'<span class="chip chip-new">{esc(mark)}</span>' for mark in _marks(alert))
         since = (
-            f'<span class="alert-since">standing since {esc(alert.first_seen[:10])}</span>'
-            if alert.first_seen and not alert.is_new else ""
+            f'<span class="alert-since">{"raised" if alert.is_new else "standing since"} '
+            f'{esc(utc_time(alert.first_seen))}</span>' if alert.first_seen else ""
         )
         items.append(
             f'<li class="alert" data-status="{status}">'
@@ -773,19 +778,18 @@ def alert_feed(state) -> str:
             f'<p>{prose(alert.detail)}</p>{since}</div></li>'
         )
     cleared = (
-        f'<p class="note">Cleared this run: {prose(", ".join(alert_set.cleared))}</p>'
+        f'<p class="note">Cleared in the last day: {prose(", ".join(alert_set.cleared))}</p>'
         if alert_set.cleared else ""
     )
-    rows = [[a.level, a.title, a.kind,
-             "new" if a.is_new else
-             f"up from {a.escalated_from}" if a.escalated_from else "standing",
+    rows = [[a.level, a.title, a.kind, ", ".join(_marks(a)) or "standing",
              (a.first_seen or "")[:19]] for a in alert_set.alerts]
     return f"""
 <section class="card" id="alerts">
   <h2>Alerts</h2>
-  <p class="caption">Raised against thresholds and against the previous run held in the local
-    database, so an alert fires once when the condition appears and clears itself when it
-    lifts. Severity colour never travels alone: each carries an icon and a written level.</p>
+  <p class="caption">Raised against thresholds and, for what changed, against the state a day
+    before, from the local database; an alert fires once when its condition appears and clears
+    itself when it lifts, and what was raised, raised a level or cleared is marked so for a day.
+    Severity colour never travels alone: each carries an icon and a written level.</p>
   <ul class="alerts">{''.join(items)}</ul>
   {cleared}
   {table('open alerts', ['level', 'alert', 'kind', 'state', 'first seen'], rows)}

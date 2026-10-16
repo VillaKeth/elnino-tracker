@@ -6,15 +6,16 @@ name: Live site
 
 on:
   schedule:
-    # Two past each ten minutes, off the marks most schedules use: six
-    # publishes an hour, under GitHub Pages' soft limit of ten builds an hour
-    # for a site built from a branch, with room for pushes. GitHub holds
-    # scheduled runs under load, most at the start of each hour, and drops
-    # some: the first of all, and about four slots in five from 6 to 15
-    # October 2026. So each slot is a second chance for the one before: it
-    # stands down when its ten minutes' run has come, and held into the next
-    # ten it is that ten's run.
-    - cron: "2,12,22,32,42,52 * * * *"
+    # Every five minutes from two past the hour, GitHub's shortest, off the
+    # marks most schedules use: two slots in each ten minutes, and only the
+    # first to come publishes, so six publishes an hour, under GitHub Pages'
+    # soft limit of ten builds an hour for a site built from a branch, with
+    # room for pushes. GitHub holds scheduled runs under load, most at the
+    # start of each hour, and drops some: the first of all, and about four
+    # slots in five from 6 to 15 October 2026. So each slot is a second chance
+    # for the one before: it stands down when its ten minutes' run has come,
+    # and held into the next ten it is that ten's run.
+    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
   workflow_dispatch:
   push:
     branches: [main]
@@ -89,6 +90,7 @@ jobs:
           restore-keys: tracker-state-
 
       - name: Run the tracker and publish the run
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -117,9 +119,12 @@ jobs:
       # against the repository's 10 GB, and only the latest is ever restored:
       # the one this run started from goes once this run's own is saved. A
       # save that cannot reserve its key warns and goes on, so this run's is
-      # looked for by its key first.
+      # looked for by its key first. Only after a good run on main: a run that
+      # failed keeps the state it started from; and a run on another branch
+      # starts from main's but saves its own where main cannot restore it,
+      # while a key is deleted on every branch.
       - name: Let go of the state this run started from
-        if: ${{ !cancelled() && steps.saved.outcome == 'success' && steps.state.outputs.cache-matched-key != '' }}
+        if: ${{ !cancelled() && steps.publish.outcome == 'success' && steps.saved.outcome == 'success' && steps.state.outputs.cache-matched-key != '' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         shell: bash
         env:

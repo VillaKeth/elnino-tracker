@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SCHEMA = """
@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS alerts (
     value       REAL,
     first_seen  TEXT NOT NULL,
     last_seen   TEXT NOT NULL,
-    cleared_at  TEXT
+    cleared_at  TEXT,
+    raised_from TEXT,
+    raised_at   TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS alerts_open
@@ -83,11 +85,23 @@ class Snapshot:
         return self.values.get(key, default)
 
 
+# The columns added to a table since it was first made, which a database made
+# before them gains on connecting: the level an open alert last rose from, and
+# when.
+ADDED = {"alerts": (("raised_from", "TEXT"), ("raised_at", "TEXT"))}
+
+
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    for table, columns in ADDED.items():
+        have = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, kind in columns:
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+    conn.commit()
     return conn
 
 
@@ -112,10 +126,17 @@ def record_snapshot(conn: sqlite3.Connection, run_at: str, values: dict) -> None
     conn.commit()
 
 
-def previous_snapshot(conn: sqlite3.Connection, before: str) -> Snapshot | None:
+def baseline(conn: sqlite3.Connection, run_at: str, hours: int = 24) -> Snapshot | None:
+    """The state a day before a run, which the change alerts compare it with:
+    the latest snapshot at least ``hours`` older than ``run_at``, or, with none
+    so old, the earliest before it. Against the run before, a change was on the
+    site until the next run, ten minutes at the live run's cadence; against the
+    day before, it stays a day, whatever the cadence."""
+    cutoff = (datetime.fromisoformat(run_at) - timedelta(hours=hours)).isoformat(timespec="seconds")
     row = conn.execute(
-        "SELECT * FROM snapshots WHERE run_at < ? ORDER BY run_at DESC LIMIT 1",
-        (before,),
+        "SELECT * FROM snapshots WHERE run_at <= ? ORDER BY run_at DESC LIMIT 1", (cutoff,)
+    ).fetchone() or conn.execute(
+        "SELECT * FROM snapshots WHERE run_at < ? ORDER BY run_at LIMIT 1", (run_at,)
     ).fetchone()
     if row is None:
         return None
@@ -132,10 +153,22 @@ def snapshot_history(conn: sqlite3.Connection, limit: int = 180) -> list[Snapsho
 def record_series(
     conn: sqlite3.Connection, recorded_at: str, key: str, points: list[tuple[str, float]]
 ) -> None:
-    """Keep what each index said on each run, so revisions stay visible."""
+    """Keep each value an index gives a period, from the run that first saw it,
+    so revisions stay visible. A value its period's latest record already holds
+    is not written again: every run gave the last 24 seasons, the same values,
+    7,000 rows a day at a run every ten minutes."""
+    latest = {
+        row["period"]: row["value"]
+        for row in conn.execute(
+            "SELECT period, value FROM series AS s WHERE key = ? AND recorded_at = "
+            "(SELECT MAX(recorded_at) FROM series WHERE key = s.key AND period = s.period)",
+            (key,),
+        )
+    }
     conn.executemany(
         "INSERT OR REPLACE INTO series (key, period, value, recorded_at) VALUES (?, ?, ?, ?)",
-        [(key, period, value, recorded_at) for period, value in points],
+        [(key, period, value, recorded_at) for period, value in points
+         if latest.get(period) != value],
     )
     conn.commit()
 
@@ -157,12 +190,11 @@ def upsert_alert(
     value: float | None,
     seen_at: str,
 ) -> bool:
-    """Record an alert. Returns True only the first time it is raised.
+    """Record an alert. Returns True when it is raised, False when it stands.
 
-    That return value is what stops a daily run from re-announcing a condition
-    that has been true for a month. A standing alert's level and title are
-    brought up to date - a cyclone threat that went from a watch to a strike
-    used to stay logged as the watch it was first raised as.
+    A standing alert's level and title are brought up to date - a cyclone
+    threat that went from a watch to a strike used to stay logged as the watch
+    it was first raised as.
     """
     row = conn.execute(
         "SELECT id FROM alerts WHERE code = ? AND cleared_at IS NULL", (code,)
@@ -203,6 +235,25 @@ def clear_missing_alerts(
     return cleared
 
 
+def raise_alert(conn: sqlite3.Connection, code: str, was: str, seen_at: str) -> None:
+    """Note that the open alert ``code`` rose from the level ``was`` at
+    ``seen_at``."""
+    conn.execute(
+        "UPDATE alerts SET raised_from = ?, raised_at = ? WHERE code = ? AND cleared_at IS NULL",
+        (was, seen_at, code),
+    )
+    conn.commit()
+
+
+def cleared_since(conn: sqlite3.Connection, seen_at: str, span: timedelta) -> list[sqlite3.Row]:
+    """The alerts cleared less than ``span`` before ``seen_at``, the latest
+    first."""
+    since = (datetime.fromisoformat(seen_at) - span).isoformat(timespec="seconds")
+    return conn.execute(
+        "SELECT * FROM alerts WHERE cleared_at > ? ORDER BY cleared_at DESC", (since,)
+    ).fetchall()
+
+
 def open_alerts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM alerts WHERE cleared_at IS NULL ORDER BY first_seen DESC"
@@ -224,6 +275,21 @@ def record_fetches(conn: sqlite3.Connection, run_at: str, fetched: dict) -> None
             for key, item in fetched.items()
         ],
     )
+    conn.commit()
+
+
+# How long the fetch log keeps a run's rows. Nothing reads them back but a
+# person asking the database. A row a feed a run is 7,200 rows a day at a run
+# every ten minutes, 0.7 MB a day in the database the live run carries from
+# one run to the next: 20 MB over thirty days, 5 MB over a week.
+FETCH_LOG_DAYS = 7
+
+
+def prune(conn: sqlite3.Connection, run_at: str) -> None:
+    """Let go of the fetch log's rows from more than FETCH_LOG_DAYS before
+    ``run_at``."""
+    cutoff = (datetime.fromisoformat(run_at) - timedelta(days=FETCH_LOG_DAYS)).isoformat(timespec="seconds")
+    conn.execute("DELETE FROM fetch_log WHERE run_at < ?", (cutoff,))
     conn.commit()
 
 

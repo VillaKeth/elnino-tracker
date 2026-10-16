@@ -139,20 +139,22 @@ def _section_alerts(state) -> list[str]:
         lines.append("  No open alerts.")
     for alert in alert_set.alerts:
         mark = LEVEL_MARK.get(alert.level, "[   ]")
-        flag = ("  NEW" if alert.is_new
-                else f"  ESCALATED from {alert.escalated_from.upper()}"
-                if alert.escalated_from else "")
+        flag = f"  {', '.join(alert.news)}" if alert.news else ""
         # A title can outrun the page (a formation area's name is NHC's own
         # and can be forty characters); it wraps under itself, not past 78.
         lines.extend(textwrap.wrap(f"{_ascii(alert.title)}{flag}", width=WIDTH,
                                    initial_indent=f"  {mark} ",
                                    subsequent_indent="        "))
         lines.extend(_wrap(alert.detail, indent="        "))
-        if alert.first_seen and not alert.is_new:
-            lines.append(f"        standing since {alert.first_seen[:10]}")
+        if alert.first_seen:
+            said = "raised" if alert.is_new else "standing since"
+            lines.append(f"        {said} {alerts.utc_time(alert.first_seen)}")
     if alert_set.cleared:
+        # A day of them can outrun the page; each code wraps whole.
         lines.append("")
-        lines.append(f"  Cleared this run: {', '.join(alert_set.cleared)}")
+        lines.extend(textwrap.wrap(f"Cleared in the last day: {', '.join(alert_set.cleared)}",
+                                   width=WIDTH, initial_indent="  ", subsequent_indent="  ",
+                                   break_on_hyphens=False))
     return lines
 
 
@@ -985,10 +987,17 @@ def _section_data(state) -> list[str]:
     lines = _heading("data integrity")
     ok = [key for key, item in state.fetched.items() if item.ok and not item.from_cache]
     same = [key for key in ok if state.fetched[key].unchanged]
+    rested = [key for key in ok if state.fetched[key].rested]
     cached = [key for key, item in state.fetched.items() if item.ok and item.from_cache]
     failed = [(key, item.error) for key, item in state.fetched.items() if not item.ok]
 
-    checked = f" ({len(same)} checked and unchanged since downloaded)" if same else ""
+    notes = []
+    if same:
+        notes.append(f"{len(same)} checked and unchanged since downloaded")
+    if rested:
+        notes.append(f"{len(rested)} downloaded within the hour and asked again hourly, "
+                     "as ERDDAP's tables cannot say whether they changed")
+    checked = f" ({'; '.join(notes)})" if notes else ""
     lines.extend(_wrap(f"{len(ok)} feed{'s' if len(ok) != 1 else ''} fetched live{checked}, "
                        f"{len(cached)} served from cache, {len(failed)} failed."))
     if cached:

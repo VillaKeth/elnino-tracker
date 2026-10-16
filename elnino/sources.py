@@ -34,7 +34,7 @@ import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import NamedTuple
 
@@ -43,6 +43,17 @@ TIMEOUT = 45
 RETRIES = 3
 BACKOFF = 2.5
 MAX_PARALLEL = 6  # polite against CPC; the whole registry still lands in ~15s
+# How long a copy of an ERDDAP table serves before the table is asked for
+# again. ERDDAP makes each table afresh for each request, so it cannot say
+# whether one changed: its Last-Modified is the moment it answered, and it
+# answers a conditional request in full. TAO's moorings, the tables read here,
+# are averaged by the day and the month.
+TABLE_REST = timedelta(hours=1)
+# How long a server's word that a file has not changed serves a copy, from the
+# copy's download; after it the file is asked for whole. A file put back from
+# a backup keeps the backup's older date, so a copy of what it replaced would
+# be told it has not changed until the file next did, a month for ONI.
+WHOLE_AFTER = timedelta(days=1)
 
 CPC = "https://www.cpc.ncep.noaa.gov/data/indices"
 
@@ -840,9 +851,14 @@ class Fetched:
     # downloaded from.
     url: str = ""
     # The copy downloaded at ``fetched_at`` is current, and was not downloaded
-    # again: its dataset had no new day, or the product's own address is
-    # behind the copy the second server made.
+    # again: its dataset had no new day, its server said the file had not
+    # changed since, or the product's own address is behind the copy the
+    # second server made.
     unchanged: bool = False
+    # The copy downloaded at ``fetched_at``, under an hour before, of an ERDDAP
+    # table, which cannot say whether it changed: it serves without the table
+    # being asked for (``TABLE_REST``).
+    rested: bool = False
 
     @property
     def ok(self) -> bool:
@@ -870,14 +886,32 @@ def decode_payload(payload: bytes, content_encoding: str | None = None) -> str:
     return payload.decode("utf-8", errors="replace")
 
 
-def _http_get(url: str) -> str:
-    """GET a URL, transparently handling gzip and flaky NOAA endpoints."""
+class Answer(NamedTuple):
+    """What an address answered: its text, and the tag and the date its server
+    gave that version of it (``ETag``, ``Last-Modified``), with which the next
+    run asks whether it has changed. A server that gives neither is asked for
+    the whole file each time."""
+
+    text: str
+    etag: str = ""
+    modified: str = ""
+
+
+def _http_get(url: str, headers: dict[str, str] | None = None) -> Answer | None:
+    """GET a URL, transparently handling gzip and flaky NOAA endpoints.
+
+    ``headers`` are the ones that ask whether the file has changed since a copy
+    (``If-None-Match``, ``If-Modified-Since``): a server that says it has not
+    answers 304, and this None. A 304 to a request that asked nothing is no
+    answer, and fails as any other would.
+    """
     request = urllib.request.Request(
         url,
         headers={
             "User-Agent": USER_AGENT,
             "Accept": "text/plain,text/html,*/*",
             "Accept-Encoding": "gzip, identity",
+            **(headers or {}),
         },
     )
     context = ssl.create_default_context()
@@ -885,13 +919,37 @@ def _http_get(url: str) -> str:
     for attempt in range(1, RETRIES + 1):
         try:
             with urllib.request.urlopen(request, timeout=TIMEOUT, context=context) as response:
-                return decode_payload(response.read(),
-                                      response.headers.get("Content-Encoding"))
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as exc:
+                return Answer(decode_payload(response.read(), response.headers.get("Content-Encoding")),
+                              response.headers.get("ETag") or "",
+                              response.headers.get("Last-Modified") or "")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 304 and headers:
+                return None
             last = exc
-            if attempt < RETRIES:
-                time.sleep(BACKOFF * attempt)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last = exc
+        if attempt < RETRIES:
+            time.sleep(BACKOFF * attempt)
     raise RuntimeError(f"{type(last).__name__}: {last}")
+
+
+def _asking(meta: dict) -> dict[str, str]:
+    """The header that asks a server whether a file has changed since the copy
+    ``meta`` records: the date it gave the copy, as it gave it, or with none,
+    the tag. A server weighs a tag over a date, and a tag can be one it never
+    matches again: PSL's, which Apache's compression ends in "-gzip", was
+    answered in full when asked by both, and 304 by its date alone (16 October
+    2026), as every server here that gives a date answers."""
+    for field, header in (("modified", "If-Modified-Since"), ("etag", "If-None-Match")):
+        if isinstance(meta.get(field), str) and meta[field]:
+            return {header: meta[field]}
+    return {}
+
+
+def rests(url: str) -> bool:
+    """Whether a copy of ``url``'s answer rests (``TABLE_REST``) before it is
+    asked for again: an ERDDAP table's, which ERDDAP cannot say has changed."""
+    return "/tabledap/" in url.partition("?")[0]
 
 
 def probe_url(url: str) -> str:
@@ -1110,7 +1168,7 @@ def _latest_day(url: str) -> str:
     the dataset does not answer: a dataset that cannot say its latest day is
     not asked for the day either."""
     probe = probe_url(url)
-    return _latest_time(_http_get(probe)) if probe else ""
+    return _latest_time(_http_get(probe).text) if probe else ""
 
 
 # What a probe answers: ERDDAP's CSV of one time, the last line of it.
@@ -1191,23 +1249,47 @@ def _read_meta(path: Path) -> dict:
 def _download(source: Source, product: _Product, url: str, said: str, now: str) -> Fetched:
     """A product's text, downloaded from ``url`` and kept, or its copy when the
     copy came from there and the dataset's latest day, as it ``said``, is the
-    one the copy is recorded at. Raises when the address fails or answers
-    with anything but its data, as a web page is for a feed that is not one,
-    or with a subset of nothing but NaN."""
+    one the copy is recorded at; or the copy is of an ERDDAP table downloaded
+    within the hour (TABLE_REST); or the server, asked with the date it gave
+    the copy, or with none the tag, says the file has not changed since, which
+    it is asked for a day from the copy's download (WHOLE_AFTER). Raises when
+    the address fails or answers with anything but its data, as a web page is
+    for a feed that is not one, or with a subset of nothing but NaN."""
     meta = product.meta()
-    if said and meta.get("probe") == said and meta.get("url") == url:
+    ours = meta.get("url") == url
+    if said and meta.get("probe") == said and ours:
         # A copy that is gone, or is not what its record was written for, is
         # downloaded again.
         with contextlib.suppress(OSError, ValueError):
-            return Fetched(source, product.kept(meta), meta.get("fetched_at", now),
-                           from_cache=False, sha256=meta.get("sha256", ""),
-                           url=url, unchanged=True)
+            return _current(source, product.kept(meta), meta, url, now)
+    if ours and rests(url):
+        # So is one whose record says no time it was downloaded, or a time
+        # after now, as a clock put back would.
+        with contextlib.suppress(OSError, ValueError, TypeError):
+            if _within(meta.get("fetched_at"), now, TABLE_REST):
+                return Fetched(source, product.kept(meta), meta["fetched_at"], from_cache=False,
+                               sha256=meta.get("sha256", ""), url=url, rested=True)
+    # Only a copy that reads back is worth asking after: told it has not
+    # changed, the run would have nothing else to serve. And only for a day
+    # from its download, so not one whose record says no time it was
+    # downloaded, or a time after now.
+    copy, asking = None, {}
+    if ours:
+        with contextlib.suppress(ValueError, TypeError):
+            if _within(meta.get("fetched_at"), now, WHOLE_AFTER):
+                asking = _asking(meta)
+    if asking:
+        with contextlib.suppress(OSError, ValueError):
+            copy = product.kept(meta)
+    answer = _http_get(url, asking if copy is not None else None)
+    if answer is None:
+        return _current(source, copy, meta, url, now)
     # One line ending from here on, and the copy written as the very bytes its
     # digest is taken over. In text mode on Windows every "\n" was written as
     # "\r\n" and every CRLF a feed sent became "\r\r\n", which read back as
     # two lines; and the archive's digest never matched the translated file,
     # so it was rewritten on every run.
-    text = _http_get(url).replace("\r\n", "\n")
+    text = answer.text.replace("\r\n", "\n")
     if probe_url(url):
         if not _is_griddap_csv(text):
             raise ValueError("its answer is not ERDDAP's CSV")
@@ -1229,6 +1311,10 @@ def _download(source: Source, product: _Product, url: str, said: str, now: str) 
     record = {"url": url, "fetched_at": now, "sha256": digest, "bytes": len(data)}
     if said:
         record["probe"] = said
+    if answer.etag:
+        record["etag"] = answer.etag
+    if answer.modified:
+        record["modified"] = answer.modified
     # The text serves whether or not it can be kept.
     try:
         product.keep(data, record)
@@ -1240,6 +1326,18 @@ def _download(source: Source, product: _Product, url: str, said: str, now: str) 
         except OSError as exc:
             got.warnings.append(f"archived no copy: {exc}")
     return got
+
+
+def _within(stamp, now: str, span: timedelta) -> bool:
+    """Whether the time ``stamp`` is no later than ``now`` and less than
+    ``span`` before it. Raises for a stamp that is not a time with its zone."""
+    return timedelta(0) <= datetime.fromisoformat(now) - datetime.fromisoformat(stamp) < span
+
+
+def _current(source: Source, text: str, meta: dict, url: str, now: str) -> Fetched:
+    """The copy, current though not downloaded again: unchanged since it was."""
+    return Fetched(source, text, meta.get("fetched_at", now), from_cache=False,
+                   sha256=meta.get("sha256", ""), url=url, unchanged=True)
 
 
 def _archive(raw_dir: Path, name: str, data: bytes, digest: str) -> None:

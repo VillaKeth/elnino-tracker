@@ -46,6 +46,12 @@ INDEX_STEPS: tuple[tuple[float, str, str], ...] = (
 
 STALE_DAYS = 45  # an index this old means the monthly update was missed
 
+# How long an alert's news stays on it: that it was raised, raised a level, or
+# cleared. Marked on its run alone, it was on the site ten minutes at the live
+# run's cadence; a day, it stays a day whatever the cadence, as what changed
+# does (the change rules' baseline).
+NEWS = timedelta(hours=24)
+
 
 @dataclass
 class Alert:
@@ -55,18 +61,30 @@ class Alert:
     detail: str
     value: float | None = None
     kind: str = "state"
-    is_new: bool = False
+    is_new: bool = False  # raised in the day before this run (NEWS)
     first_seen: str | None = None
-    escalated_from: str | None = None  # the level it stood at before this run
+    # The level it rose from in the day before this run, while it stays above.
+    escalated_from: str | None = None
 
     @property
     def rank(self) -> int:
         return LEVEL_ORDER.get(self.level, 9)
 
+    @property
+    def news(self) -> list[str]:
+        """What is news of it, as the report and the console say it: NEW, the
+        level it rose from, or both, when it rose in the day it was raised."""
+        said = ["NEW"] if self.is_new else []
+        if self.escalated_from:
+            said.append(f"ESCALATED from {self.escalated_from.upper()}")
+        return said
+
 
 @dataclass
 class AlertSet:
     alerts: list[Alert] = field(default_factory=list)
+    # The codes of the alerts cleared in the day before this run, the latest
+    # first, but those raised again since.
     cleared: list[str] = field(default_factory=list)
 
     @property
@@ -112,14 +130,15 @@ def evaluate(
     atmosphere_state=None,
     forecast_result=None,
     fetched: dict | None = None,
-    previous=None,
+    baseline=None,
     storms=None,
     now: str | None = None,
     winds=None,
 ) -> list[Alert]:
     """Run every rule against the current state, as of ``now`` (the run's
     time, ISO 8601), with the westerly wind events, ``winds``, when their feed
-    came. Ordering happens later."""
+    came, and the state a day before it, ``baseline`` (``storage.baseline``),
+    for what changed. Ordering happens later."""
     out: list[Alert] = []
     latest = assessment.index_latest
     name_of_index = assessment.index_name
@@ -467,29 +486,33 @@ def evaluate(
                 kind="integrity",
             )
 
-    # -- change against the previous run -------------------------------------
-    if previous is not None:
-        before = previous.get("status")
+    # -- change against the state a day before -------------------------------
+    # Not the run before: a change would be on the site only until the next
+    # run. Each says the time of the state it is against, which is a day before
+    # unless the record is younger, or has a gap.
+    if baseline is not None:
+        then = utc_time(baseline.run_at)
+        before = baseline.get("status")
         if before and assessment.status and before != assessment.status:
             _add(
                 out,
                 code="cpc_status_change",
                 level=WARNING,
                 title="CPC advisory status changed",
-                detail=f"Was '{before}', now '{assessment.status}'.",
+                detail=f"Was '{before}' at {then}, now '{assessment.status}'.",
                 kind="change",
             )
-        prior = previous.get(name_of_index.lower())
+        prior = baseline.get(name_of_index.lower())
         if prior is not None and abs(latest.value - prior) >= 0.15:
             _add(
                 out,
                 code="index_moved",
                 level=INFO,
-                title=f"{name_of_index} changed since the last run",
+                title=f"{name_of_index} changed since {then}",
                 detail=(
-                    f"{prior:+.2f} to {latest.value:+.2f} degC. A change this "
-                    "size between runs usually means a new month posted, but it can "
-                    "also be a revision to an existing season."
+                    f"{prior:+.2f} then, {latest.value:+.2f} degC now. A change this "
+                    "size usually means a new month posted, but it can also be a "
+                    "revision to an existing season."
                 ),
                 value=latest.value - prior,
                 kind="change",
@@ -936,6 +959,18 @@ def _pos(fix) -> str:
             f"{abs(fix.lon):.1f}{'W' if fix.lon < 0 else 'E'}")
 
 
+def utc_time(stamp: str) -> str:
+    """A run's time as the alerts say it: 15 Oct 2026 13:30 UTC. One without
+    a zone is UTC, as the record's are."""
+    try:
+        moment = datetime.fromisoformat(stamp)
+    except (TypeError, ValueError):
+        return str(stamp)
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(timezone.utc)
+    return f"{moment.day} {moment:%b %Y %H:%M} UTC"
+
+
 def _stamp(atcf: str) -> str:
     return (f"{atcf[:4]}-{atcf[4:6]}-{atcf[6:8]} {atcf[8:10]}Z"
             if len(atcf) == 10 else atcf)
@@ -952,30 +987,47 @@ def _valid(fix) -> str:
 
 
 def reconcile(conn, alerts: list[Alert], seen_at: str) -> AlertSet:
-    """Persist the alerts, marking which are new and closing the rest."""
+    """Persist the alerts, close the rest, and mark the news of the day before
+    ``seen_at`` (NEWS): which were raised, which raised a level, which
+    cleared."""
     from . import storage
 
     ordered = sorted(alerts, key=lambda alert: (alert.rank, alert.code))
     before = {row["code"]: row["level"] for row in storage.open_alerts(conn)}
     for alert in ordered:
-        alert.is_new = storage.upsert_alert(
-            conn, alert.code, alert.level, alert.title, alert.detail, alert.value, seen_at
-        )
-        alert.first_seen = seen_at if alert.is_new else None
+        storage.upsert_alert(conn, alert.code, alert.level, alert.title, alert.detail,
+                             alert.value, seen_at)
         # A standing alert that got worse is news even though its condition
         # is not: a threat that was a watch yesterday and a strike today.
         was = before.get(alert.code)
         if was is not None and alert.rank < LEVEL_ORDER.get(was, 9):
-            alert.escalated_from = was
+            storage.raise_alert(conn, alert.code, was, seen_at)
+    storage.clear_missing_alerts(conn, {a.code for a in ordered}, seen_at)
 
     open_rows = {row["code"]: row for row in storage.open_alerts(conn)}
     for alert in ordered:
-        row = open_rows.get(alert.code)
-        if row is not None:
-            alert.first_seen = row["first_seen"]
-
-    cleared = storage.clear_missing_alerts(conn, {a.code for a in ordered}, seen_at)
+        row = open_rows[alert.code]
+        alert.first_seen = row["first_seen"]
+        alert.is_new = _news(row["first_seen"], seen_at)
+        rose = row["raised_from"]
+        alert.escalated_from = (rose if rose and _news(row["raised_at"], seen_at)
+                                and alert.rank < LEVEL_ORDER.get(rose, 9) else None)
+    cleared = []
+    for row in storage.cleared_since(conn, seen_at, NEWS):
+        if row["code"] not in open_rows and row["code"] not in cleared and _news(row["cleared_at"], seen_at):
+            cleared.append(row["code"])
     return AlertSet(alerts=ordered, cleared=cleared)
+
+
+def _news(stamp, now: str) -> bool:
+    """Whether the time ``stamp`` is no later than ``now`` and within NEWS
+    before it. One without a zone is UTC, as the record's are."""
+    try:
+        then, at = datetime.fromisoformat(stamp), datetime.fromisoformat(now)
+    except (TypeError, ValueError):
+        return False
+    then, at = (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc) for moment in (then, at))
+    return timedelta(0) <= at - then < NEWS
 
 
 def since(first_seen: str | None) -> str:

@@ -1003,9 +1003,9 @@ class TestOnThePage(unittest.TestCase):
         self.assertLess(page.index('id="soi-daily"'), page.index('id="wind-events"'))
         self.assertLess(page.index('id="wind-events"'), page.index('id="forecast"'))
 
-    def test_the_json_gives_the_events_at_schema_12_and_null_without_the_feed(self):
+    def test_the_json_gives_the_events_since_schema_12_and_null_without_the_feed(self):
         data = json.loads(json.dumps(dashboard.payload(self.state)))
-        self.assertEqual(data["schema"], 12)
+        self.assertEqual(data["schema"], 13)
         events = data["spatial"]["wind_events"]["events"]
         self.assertEqual([(event["region"], event["under_way"]) for event in events],
                          [("C", True)])

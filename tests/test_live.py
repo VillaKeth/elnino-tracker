@@ -2531,10 +2531,13 @@ class TestTheLiveRun(unittest.TestCase):
         self.tests = (workflows / "tests.yml").read_text(encoding="utf-8")
 
     def test_it_runs_every_ten_minutes_by_hand_and_on_new_code(self):
-        # Two past each ten minutes, off the marks most schedules use: six
+        # Asked every five minutes from two past the hour, GitHub's shortest:
+        # two slots in each ten minutes, the first to come publishing, so six
         # publishes an hour, under GitHub Pages' soft limit of ten builds an
-        # hour for a site built from a branch, with room for pushes.
-        self.assertEqual(re.findall(r"- cron: (.*)", self.live), ['"2,12,22,32,42,52 * * * *"'])
+        # hour for a site built from a branch, with room for pushes. GitHub
+        # dropped about four slots in five from 6 to 15 October 2026.
+        self.assertEqual(re.findall(r"- cron: (.*)", self.live),
+                         ['"2,7,12,17,22,27,32,37,42,47,52,57 * * * *"'])
         self.assertIn("  workflow_dispatch:\n", self.live)
         self.assertIn("  push:\n    branches: [main]\n", self.live)
 
@@ -2583,6 +2586,8 @@ class TestTheLiveRun(unittest.TestCase):
                     ("schedule", 42 * 60, "120", "true"),
                     # Published at 14:39:59 and 14:33: these ten minutes have no run yet.
                     ("schedule", 42 * 60, "121", "false"), ("schedule", 42 * 60, "540", "false"),
+                    # The second slot, at 14:47: published at 14:43 by the first, or at 14:33.
+                    ("schedule", 47 * 60, "240", "true"), ("schedule", 47 * 60, "840", "false"),
                     # Held to 14:48: published at 14:46 by a dispatch, or at 14:33 by the run before.
                     ("schedule", 48 * 60, "120", "true"), ("schedule", 48 * 60, "900", "false"),
                     # Held into the next ten, to 14:51: published at 14:43 by its own ten's run,
@@ -2635,8 +2640,15 @@ class TestTheLiveRun(unittest.TestCase):
         self.assertIn("      - name: Restore the tracker's state\n        id: state\n", self.live)
         self.assertIn("      - name: Save the tracker's state\n        id: saved\n", self.live)
         step = self.live.split("- name: Let go of the state this run started from\n", 1)[1]
-        self.assertIn("if: ${{ !cancelled() && steps.saved.outcome == 'success' && "
-                      "steps.state.outputs.cache-matched-key != '' }}\n", step)
+        # Only after a good run on main: a run on another branch restores
+        # main's state and saves its own where main cannot restore it, and a
+        # key is deleted on every branch; and a run that failed keeps the state
+        # it started from, the last a good run saved. Main by name, as the push
+        # trigger names it.
+        self.assertIn("if: ${{ !cancelled() && steps.publish.outcome == 'success' && "
+                      "steps.saved.outcome == 'success' && steps.state.outputs.cache-matched-key != '' && "
+                      "github.ref == 'refs/heads/main' }}\n", step)
+        self.assertIn("      - name: Run the tracker and publish the run\n        id: publish\n", self.live)
         self.assertIn("continue-on-error: true\n", step)
         self.assertIn("OLD: ${{ steps.state.outputs.cache-matched-key }}\n", step)
         self.assertIn("NEW: tracker-state-${{ github.run_id }}-${{ github.run_attempt }}\n", step)

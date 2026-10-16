@@ -60,7 +60,8 @@ class SystemState:
     fetched: dict
     series: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
-    previous: storage.Snapshot | None = None
+    # The state a day before the run, which the change alerts compared it with.
+    baseline: storage.Snapshot | None = None
 
     @property
     def degraded(self) -> bool:
@@ -468,18 +469,18 @@ def run(
         index_name=index_name,
     )
 
-    # Persist, then evaluate alerts against what the previous run recorded.
+    # Persist, then evaluate alerts, what changed against the state a day before.
     run_at = storage.now()
     conn = storage.connect(db_path)
     try:
-        previous = storage.previous_snapshot(conn, run_at)
+        baseline = storage.baseline(conn, run_at)
         raised = alerts.evaluate(
             assessment,
             subsurface_state,
             atmosphere_state,
             forecast_result,
             fetched,
-            previous,
+            baseline,
             storms,
             now=run_at,
             winds=spatial.winds,
@@ -498,6 +499,7 @@ def run(
             storage.record_series(
                 conn, run_at, "roni", [(v.label, v.value) for v in series["roni"][-24:]]
             )
+        storage.prune(conn, run_at)
     finally:
         conn.close()
 
@@ -518,7 +520,7 @@ def run(
         fetched=fetched,
         series=series,
         warnings=warnings,
-        previous=previous,
+        baseline=baseline,
     )
 
 

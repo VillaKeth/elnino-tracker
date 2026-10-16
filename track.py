@@ -143,9 +143,7 @@ def _run_once(args) -> int:
     elif args.alerts_only:
         for alert in state.alert_set.alerts:
             if alert.level in SERIOUS or args.verbose:
-                flag = (" NEW" if alert.is_new
-                        else f" ESCALATED from {alert.escalated_from.upper()}"
-                        if alert.escalated_from else "")
+                flag = f" {', '.join(alert.news)}" if alert.news else ""
                 print(f"{alert.level:<8} {alert.title}{flag}")
     elif args.quiet:
         print(state.assessment.headline)
@@ -250,10 +248,11 @@ def _where(server, lan: bool) -> str:
 
 def _watch(args) -> int:
     """Re-run on a schedule until interrupted."""
-    # The fastest feeds, the tropical cyclone products, change every few
-    # hours, so anything under a quarter of an hour is pure load on NOAA for
-    # no new information.
-    interval = max(args.watch, 15) * 60
+    # No more often than the live site runs, every ten minutes. Most servers
+    # are asked only whether their file changed since it was downloaded, and
+    # the fastest feeds, the tropical cyclone products, change every few
+    # hours: a run sooner is load on NOAA for nothing new.
+    interval = max(args.watch, 10) * 60
     print(f"Watching: re-running every {interval // 60} minutes. Ctrl-C to stop.",
           file=sys.stderr)
     code = 0
