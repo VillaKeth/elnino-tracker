@@ -330,7 +330,10 @@ def run(
     leads: int = forecast.DEFAULT_LEADS,
 ) -> SystemState:
     """Execute one full cycle and return everything it produced."""
-    fetched = sources.fetch_all(raw_dir, offline=offline, progress=progress)
+    # One patience for the run: a server silent for one feed is not waited on
+    # again by another, nor for the storms' files fetched after them.
+    patience = sources.Patience()
+    fetched = sources.fetch_all(raw_dir, offline=offline, progress=progress, patience=patience)
     series, warnings = parse_all(fetched)
 
     # RONI is the official index and ONI the legacy one beside it. Either can
@@ -407,9 +410,10 @@ def run(
     # named after storms that only today's advisory index knows exist and
     # after archive files that get renamed every spring. It is given the same
     # cache and the same offline switch as everything else, so an offline run
-    # reproduces the last online one instead of going quiet.
+    # reproduces the last online one instead of going quiet, and the same
+    # patience.
     storms = cyclones.build(
-        fetched, index_series, lambda source: sources.fetch(source, raw_dir, offline)
+        fetched, index_series, lambda source: sources.fetch(source, raw_dir, offline, patience)
     )
     warnings.extend(storms.notes)
     # A protective product the index links but that did not arrive is a failed

@@ -1989,6 +1989,22 @@ cyclone decks and products are a second wave on top of that — three ATCF decks
 up to five NHC products for each NHC or CPHC storm, one warning for each JTWC
 storm — and which storms exist is not known until the first wave lands.
 
+Each feed has two minutes for all it asks of its servers: every try at every
+address, the pauses between them and the reading of each answer, each step of
+a try (a connection to one of its server's addresses, then each part of its
+answer) given 45 s, or less as the two minutes run out. A server that leaves a
+try unanswered for the whole of its 45 s, the feed's own or one a redirect sent
+the try on to, is not asked again in the run, by its feed or any other, nor for
+the storms' files after them: from 17 to 19 October 2026 CoastWatch's West
+Coast node at times left every try unanswered, three tries of 45 s an address,
+and a run that met it waited five minutes and more, where with every feed
+answering a whole fetch took 59 s at the longest. Such a try is not counted in
+its feed's two minutes, which the server the feed asks next, NCEI's behind
+CoastWatch, has whole. A server that answers, if only with an error and however
+slowly, is tried again as before, within the two minutes. A feed out of time,
+or with no server left to ask, serves its copy, as a failed feed does, and the
+next run asks every server again.
+
 ### Index feeds (27)
 
 | Feed | What it is for |
@@ -2369,9 +2385,9 @@ elnino/streetstorms.py   hurricanes on the street: the stage's storm line and pa
                          and HURDAT2's tracks as an asset loaded when asked
 elnino/assets.py         the code and data that do not change from run to run, as files
                          named for their contents, beside the pages, and the service
-                         worker that keeps them
+                         worker that keeps them and stands in for Pages when it lags
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1922 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1954 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -2549,7 +2565,9 @@ publishes the run (`.github/workflows/live.yml`):
   a site built from a branch, with room for pushes. A run takes about a
   minute, 62 s at the median from 17 to 19 October (53 s at 13:25 UTC on 16
   October, the tracker 29 s of it and its 50 feeds 3 s of that), though one in
-  twelve took five to eight minutes, waiting on a slow feed. GitHub holds
+  twelve took five to eight minutes, waiting on a server that never answered,
+  until each feed was given two minutes for all it asks (*Data sources*).
+  GitHub holds
   scheduled runs under load, most at the start of each hour, and drops some:
   the first of all, about four slots in five from 6 to 15 October 2026, and
   all but 20 of about 830 from 16 to 19 October. So a scheduled or a relayed
@@ -2616,13 +2634,14 @@ publishes the run (`.github/workflows/live.yml`):
   that share it. GitHub Pages sends every file again after each publish, with a
   new date and tag on each (`curl -I` across one, 9 October 2026), so a browser
   would fetch each asset again ten minutes after it last did; the site's service
-  worker, `sw.js` beside the pages, keeps them instead. It answers only for the
-  assets, from its cache or else from the network, keeps a file only when its
-  bytes are the ones its name was taken from, and keeps the two latest of each
-  name, as a page cached from before a publish still names the last ones; a
-  page tells it the assets it names as it opens, so they are kept from a first
-  visit on. A page opened as a file, or from an address that is not secure, has
-  no worker, and the browser's own cache.
+  worker, `sw.js` beside the pages, keeps them instead. It answers for the
+  assets from its cache or else from the network, or from GitHub's raw copy of
+  the site when Pages cannot give one (*When Pages lags*), keeps a file only
+  when its bytes are the ones its name was taken from, and keeps the two latest
+  of each name, as a page cached from before a publish still names the last
+  ones; a page tells it the assets it names as it opens, so they are kept from
+  a first visit on. A page opened as a file, or from an address that is not
+  secure, has no worker, and the browser's own cache.
   Measured on a phone's line (1.6 Mbps, 150 ms, its processor slowed four
   times), the median of repeated visits each made after a publish: the
   map loads in 1.4 s where the page of one file took 4.9 s, the storm desk in
@@ -2635,6 +2654,26 @@ publishes the run (`.github/workflows/live.yml`):
   5.0 and 6.6 s before. A run writes the assets its pages name before the
   pages, and lets go of those no page names any more before it writes
   `run.json`.
+- **When Pages lags.** GitHub Pages deploys each publish within a minute or
+  two of its commit to `gh-pages`, but its deploys can stall while the branch
+  takes every run: in GitHub's incident of 19 October 2026 the site served the
+  run of 15:22 until 16:37. So the worker answers for a run's files too, the
+  pages and their data (each `.html` and `.json` file beside `sw.js`), from
+  Pages as the browser would, unless Pages lags: a file it deployed more than
+  twelve minutes before it answered (its `Date` against its `Last-Modified`,
+  with a run published every ten), a 404 or a 5xx, or no answer at all. Then
+  it asks GitHub's raw copy of the branch
+  (`raw.githubusercontent.com/<owner>/<repo>/gh-pages/`) which run it holds,
+  at most every two minutes, past the browser's cache and with no cookies,
+  and answers from the copy only for a later run than Pages' own `run.json`
+  names, or when Pages names none, giving each file its own type, as raw
+  serves every file as plain text. A copy that cannot say its run in 5 s, or
+  give its file in 20, or that has no later run, leaves Pages' answer as it
+  was, its error among them, and a site served anywhere but at
+  `<owner>.github.io/<repo>/` has no copy. So an open page goes on following
+  the runs a few minutes behind them, raw keeping a file up to five minutes,
+  and a page opened again meanwhile opens on the latest; Pages' next deploy
+  puts it back in charge.
 - **Pages that follow it.** Every page names its run, and the code that wrote
   it, in its head and asks the site for `run.json` each minute, and at once when
   it is shown again or the browser is back online. The storm desk and the map
@@ -2701,7 +2740,7 @@ run every hour, or as often as `--watch` asks, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1922 tests, no network required. They cover:
+1954 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2781,6 +2820,22 @@ python -m unittest discover -s tests -v
   markup only if it is one of those; schema 13, each feed's warnings beside it,
   and whether it rested, and the provenance's *unchanged since* and *asked
   again hourly*;
+- **patience with the servers**: a server that leaves a try unanswered for the
+  whole of its timeout asked no more in the run, by its feed or another, nor
+  for the storms' files, and asked again by the next run, the try not counted
+  in its feed's time; the server a redirect sent a try on to the silent one,
+  not the one that sent it, and a later try that hangs at its own server that
+  server's silence; one failing at once, or answering an error however slowly,
+  tried its three times; each feed's two minutes spanning its tries at all its
+  addresses, the pauses between them and the reading of an answer, a try given
+  only what is left of them, an answer in as they run out taken and one still
+  coming when they are spent no answer; a feed whose server is silent serving
+  its copy and asking NCEI; one patience for every feed and storm of a run;
+  and, against servers on this machine, a body read whole however it is sent
+  (by its length, in chunks, compressed or to the close), one cut short no
+  answer, each read waiting no longer than the feed has left, and a server
+  that takes a request and never answers silent, as is one a redirect sends
+  the try on to;
 - **the dipole and the SOI day by day**: the poles asked on the Niño boxes'
   half-degree cells, each pole its cells' cosine-weighted mean, the DMI the west
   less the east on a day both poles have, the record then the preliminary's
@@ -3187,11 +3242,19 @@ python -m unittest discover -s tests -v
   contents, a run writing them before the pages and letting go of those no page
   names, a publish refusing one missing or not the file its name was taken
   from, and a desk taking a run in place only from a page naming its own; the
-  service worker fetching an asset once and serving it after, leaving pages,
-  data and every other address to the browser, never keeping a file that is not
-  its name's or an answer that failed, answering all the same when its cache
-  refuses to keep, keeping a page's assets as it names them and the two latest
-  of each name, and taking over at once; a served page
+  service worker fetching an asset once and serving it after, leaving every
+  address but the assets and a run's files to the browser, never keeping a file
+  that is not its name's or an answer that failed, answering all the same when
+  its cache refuses to keep, keeping a page's assets as it names them and the
+  two latest of each name, and taking over at once; a run's files from Pages
+  while Pages keeps up, and from GitHub's raw copy of the branch, asked afresh
+  with no cookies and given their own types, while Pages lags behind a later
+  run there (a file deployed more than twelve minutes before, a 404, a 5xx or
+  no answer), Pages answering as it did when the copy has no later run, cannot
+  say its run or give its file in time, or fails too; the copy asked its run at
+  most every two minutes, and once for all who want it at once; an asset Pages
+  cannot give taken from the copy only when its bytes are its name's, and
+  waited for however slowly it comes; no copy off GitHub Pages; a served page
   registering it and telling it its assets, and one from a file, an insecure
   address or refused a worker going on without;
 - **the pictures**: an indexed PNG reading back as the indices it was given, at
@@ -3331,7 +3394,8 @@ Nine decisions worth stating because they look like omissions:
   zoom instead of being guessed. The page is 1.8 MB as written, and its
   scripts, the globe's coastline among them, are two files beside it, 0.97 MB,
   that the site's service worker keeps from one visit to the next; nothing is
-  fetched from anywhere else. That is the cost, and it buys a coastline that
+  fetched from anywhere else, but from GitHub's raw copy of the site while
+  Pages lags behind it. That is the cost, and it buys a coastline that
   resolves individual Hawaiian islands at full zoom rather than a four-point
   blob.
 

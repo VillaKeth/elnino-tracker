@@ -6,12 +6,18 @@ server says it changed."""
 from __future__ import annotations
 
 import email.message
+import gzip
 import hashlib
+import http.client
+import http.server
 import json
 import math
 import re
+import socketserver
 import sys
 import tempfile
+import threading
+import time
 import unittest
 import urllib.error
 import urllib.parse
@@ -201,7 +207,7 @@ def answering(answers, asked=None, asking=None, missing=None):
     or NOT_MODIFIED, which a server sends only to a request that asked. An
     address not in the table fails, with ``missing`` if given. Each URL is
     noted in ``asked``, and the headers that asked in ``asking``."""
-    def get(url, headers=None):
+    def get(url, headers=None, wait=None):
         if asked is not None:
             asked.append(url)
         if asking is not None:
@@ -806,16 +812,26 @@ class TestResting(_Fetching, unittest.TestCase):
 
 
 class _Response:
-    """What urlopen hands back: the body, and the headers it came with."""
+    """What urlopen hands back: the body, and the headers it came with. The
+    body is read as http.client's is, a piece at a time (``read1``), until it
+    is all in (``isclosed``)."""
+
+    length = None  # what its server said was still to come, as http.client's has
 
     def __init__(self, body: bytes, headers: dict):
         self.body = body
+        self.at = 0
         self.headers = email.message.Message()
         for name, value in headers.items():
             self.headers[name] = value
 
-    def read(self):
-        return self.body
+    def read1(self, n=-1):
+        end = len(self.body) if n < 0 else min(len(self.body), self.at + n)
+        piece, self.at = self.body[self.at:end], end
+        return piece
+
+    def isclosed(self):
+        return self.at == len(self.body)
 
     def __enter__(self):
         return self
@@ -874,6 +890,383 @@ class TestHttpGet(unittest.TestCase):
     def test_asked_whether_it_changed_a_new_version_is_its_text(self):
         got, _ = self.get(_Response(b"y\n", {"ETag": '"7c0"'}), headers={"If-None-Match": '"2555-65df"'})
         self.assertEqual(got, sources.Answer("y\n", '"7c0"', ""))
+
+    def test_an_answer_its_server_cut_short_is_no_answer(self):
+        cut = _Response(b"x\n", {})
+        cut.length = 5  # what its server said was still to come when it closed
+        with mock.patch.object(sources.urllib.request, "urlopen", return_value=cut), \
+                self.assertRaises(http.client.IncompleteRead):
+            sources._http_get(self.URL)
+
+
+class TestHttpGetOffTheWire(unittest.TestCase):
+    """What an address answers, read off a socket from a server on this
+    machine: http.client's own response, read a piece at a time."""
+
+    BODY = b"".join(b"%06d\n" % n for n in range(40000))  # several pieces
+
+    def serve(self, answer, host="127.0.0.1"):
+        """The address of a server on this machine, at ``host``, that answers
+        each request with ``answer(handler)``."""
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):
+                answer(self)
+
+            def log_message(self, *args):
+                pass
+
+        # A TCP server, not http.server's, which looks its own name up.
+        server = socketserver.ThreadingTCPServer((host, 0), Handler)
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return f"http://{host}:{server.server_address[1]}/feed.txt"
+
+    @staticmethod
+    def head(handler, **headers):
+        handler.send_response(200)
+        for name, value in headers.items():
+            handler.send_header(name.replace("_", "-"), value)
+        handler.end_headers()
+
+    def test_a_body_comes_whole_however_its_server_sends_it(self):
+        body = self.BODY
+
+        def sized(handler):
+            self.head(handler, Content_Length=str(len(body)))
+            handler.wfile.write(body)
+
+        def chunked(handler):
+            self.head(handler, Transfer_Encoding="chunked")
+            for start in range(0, len(body), 50000):
+                piece = body[start:start + 50000]
+                handler.wfile.write(b"%x\r\n%s\r\n" % (len(piece), piece))
+            handler.wfile.write(b"0\r\n\r\n")
+
+        def zipped(handler):
+            packed = gzip.compress(body)
+            self.head(handler, Content_Encoding="gzip", Content_Length=str(len(packed)))
+            handler.wfile.write(packed)
+
+        def until_closed(handler):
+            self.head(handler, Connection="close")
+            handler.wfile.write(body)
+
+        for answer in (sized, chunked, zipped, until_closed):
+            with self.subTest(answer.__name__):
+                self.assertEqual(sources._http_get(self.serve(answer)).text, body.decode())
+
+    def test_a_body_its_server_cuts_short_is_no_answer(self):
+        def cut(handler):
+            self.head(handler, Content_Length="10")
+            handler.wfile.write(b"12345")
+            handler.close_connection = True
+
+        with self.assertRaises(http.client.IncompleteRead):
+            sources._http_get(self.serve(cut))
+
+    def test_each_read_waits_on_its_server_no_longer_than_the_feed_has_left(self):
+        # The headers come halfway through the feed's 3 s, and a byte; then
+        # nothing. The read after the byte waits the 1.5 s left, not the 3 s
+        # its try was given.
+        went_on = threading.Event()
+        self.addCleanup(went_on.set)
+
+        def stalls(handler):
+            went_on.wait(1.5)
+            self.head(handler, Content_Length="10")
+            handler.wfile.write(b"1")
+            went_on.wait(30)
+
+        url = self.serve(stalls)
+        began = time.monotonic()
+        with mock.patch.object(sources, "FEED_TIME", 3):
+            with self.assertRaises(RuntimeError) as cm:
+                sources._http_get(url)
+        self.assertLess(time.monotonic() - began, 3.75)
+        self.assertIn("the feed's 3 s are spent", str(cm.exception))
+
+    def test_a_server_that_takes_the_request_and_never_answers_is_silent(self):
+        went_on = threading.Event()
+        self.addCleanup(went_on.set)
+        url = self.serve(lambda handler: went_on.wait(30))
+        patience = sources.Patience()
+        began = time.monotonic()
+        with mock.patch.object(sources, "TIMEOUT", 1.5):
+            with self.assertRaises(RuntimeError) as cm:
+                sources._http_get(url, wait=patience.for_feed())
+            # One try, and no pause after it: the next is not made.
+            self.assertLess(time.monotonic() - began, 2.5)
+            self.assertIn("127.0.0.1 left a try unanswered for 1.5 s", str(cm.exception))
+            with self.assertRaises(RuntimeError) as cm:
+                sources._http_get(url, wait=patience.for_feed())
+        self.assertEqual(str(cm.exception), "127.0.0.1 left a try unanswered for 1.5 s, and is not asked again this run")
+
+    def test_a_server_a_try_is_sent_on_to_that_never_answers_is_the_silent_one(self):
+        # urllib follows a redirect within the try, and notes on the request
+        # each address it sent it on to: the silence is that server's, and
+        # the one that sent the try on is still asked.
+        went_on = threading.Event()
+        self.addCleanup(went_on.set)
+        there = self.serve(lambda handler: went_on.wait(30), host="127.0.0.2")
+
+        def sends_on(handler):
+            handler.send_response(302)
+            handler.send_header("Location", there)
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+
+        patience = sources.Patience()
+        with mock.patch.object(sources, "TIMEOUT", 1.5), self.assertRaises(RuntimeError) as cm:
+            sources._http_get(self.serve(sends_on), wait=patience.for_feed())
+        self.assertIn("127.0.0.2 left a try unanswered for 1.5 s", str(cm.exception))
+        self.assertEqual((patience.is_silent("127.0.0.2"), patience.is_silent("127.0.0.1")), (True, False))
+
+
+class _Clock:
+    """The clock a run's patience reads, and the sleep that moves it on."""
+
+    START = 1000.0
+
+    def __init__(self):
+        self.now = self.START
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+class _Trickle(_Response):
+    """A download that comes a byte at a time, each byte ``each`` seconds
+    after the last, or as long as the socket waits when that is less; the
+    socket notes each wait it is given."""
+
+    def __init__(self, clock, each, size):
+        super().__init__(b"x" * size, {})
+        self.clock, self.each, self.timeouts = clock, each, []
+        self.fp = SimpleNamespace(raw=SimpleNamespace(_sock=SimpleNamespace(settimeout=self.timeouts.append)))
+
+    def read1(self, n=-1):
+        self.clock.now += min([self.each, *self.timeouts[-1:]])
+        return super().read1(1)
+
+
+class TestPatience(unittest.TestCase):
+    """A run's patience with the servers it asks (``sources.Patience``): a
+    server that leaves a try unanswered for the whole of its timeout is not
+    asked again in the run, as CoastWatch's West Coast node at times left
+    every try on 17 to 19 October 2026, three tries of 45 s an address; and a
+    feed has FEED_TIME for all it asks, whatever its servers do."""
+
+    HUNG = "https://coastwatch.example/erddap/griddap/nrt.csv"
+    SAME = "https://coastwatch.example/erddap/griddap/final.csv"
+    OTHER = "https://ncei.example/erddap/griddap/nrt.csv"
+    # What CoastWatch's node answered after each try's 45 s: its IPv4 address
+    # hung, and its IPv6 one, tried last, was unreachable from the runner.
+    UNREACHABLE = urllib.error.URLError(OSError(101, "Network is unreachable"))
+
+    def setUp(self):
+        self.clock = _Clock()
+        self.patience = sources.Patience(clock=self.clock)
+        self.tries = []  # each try made: its address and the timeout it was given
+
+    def urlopen(self, script):
+        """urlopen answering each address's tries in turn from ``script``, the
+        last answer over again: a _Response; an Exception, at once; ("hang",
+        e), e after the try's whole timeout; ("slow", s, e), e after s
+        seconds, or the socket's own timeout first when s is longer; or
+        ("redirect", url), the try sent on to url's answer, as urllib follows
+        a redirect, noting on the request each address it sent it on to."""
+        def next_answer(url):
+            answers = script[url]
+            return answers.pop(0) if len(answers) > 1 else answers[0]
+
+        def urlopen(request, timeout=None, context=None):
+            url = request.full_url
+            self.tries.append((url, timeout))
+            answer = next_answer(url)
+            while isinstance(answer, tuple) and answer[0] == "redirect":
+                request.redirect_dict = {**getattr(request, "redirect_dict", {}), answer[1]: 1}
+                answer = next_answer(answer[1])
+            if isinstance(answer, tuple) and answer[0] == "hang":
+                self.clock.now += timeout
+                raise answer[1]
+            if isinstance(answer, tuple):
+                _, seconds, exc = answer
+                if seconds > timeout:
+                    self.clock.now += timeout
+                    raise TimeoutError("timed out")
+                self.clock.now += seconds
+                raise exc
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return urlopen
+
+    def get(self, url, script, wait=None):
+        """What _http_get gives, or the error it raises, for one feed's ask."""
+        with mock.patch.object(sources.urllib.request, "urlopen", self.urlopen(script)), \
+                mock.patch.object(sources.time, "sleep", self.clock.sleep):
+            try:
+                return sources._http_get(url, wait=wait or self.patience.for_feed())
+            except RuntimeError as exc:
+                return exc
+
+    def test_a_server_that_leaves_a_try_unanswered_its_whole_timeout_is_not_asked_again_that_run(self):
+        script = {self.HUNG: [("hang", self.UNREACHABLE)], self.SAME: [_Response(b"same\n", {})],
+                  self.OTHER: [_Response(b"other\n", {})]}
+        first = self.get(self.HUNG, script)
+        self.assertIsInstance(first, RuntimeError)
+        self.assertIn("Network is unreachable", str(first))
+        # One try, not three: the next two would only have waited as long.
+        self.assertEqual(self.tries, [(self.HUNG, sources.TIMEOUT)])
+        self.assertEqual(self.clock.now - _Clock.START, sources.TIMEOUT)
+        # Another feed of the run asks another of its addresses, and is told
+        # why at once; another server is asked as ever.
+        same, other = self.get(self.SAME, script), self.get(self.OTHER, script)
+        self.assertIsInstance(same, RuntimeError)
+        self.assertIn("coastwatch.example left a try unanswered for 45 s", str(same))
+        self.assertIn("not asked again this run", str(same))
+        self.assertEqual(other, sources.Answer("other\n"))
+        self.assertEqual(self.tries, [(self.HUNG, 45), (self.OTHER, 45)])
+        self.assertEqual(self.clock.now - _Clock.START, sources.TIMEOUT)
+        # The next run asks it again.
+        again = sources.Patience(clock=self.clock)
+        self.assertEqual(self.get(self.SAME, script, again.for_feed()), sources.Answer("same\n"))
+
+    def test_a_try_its_server_left_unanswered_is_not_counted_in_the_feed_s_time(self):
+        # CoastWatch's silence costs its 45 s, and NCEI behind it still has
+        # the feed's 120 s, here for a download that comes slowly.
+        trickle = _Trickle(self.clock, 40, 3)
+        wait = self.patience.for_feed()
+        self.assertIsInstance(self.get(self.HUNG, {self.HUNG: [("hang", self.UNREACHABLE)]}, wait), RuntimeError)
+        self.assertEqual(self.get(self.OTHER, {self.OTHER: [trickle]}, wait), sources.Answer("xxx"))
+        self.assertEqual(trickle.timeouts, [45, 45, 40])
+        self.assertEqual(self.clock.now - _Clock.START, sources.TIMEOUT + sources.FEED_TIME)
+
+    def test_the_server_a_try_was_sent_on_to_is_the_silent_one_when_it_never_answers(self):
+        # CoastWatch answered, sending the try on to another server, which
+        # never did: that one is silent, and CoastWatch is still asked by the
+        # run's other feeds.
+        moved = "https://moved.example/erddap/griddap/nrt.csv"
+        script = {self.SAME: [("redirect", moved)], moved: [("hang", self.UNREACHABLE)],
+                  self.HUNG: [_Response(b"here\n", {})]}
+        self.assertIn("moved.example left a try unanswered for 45 s", str(self.get(self.SAME, script)))
+        # One try: the next would be sent on to the same silence.
+        self.assertEqual(self.tries, [(self.SAME, sources.TIMEOUT)])
+        self.assertEqual(self.get(self.HUNG, script), sources.Answer("here\n"))
+        self.assertIn("moved.example left a try unanswered", str(self.get(moved, script)))
+
+    def test_a_try_that_hangs_at_its_own_server_is_its_own_server_s_silence(self):
+        # Each try is a request of its own: where an earlier try was sent on
+        # to says nothing of where a later one hung.
+        moved = "https://moved.example/erddap/griddap/nrt.csv"
+        busy = urllib.error.HTTPError(moved, 503, "Service Unavailable", email.message.Message(), None)
+        script = {self.SAME: [("redirect", moved), ("hang", self.UNREACHABLE)], moved: [busy]}
+        self.assertIn("coastwatch.example left a try unanswered for 45 s", str(self.get(self.SAME, script)))
+        self.assertEqual(self.tries, [(self.SAME, 45), (self.SAME, 45)])
+
+    def test_a_try_that_fails_at_once_is_made_again_and_its_server_still_asked(self):
+        refused = urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+        script = {self.HUNG: [refused, refused, _Response(b"x\n", {})], self.SAME: [_Response(b"y\n", {})]}
+        self.assertEqual(self.get(self.HUNG, script), sources.Answer("x\n"))
+        self.assertEqual(len(self.tries), sources.RETRIES)
+        self.assertEqual(self.get(self.SAME, script), sources.Answer("y\n"))
+
+    def test_a_server_that_answers_slowly_with_an_error_is_still_asked(self):
+        # It answered: the run is not told it went silent. The feed's time
+        # cuts the third try short, and a try cut short by the feed's time,
+        # not the server's whole timeout, is no silence either.
+        busy = urllib.error.HTTPError(self.HUNG, 503, "Service Unavailable", email.message.Message(), None)
+        script = {self.HUNG: [("slow", 40, busy)], self.SAME: [_Response(b"y\n", {})]}
+        got = self.get(self.HUNG, script)
+        self.assertIsInstance(got, RuntimeError)
+        self.assertEqual(self.tries, [(self.HUNG, 45), (self.HUNG, 45), (self.HUNG, 32.5)])
+        self.assertEqual(self.clock.now - _Clock.START, sources.FEED_TIME)
+        self.assertEqual(self.get(self.SAME, script), sources.Answer("y\n"))
+
+    def test_a_feed_s_time_spans_every_address_it_asks_and_no_try_or_pause_outlasts_it(self):
+        reset = urllib.error.URLError(ConnectionResetError(104, "Connection reset by peer"))
+        script = {self.HUNG: [("slow", 30, reset)], self.OTHER: [("slow", 30, reset)]}
+        wait = self.patience.for_feed()
+        self.assertIsInstance(self.get(self.HUNG, script, wait), RuntimeError)
+        got = self.get(self.OTHER, script, wait)
+        self.assertIsInstance(got, RuntimeError)
+        self.assertIn("the feed's 120 s are spent", str(got))
+        # 30 s a try with 2.5 and 5 s between: 97.5 s on the first address,
+        # the rest on one try at the second, and no pause past the end.
+        self.assertEqual(self.tries, [(self.HUNG, 45), (self.HUNG, 45), (self.HUNG, 45), (self.OTHER, 22.5)])
+        self.assertEqual(self.clock.now - _Clock.START, sources.FEED_TIME)
+        self.assertEqual(self.get(self.OTHER, script, wait).args[0], "the feed's 120 s are spent")
+        self.assertEqual(len(self.tries), 4)
+
+    def test_a_download_still_coming_when_the_feed_s_time_is_spent_is_cut_off(self):
+        trickle = _Trickle(self.clock, 40, 100)
+        got = self.get(self.OTHER, {self.OTHER: [trickle]})
+        self.assertIsInstance(got, RuntimeError)
+        self.assertIn("the feed's 120 s were spent before its download was in", str(got))
+        # Each read waited no longer than the feed had left, and the server,
+        # which was answering, is not taken for silent.
+        self.assertEqual(trickle.timeouts, [45, 45, 40])
+        self.assertEqual(self.clock.now - _Clock.START, sources.FEED_TIME)
+        self.assertEqual(self.tries, [(self.OTHER, 45)])
+        self.assertEqual(self.get(self.OTHER, {self.OTHER: [_Response(b"z\n", {})]}), sources.Answer("z\n"))
+
+    def test_a_download_in_as_the_feed_s_time_runs_out_is_in(self):
+        self.assertEqual(self.get(self.OTHER, {self.OTHER: [_Trickle(self.clock, 40, 3)]}), sources.Answer("xxx"))
+        self.assertEqual(self.clock.now - _Clock.START, sources.FEED_TIME)
+
+    def test_a_feed_whose_server_is_silent_serves_its_copy_and_asks_the_second_server(self):
+        # Two products, each on CoastWatch with NCEI behind it, as OISST's
+        # feeds are: CoastWatch's silence costs one timeout for the feed, not
+        # one an address, and NCEI's answers decide as they would.
+        nrt, final = self.HUNG + "?anom%5Blast%5D", self.SAME + "?anom%5Blast%5D"
+        ncei_nrt = self.OTHER + "?anom%5Blast%5D"
+        ncei_final = "https://ncei.example/erddap/griddap/final.csv?anom%5Blast%5D"
+        source = sources.Source(key="grid", name="grid", url=nrt, agency="test", cadence="daily",
+                                final=final, fallback=(ncei_nrt,), final_fallback=(ncei_final,))
+        probe = sources.probe_url
+
+        def run(script):
+            self.tries.clear()
+            with mock.patch.object(sources.urllib.request, "urlopen", self.urlopen(script)), \
+                    mock.patch.object(sources.time, "sleep", self.clock.sleep):
+                return sources.fetch(source, raw, patience=sources.Patience(clock=self.clock))
+
+        def answer(text):
+            return [_Response(text.encode("utf-8"), {})]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp)
+            first = run({probe(nrt): answer(LATER), probe(final): answer(FINAL_LAST), nrt: answer(csv("a"))})
+            self.assertEqual((first.text, first.from_cache), (csv("a"), False))
+            start = self.clock.now
+            got = run({probe(nrt): [("hang", self.UNREACHABLE)], probe(final): [("hang", self.UNREACHABLE)],
+                       probe(ncei_nrt): answer(LATER), probe(ncei_final): answer(FINAL_LAST)})
+        self.assertEqual((got.text, got.from_cache), (csv("a"), True))
+        self.assertEqual(self.clock.now - start, sources.TIMEOUT)
+        self.assertEqual([url for url, _ in self.tries if "coastwatch" in url], [probe(nrt)])
+        self.assertIn("coastwatch.example left a try unanswered for 45 s", got.warnings[0])
+        self.assertIn(probe(ncei_nrt), "".join(url for url, _ in self.tries))
+
+    def test_the_feeds_of_a_run_share_its_patience(self):
+        a = sources.Source(key="a", name="a", url="https://cpc.example/indices/a.txt", agency="t", cadence="monthly")
+        b = sources.Source(key="b", name="b", url="https://cpc.example/indices/b.txt", agency="t", cadence="monthly")
+        script = {a.url: [("hang", self.UNREACHABLE)], b.url: [("hang", self.UNREACHABLE)]}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(sources, "SOURCES", (a, b)), mock.patch.object(sources, "MAX_PARALLEL", 1), \
+                mock.patch.object(sources.urllib.request, "urlopen", self.urlopen(script)), \
+                mock.patch.object(sources.time, "sleep", self.clock.sleep), \
+                mock.patch.object(sources.time, "monotonic", self.clock):
+            got = sources.fetch_all(Path(tmp))
+        self.assertEqual(self.tries, [(a.url, sources.TIMEOUT)])
+        self.assertIn("Network is unreachable", got["a"].error)
+        self.assertIn("cpc.example left a try unanswered for 45 s", got["b"].error)
 
 
 class TestAWebPageForAFile(_Fetching, unittest.TestCase):
@@ -1969,6 +2362,32 @@ def _realtime_fetch_all(real):
 
 
 CACHE = ROOT / "data" / "raw"
+
+
+@unittest.skipUnless((CACHE / "oni.cache").exists(), "no cached feeds; run `python track.py` once first")
+class TestOneRunOnePatience(unittest.TestCase):
+    """A run has one patience with its servers, for every feed and for the
+    storms' files fetched after them (pipeline.run)."""
+
+    def test_every_feed_of_a_run_and_its_storms_files_share_the_run_s_patience(self):
+        seen = []
+        real_fetch, real_all = sources.fetch, sources.fetch_all
+
+        def fetch(source, raw_dir, offline=False, patience=None):
+            seen.append(patience)
+            return real_fetch(source, raw_dir, offline, patience)
+
+        def fetch_all(*args, **kwargs):
+            seen.append(kwargs.get("patience"))
+            return real_all(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(sources, "fetch", fetch), \
+                mock.patch.object(sources, "fetch_all", fetch_all):
+            pipeline.run(CACHE, Path(tmp) / "p.db", offline=True, leads=9)
+        self.assertIsInstance(seen[0], sources.Patience)
+        # Every feed of the registry, and then the storms' files.
+        self.assertGreater(len(seen), 1 + len(sources.SOURCES))
+        self.assertTrue(all(patience is seen[0] for patience in seen))
 
 
 @unittest.skipUnless((CACHE / "oni.cache").exists() and (CACHE / "sst_pacific.cache").exists(),

@@ -22,11 +22,13 @@ from __future__ import annotations
 import contextlib
 import gzip
 import hashlib
+import http.client
 import io
 import json
 import os
 import re
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -43,6 +45,13 @@ TIMEOUT = 45
 RETRIES = 3
 BACKOFF = 2.5
 MAX_PARALLEL = 6  # polite against CPC; the whole registry still lands in ~15s
+# How long a feed is given for all it asks of its servers, every try at every
+# address but a try its server left unanswered (Patience): twice the longest a
+# whole fetch took from 17 to 19 October 2026 with every feed answering, 59 s.
+# A feed out of time serves its copy, and the next run asks again.
+FEED_TIME = 120
+# How much of an answer is read at a time (_read).
+PIECE = 1 << 16
 # How long a copy of an ERDDAP table serves before the table is asked for
 # again. ERDDAP makes each table afresh for each request, so it cannot say
 # whether one changed: its Last-Modified is the moment it answered, and it
@@ -897,29 +906,114 @@ class Answer(NamedTuple):
     modified: str = ""
 
 
-def _http_get(url: str, headers: dict[str, str] | None = None) -> Answer | None:
+class Patience:
+    """A run's patience with the servers it asks. A server that leaves a try
+    unanswered for the whole of its timeout is not asked again in the run: on
+    17 to 19 October 2026 CoastWatch's West Coast node at times left every try
+    unanswered, three tries of 45 s an address, and a run that met it waited
+    five minutes and more. And each feed has FEED_TIME for all it asks
+    (``for_feed``), however slowly its servers answer; a try a server left
+    unanswered is not counted in it, so that the server the feed asks next,
+    NCEI's behind CoastWatch, has the whole of it. The next run asks every
+    server again."""
+
+    def __init__(self, clock=None):
+        self.clock = clock or time.monotonic
+        self._silent: set[str] = set()
+        self._lock = threading.Lock()  # the feeds are fetched on several threads
+
+    def for_feed(self) -> _Wait:
+        """A feed's time, from now."""
+        return _Wait(self, self.clock() + FEED_TIME)
+
+    def is_silent(self, host: str) -> bool:
+        with self._lock:
+            return host in self._silent
+
+    def went_silent(self, host: str) -> None:
+        with self._lock:
+            self._silent.add(host)
+
+
+class _Wait:
+    """What is left of a feed's time (``Patience.for_feed``)."""
+
+    def __init__(self, patience: Patience, until: float):
+        self.patience, self.until = patience, until
+
+    def left(self) -> float:
+        return self.until - self.patience.clock()
+
+    def timeout(self) -> float:
+        """How long each step of a try may wait on its server: TIMEOUT, or
+        what is left."""
+        return min(TIMEOUT, self.left())
+
+    def sleep(self, seconds: float) -> None:
+        """A pause between tries, cut short at the end of the feed's time."""
+        time.sleep(max(0.0, min(seconds, self.left())))
+
+    def went_silent(self, host: str, began: float) -> None:
+        """``host`` left the try begun at ``began`` unanswered: the run asks it
+        no more, and the try is not counted in the feed's time."""
+        self.patience.went_silent(host)
+        self.until += self.patience.clock() - began
+
+    def refusal(self, host: str) -> str:
+        """Why ``host`` is not asked now, or "" when it is."""
+        if self.patience.is_silent(host):
+            return f"{host} left a try unanswered for {TIMEOUT} s, and is not asked again this run"
+        # Less than a second is no time to answer in.
+        if self.left() < 1:
+            return f"the feed's {FEED_TIME} s are spent"
+        return ""
+
+
+def _http_get(url: str, headers: dict[str, str] | None = None,
+              wait: _Wait | None = None) -> Answer | None:
     """GET a URL, transparently handling gzip and flaky NOAA endpoints.
 
     ``headers`` are the ones that ask whether the file has changed since a copy
     (``If-None-Match``, ``If-Modified-Since``): a server that says it has not
     answers 304, and this None. A 304 to a request that asked nothing is no
     answer, and fails as any other would.
+
+    ``wait`` is what is left of the feed's time. No try is begun once it is
+    spent, and no pause between tries outlasts it; each step of a try (a
+    connection to one of its server's addresses, then each part of the
+    answer) waits on its server no longer than TIMEOUT or what was left as
+    the try began, and each read of the body no longer than what is left.
+    Looking a server's name up is the system's to time. A server the run has
+    found silent is not asked, nor one the last try was sent on to.
     """
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": USER_AGENT,
-            "Accept": "text/plain,text/html,*/*",
-            "Accept-Encoding": "gzip, identity",
-            **(headers or {}),
-        },
-    )
+    wait = wait or Patience().for_feed()
+    host = urllib.parse.urlsplit(url).hostname or ""
     context = ssl.create_default_context()
     last: Exception | None = None
-    for attempt in range(1, RETRIES + 1):
+    why, sent_to = "", host
+    for attempt in range(RETRIES):
+        why = wait.refusal(host) or wait.refusal(sent_to)
+        if attempt and not why:
+            wait.sleep(BACKOFF * attempt)
+            why = wait.refusal(host) or wait.refusal(sent_to)
+        if why:
+            break
+        # A request of its own each try, as urllib notes on it where the try
+        # was sent on to (_sent_to).
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "text/plain,text/html,*/*",
+                "Accept-Encoding": "gzip, identity",
+                **(headers or {}),
+            },
+        )
+        timeout, began, answered = wait.timeout(), wait.patience.clock(), False
         try:
-            with urllib.request.urlopen(request, timeout=TIMEOUT, context=context) as response:
-                return Answer(decode_payload(response.read(), response.headers.get("Content-Encoding")),
+            with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+                answered = True
+                return Answer(decode_payload(_read(response, wait), response.headers.get("Content-Encoding")),
                               response.headers.get("ETag") or "",
                               response.headers.get("Last-Modified") or "")
         except urllib.error.HTTPError as exc:
@@ -928,9 +1022,48 @@ def _http_get(url: str, headers: dict[str, str] | None = None) -> Answer | None:
             last = exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last = exc
-        if attempt < RETRIES:
-            time.sleep(BACKOFF * attempt)
-    raise RuntimeError(f"{type(last).__name__}: {last}")
+            # No answer in the whole of a try's timeout, which a socket's can
+            # end a hair early: the server the try was sent to, or sent on to
+            # last, is silent, whatever the error its last address gave, as an
+            # address that hangs leaves the next to fail at once.
+            if not answered and timeout == TIMEOUT and wait.patience.clock() - began >= TIMEOUT - 1:
+                wait.went_silent(_sent_to(request, host), began)
+        sent_to = _sent_to(request, host)
+    failed = f"{type(last).__name__}: {last}" if last is not None else ""
+    raise RuntimeError("; ".join(part for part in (failed, why) if part))
+
+
+def _sent_to(request, host: str) -> str:
+    """The server a try of ``request`` was last sent to: ``host``, or the last
+    a redirect sent it on to, as urllib notes on the request each address it
+    sends it on to (``redirect_dict``, in the order it went)."""
+    visited = list(getattr(request, "redirect_dict", ()))
+    return (urllib.parse.urlsplit(visited[-1]).hostname or host) if visited else host
+
+
+def _read(response, wait: _Wait) -> bytes:
+    """An answer's body, read a piece at a time, so that a server sending it
+    slowly is waited on no longer than the feed has left. Raises when that is
+    spent before the body is in, and, as a body read whole does, when the
+    server closes before the length it said."""
+    # The socket under http.client's response, to give each read the time
+    # left; a response with none reads with the timeout its try was given.
+    sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+    pieces = []
+    while not response.isclosed():
+        left = wait.left()
+        if left < 1:
+            raise RuntimeError(f"the feed's {FEED_TIME} s were spent before its download was in")
+        if sock is not None:
+            sock.settimeout(min(TIMEOUT, left))
+        piece = response.read1(PIECE)
+        if not piece:
+            break
+        pieces.append(piece)
+    body = b"".join(pieces)
+    if response.length:
+        raise http.client.IncompleteRead(body, response.length)
+    return body
 
 
 def _asking(meta: dict) -> dict[str, str]:
@@ -1069,14 +1202,14 @@ def _beside(answer: _Bid, copy: list[_Bid]) -> bool:
 
 
 def _live_bids(product: _Product, urls: tuple[str, ...], problems: list[str],
-               copied: bool = False) -> list[_Bid]:
+               copied: bool = False, wait: _Wait | None = None) -> list[_Bid]:
     """The product's claim from the first of ``urls`` to say its dataset's latest
     day, and its copy's beside it, unless the copy claims already; with none
     answering, the copy claims alone."""
     copy = _copy_bid(product)
     for url in urls:
         try:
-            bid = _Bid(_latest_day(url), True, product, url)
+            bid = _Bid(_latest_day(url, wait), True, product, url)
         except Exception as exc:  # noqa: BLE001 - surfaced to the user in the report
             problems.append(_failure(exc, url))
             continue
@@ -1087,7 +1220,8 @@ def _live_bids(product: _Product, urls: tuple[str, ...], problems: list[str],
     return [] if copied else copy
 
 
-def fetch(source: Source, raw_dir: Path, offline: bool = False) -> Fetched:
+def fetch(source: Source, raw_dir: Path, offline: bool = False,
+          patience: Patience | None = None) -> Fetched:
     """Fetch one source, archiving the raw payload and falling back to cache.
 
     A feed with OISST's final analysis behind its preliminary has two
@@ -1101,9 +1235,13 @@ def fetch(source: Source, raw_dir: Path, offline: bool = False) -> Fetched:
     it. A gridded product
     keeps its copy, without downloading the subset again, while its dataset's
     latest day is the one the copy was downloaded at and has values for.
+
+    All the feed asks is asked in its time of the run's ``patience``
+    (``Patience.for_feed``), one of the feed's own when none is given.
     """
     raw_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    wait = (patience or Patience()).for_feed()
     products = [_Product(source.key, source.url, raw_dir, fallback=source.fallback)]
     if source.final:
         products.append(_Product(f"{source.key}.final", source.final, raw_dir, final=True,
@@ -1112,7 +1250,7 @@ def fetch(source: Source, raw_dir: Path, offline: bool = False) -> Fetched:
     problems: list[str] = ["offline mode requested"] if offline else []
     bids: list[_Bid] = []
     for product in products:
-        bids += _copy_bid(product) if offline else _live_bids(product, product.addresses, problems)
+        bids += _copy_bid(product) if offline else _live_bids(product, product.addresses, problems, wait=wait)
 
     while bids:
         bid = max(bids, key=_Bid.rank)
@@ -1122,7 +1260,7 @@ def fetch(source: Source, raw_dir: Path, offline: bool = False) -> Fetched:
         current = not bid.live and any(
             other.live and other.url == bid.product.url for other in bids)
         try:
-            got = (_download(source, bid.product, bid.url, bid.day, now) if bid.live
+            got = (_download(source, bid.product, bid.url, bid.day, now, wait) if bid.live
                    else bid.product.served(source, current))
         except Exception as exc:  # noqa: BLE001 - surfaced to the user in the report
             problems.append(_failure(exc, bid.url))
@@ -1132,7 +1270,7 @@ def fetch(source: Source, raw_dir: Path, offline: bool = False) -> Fetched:
             if bid.live:
                 addresses = bid.product.addresses
                 bids += _live_bids(bid.product, addresses[addresses.index(bid.url) + 1:],
-                                   problems, copied=_beside(bid, _copy_bid(bid.product)))
+                                   problems, copied=_beside(bid, _copy_bid(bid.product)), wait=wait)
             continue
         # An answer passed over is worth a word: the preliminary's for the
         # final, which has stalled, and any of the product's own for its copy.
@@ -1162,13 +1300,13 @@ def _failure(exc: Exception, url: str) -> str:
     return f"{exc} ({url})"
 
 
-def _latest_day(url: str) -> str:
+def _latest_day(url: str, wait: _Wait | None = None) -> str:
     """The latest time a griddap product's dataset says it has, or "" for a
     feed with nothing to ask and for an answer with no time in it. Raises when
     the dataset does not answer: a dataset that cannot say its latest day is
     not asked for the day either."""
     probe = probe_url(url)
-    return _latest_time(_http_get(probe).text) if probe else ""
+    return _latest_time(_http_get(probe, wait=wait).text) if probe else ""
 
 
 # What a probe answers: ERDDAP's CSV of one time, the last line of it.
@@ -1246,7 +1384,8 @@ def _read_meta(path: Path) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
-def _download(source: Source, product: _Product, url: str, said: str, now: str) -> Fetched:
+def _download(source: Source, product: _Product, url: str, said: str, now: str,
+              wait: _Wait | None = None) -> Fetched:
     """A product's text, downloaded from ``url`` and kept, or its copy when the
     copy came from there and the dataset's latest day, as it ``said``, is the
     one the copy is recorded at; or the copy is of an ERDDAP table downloaded
@@ -1281,7 +1420,7 @@ def _download(source: Source, product: _Product, url: str, said: str, now: str) 
     if asking:
         with contextlib.suppress(OSError, ValueError):
             copy = product.kept(meta)
-    answer = _http_get(url, asking if copy is not None else None)
+    answer = _http_get(url, asking if copy is not None else None, wait=wait)
     if answer is None:
         return _current(source, copy, meta, url, now)
     # One line ending from here on, and the copy written as the very bytes its
@@ -1352,20 +1491,23 @@ def _archive(raw_dir: Path, name: str, data: bytes, digest: str) -> None:
 
 
 def fetch_all(
-    raw_dir: Path, offline: bool = False, progress=None
+    raw_dir: Path, offline: bool = False, progress=None, patience: Patience | None = None
 ) -> dict[str, Fetched]:
     """Fetch the whole registry, a few at a time.
 
     Serially this is ~25 round trips to servers that are occasionally slow;
     in parallel the run finishes in the time of the slowest one. ``progress``,
     if given, is called with (done, total, key) after each source lands.
+    Every feed asks with the run's ``patience``, one of the fetch's own when
+    none is given.
     """
     raw_dir.mkdir(parents=True, exist_ok=True)
+    patience = patience or Patience()
     results: dict[str, Fetched] = {}
     workers = 1 if offline else MAX_PARALLEL
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
-            pool.submit(fetch, source, raw_dir, offline): source for source in SOURCES
+            pool.submit(fetch, source, raw_dir, offline, patience): source for source in SOURCES
         }
         done = 0
         for future in futures:

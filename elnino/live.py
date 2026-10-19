@@ -505,8 +505,10 @@ SCRIPT = r"""var elninoLive = (function () {
   // The assets a page names are named for their contents, and GitHub Pages
   // sends every file again after each publish: the site's service worker
   // (sw.js) keeps them, told this page's at once so they are kept from a
-  // first visit on. It needs a secure origin; refused one, the page goes on
-  // with the browser's own cache.
+  // first visit on. While Pages lags behind the site's branch, it answers for
+  // the pages and the beacon from the branch's raw copy (elnino/assets.py).
+  // It needs a secure origin; refused one, the page goes on with the
+  // browser's own cache, and Pages alone.
   function keepAssets() {
     var workers = window.isSecureContext && navigator.serviceWorker;
     if (!workers) return;
