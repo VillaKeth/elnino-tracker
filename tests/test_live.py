@@ -2530,6 +2530,46 @@ class TestTheLiveRun(unittest.TestCase):
         self.live = (workflows / "live.yml").read_text(encoding="utf-8")
         self.tests = (workflows / "tests.yml").read_text(encoding="utf-8")
 
+    def _relay(self) -> str:
+        path = ROOT / ".github" / "workflows" / "relay.yml"
+        self.assertTrue(path.exists(), "the relay's workflow, relay.yml")
+        return path.read_text(encoding="utf-8")
+
+    def _script(self, workflow: str, step: str) -> str:
+        """The run script of the step so named, as its shell is handed it."""
+        self.assertIn(f"      - name: {step}\n", workflow)
+        body = workflow.split(f"      - name: {step}\n", 1)[1]
+        self.assertIn("        run: |\n", re.split(r"\n      - |\n  (?=\S)", body, maxsplit=1)[0], step)
+        body = body.split("        run: |\n", 1)[1]
+        lines = []
+        for line in body.splitlines():
+            if line.strip() and not line.startswith(" " * 10):
+                break
+            lines.append(line[10:])
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _fakes(here: Path, **commands: str) -> None:
+        """Shell scripts in here, named for the commands they stand in for."""
+        for name, body in commands.items():
+            path = here / name
+            path.write_text("#!/bin/sh\n" + body, encoding="utf-8", newline="\n")
+            path.chmod(0o755)
+
+    @classmethod
+    def _clock(cls, here: Path) -> None:
+        """A date that answers the clock with $NOW, and reads a time given it (-d) as date does."""
+        real = shutil.which("date")
+        cls._fakes(here, date=f'case " $* " in *" -d "*) exec "{real}" "$@" ;; esac\necho "$NOW"\n')
+
+    @staticmethod
+    def _bash(here: Path, script: str, **env: str) -> subprocess.CompletedProcess:
+        """The script under bash as the run has it, with the fakes in here first on its path."""
+        (here / "step.sh").write_text(script, encoding="utf-8", newline="\n")
+        return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(here / "step.sh")],
+                              env=dict(os.environ, PATH=f"{here}{os.pathsep}{os.environ['PATH']}", **env),
+                              stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+
     def test_it_runs_every_ten_minutes_by_hand_and_on_new_code(self):
         # Asked every five minutes from two past the hour, GitHub's shortest:
         # two slots in each ten minutes, the first to come publishing, so six
@@ -2548,72 +2588,75 @@ class TestTheLiveRun(unittest.TestCase):
                       "    if: ${{ !cancelled() && needs.due.outputs.skip != 'true' }}\n", self.live)
         self.assertIn("--jq '(now - (.commit.committer.date | fromdateiso8601)) | floor'", self.live)
         self.assertIn("          EVENT: ${{ github.event_name }}\n", self.live)
+        self.assertIn("    outputs:\n      skip: ${{ steps.age.outputs.skip }}\n"
+                      "      span: ${{ steps.age.outputs.span }}\n", self.live)
         # Under the shell its test runs it with: bash's own -eo pipefail.
         self.assertIn("        id: age\n        shell: bash\n", self.live)
+        # Its token may only read when the site was published: a job's own
+        # permissions are all it has.
+        due = self.live.split("\n  due:\n", 1)[1].split("\n  run:\n", 1)[0]
+        self.assertIn("\n    permissions:\n", due)
+        block = re.search(r"\n    permissions:\n((?:      .*\n)+)", due).group(1)
+        self.assertEqual(re.findall(r"^      ([\w-]+): (\w+)", block, re.M), [("contents", "read")])
 
     @unittest.skipIf(sys.platform == "win32", "the live run is Linux")
-    def test_a_scheduled_run_stands_down_only_when_the_site_was_published_in_its_ten_minutes(self):
+    def test_a_scheduled_or_relayed_run_stands_down_only_when_the_site_was_published_in_its_ten_minutes(self):
         # The check's own script, under bash as the run has it, with a gh that
         # answers how many seconds ago gh-pages was published, or fails, and a
         # date that answers the clock. The time is cut into ten minutes from
-        # :00. Held into the next ten, as GitHub held runs to 08:01 and 14:03 on
+        # :00, and the check says which ten it decided in, for the booking.
+        # Held into the next ten, as GitHub held runs to 08:01 and 14:03 on
         # 14 October 2026, a run is that ten minutes' run: the old second chance
         # stood down then on a site under 45 minutes old, and left it two hours
-        # old.
-        body = self.live.split("        id: age\n", 1)[1].split("        run: |\n", 1)[1]
-        lines = []
-        for line in body.splitlines():
-            if line.strip() and not line.startswith(" " * 10):
-                break
-            lines.append(line[10:])
+        # old. A run the relay dispatched stands down as a scheduled one does.
+        script = self._script(self.live, "Stand down if these ten minutes' run has come")
         with tempfile.TemporaryDirectory() as tmp:
             here = Path(tmp)
-            (here / "check.sh").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-            gh = here / "gh"
-            gh.write_text('#!/bin/sh\necho "$*" >> "$CALLS"\n[ -n "$AGO" ] || exit 1\necho "$AGO"\n',
-                          encoding="utf-8", newline="\n")
-            gh.chmod(0o755)
-            clock = here / "date"
-            clock.write_text('#!/bin/sh\necho "$NOW"\n', encoding="utf-8", newline="\n")
-            clock.chmod(0o755)
+            self._clock(here)
+            self._fakes(here, gh='echo "$*" >> "$CALLS"\n[ -n "$AGO" ] || exit 1\necho "$AGO"\n')
             out, calls = here / "output", here / "calls"
             hour = 1791986400  # 14:00 UTC on 14 October 2026
-            for event, now, ago, skip in (
-                    # A push and a dispatch always run, and ask nothing.
-                    ("push", 2 * 60, "60", "false"), ("workflow_dispatch", 2 * 60, "60", "false"),
+            for event, relay, now, ago, skip in (
+                    # A push and a dispatch by hand always run, and ask nothing.
+                    ("push", "", 2 * 60, "60", "false"), ("workflow_dispatch", "false", 2 * 60, "60", "false"),
                     # On time at 14:42: published at 14:41, 14:40:01 and 14:40:00, these ten minutes.
-                    ("schedule", 42 * 60, "60", "true"), ("schedule", 42 * 60, "119", "true"),
-                    ("schedule", 42 * 60, "120", "true"),
+                    ("schedule", "", 42 * 60, "60", "true"), ("schedule", "", 42 * 60, "119", "true"),
+                    ("schedule", "", 42 * 60, "120", "true"),
                     # Published at 14:39:59 and 14:33: these ten minutes have no run yet.
-                    ("schedule", 42 * 60, "121", "false"), ("schedule", 42 * 60, "540", "false"),
+                    ("schedule", "", 42 * 60, "121", "false"), ("schedule", "", 42 * 60, "540", "false"),
                     # The second slot, at 14:47: published at 14:43 by the first, or at 14:33.
-                    ("schedule", 47 * 60, "240", "true"), ("schedule", 47 * 60, "840", "false"),
+                    ("schedule", "", 47 * 60, "240", "true"), ("schedule", "", 47 * 60, "840", "false"),
                     # Held to 14:48: published at 14:46 by a dispatch, or at 14:33 by the run before.
-                    ("schedule", 48 * 60, "120", "true"), ("schedule", 48 * 60, "900", "false"),
+                    ("schedule", "", 48 * 60, "120", "true"), ("schedule", "", 48 * 60, "900", "false"),
                     # Held into the next ten, to 14:51: published at 14:43 by its own ten's run,
                     # or at 14:50:30 by another held run.
-                    ("schedule", 51 * 60, "480", "false"), ("schedule", 51 * 60, "30", "true"),
+                    ("schedule", "", 51 * 60, "480", "false"), ("schedule", "", 51 * 60, "30", "true"),
                     # At the top of the hour, 15:02: published at 14:59, or at 15:00:30.
-                    ("schedule", 62 * 60, "180", "false"), ("schedule", 62 * 60, "90", "true"),
+                    ("schedule", "", 62 * 60, "180", "false"), ("schedule", "", 62 * 60, "90", "true"),
                     # Published ahead of the clock, as publish.py stamps a commit with
                     # the clock of the machine it runs on: any doubt runs it.
-                    ("schedule", 42 * 60, "-30", "false"), ("schedule", 42 * 60, "-3600", "false"),
-                    ("schedule", 42 * 60, "", "false"), ("schedule", 42 * 60, "soon", "false")):
-                with self.subTest(event=event, now=now, ago=ago):
+                    ("schedule", "", 42 * 60, "-30", "false"), ("schedule", "", 42 * 60, "-3600", "false"),
+                    ("schedule", "", 42 * 60, "", "false"), ("schedule", "", 42 * 60, "soon", "false"),
+                    # Relayed at 14:42: published at 14:41 by a push, or at 14:33 by the run before.
+                    ("workflow_dispatch", "true", 42 * 60, "60", "true"),
+                    ("workflow_dispatch", "true", 42 * 60, "540", "false"),
+                    # Relayed late, at 14:51: published at 14:50:30 by another run, or at 14:43.
+                    ("workflow_dispatch", "true", 51 * 60, "30", "true"),
+                    ("workflow_dispatch", "true", 51 * 60, "480", "false"),
+                    ("workflow_dispatch", "true", 42 * 60, "-30", "false"),
+                    ("workflow_dispatch", "true", 42 * 60, "", "false")):
+                with self.subTest(event=event, relay=relay, now=now, ago=ago):
                     out.write_text("", encoding="utf-8")
                     calls.unlink(missing_ok=True)
-                    env = dict(os.environ, PATH=f"{here}{os.pathsep}{os.environ['PATH']}", EVENT=event, AGO=ago,
-                               NOW=str(hour + now), CALLS=str(calls), GITHUB_OUTPUT=str(out),
-                               GITHUB_REPOSITORY="owner/repo")
-                    done = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(here / "check.sh")],
-                                          env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                                          timeout=60)
+                    done = self._bash(here, script, EVENT=event, RELAY=relay, AGO=ago, NOW=str(hour + now),
+                                      CALLS=str(calls), GITHUB_OUTPUT=str(out), GITHUB_REPOSITORY="owner/repo")
                     self.assertEqual(done.returncode, 0, done.stderr)
-                    self.assertEqual(out.read_text(encoding="utf-8"), f"skip={skip}\n")
-                    # Only a scheduled run asks GitHub anything.
+                    self.assertEqual(out.read_text(encoding="utf-8"),
+                                     f"skip={skip}\nspan={hour + now - now % 600}\n")
+                    # Only a scheduled or relayed run asks GitHub anything.
                     asked = calls.read_text(encoding="utf-8") if calls.exists() else ""
                     self.assertEqual(asked.startswith("api repos/owner/repo/commits/gh-pages --jq "),
-                                     event == "schedule", asked)
+                                     event == "schedule" or relay == "true", asked)
 
     def test_one_runs_at_a_time_and_none_is_cancelled(self):
         self.assertIn("concurrency:\n  group: live-site\n  cancel-in-progress: false\n", self.live)
@@ -2713,9 +2756,38 @@ class TestTheLiveRun(unittest.TestCase):
 
     def test_the_schedule_is_kept_from_pausing_without_failing_the_run(self):
         step = self.live.split("- name: Keep the schedule from pausing\n", 1)[1]
-        self.assertIn("if: ${{ !cancelled() && github.event_name == 'schedule' }}\n", step)
-        self.assertIn("continue-on-error: true\n", step)
+        # A relayed run too: GitHub pauses the workflow with its schedule, and
+        # the relay cannot dispatch a paused one.
+        self.assertTrue(step.startswith(
+            "        if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.relay) }}\n"
+            "        continue-on-error: true\n        shell: bash\n"), step[:300])
         self.assertIn('gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/live.yml/enable"', step)
+
+    @unittest.skipIf(sys.platform == "win32", "the live run is Linux")
+    def test_the_keep_alive_leaves_a_workflow_paused_by_hand_paused(self):
+        # The step's own script, under bash, with a gh that answers the
+        # workflow's state, or fails, and records what it is asked. Enabling
+        # the workflow from its own run keeps GitHub's pause for inactivity
+        # off; one disabled by hand while the run ran stays paused, and the
+        # relay with it.
+        script = self._script(self.live, "Keep the schedule from pausing")
+        asked = "api repos/owner/repo/actions/workflows/live.yml --jq .state\n"
+        enabled = "api --method PUT repos/owner/repo/actions/workflows/live.yml/enable\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            self._fakes(here, gh='echo "$*" >> "$CALLS"\n'
+                                 'case "$2" in\n'
+                                 '  --method) ;;\n'
+                                 '  *) [ -n "$STATE" ] || exit 1; echo "$STATE" ;;\n'
+                                 'esac\n')
+            calls = here / "calls"
+            for state, gh in (("active", asked + enabled), ("disabled_inactivity", asked + enabled),
+                              ("", asked + enabled), ("disabled_manually", asked)):
+                with self.subTest(state=state):
+                    calls.unlink(missing_ok=True)
+                    done = self._bash(here, script, STATE=state, CALLS=str(calls), GITHUB_REPOSITORY="owner/repo")
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertEqual(calls.read_text(encoding="utf-8"), gh)
 
     def test_the_suite_runs_on_the_python_the_live_run_uses(self):
         self.assertEqual(re.findall(r'python-version: "([\d.]+)"', self.live + self.tests), ["3.12", "3.12"])
@@ -2744,3 +2816,263 @@ class TestTheLiveRun(unittest.TestCase):
         self.assertEqual(self.tests.count("    timeout-minutes: 30\n"), 1)
         # A pull request's code never runs with the live run's token.
         self.assertNotIn("pull_request", self.live)
+
+    def test_a_relayed_run_is_a_dispatch_that_says_so(self):
+        # The relay (relay.yml) dispatches each run with relay set, and that
+        # run stands down as a scheduled one does; a dispatch by hand runs.
+        self.assertIn("  workflow_dispatch:\n    inputs:\n      relay:\n", self.live)
+        inputs = self.live.split("  workflow_dispatch:\n    inputs:\n      relay:\n", 1)[1].split("  push:\n", 1)[0]
+        self.assertIn("        type: boolean\n", inputs)
+        self.assertIn("        default: false\n", inputs)
+        self.assertIn("          RELAY: ${{ inputs.relay }}\n", self.live)
+
+    def test_every_run_on_main_books_the_next_with_the_relay(self):
+        # GitHub's schedule fired 20 of about 830 slots from 16 to 19 October
+        # 2026. A run books once it has decided, however long it then takes,
+        # and one that stood down books too, so a site published from
+        # elsewhere keeps the relay going; a run on another branch books none.
+        self.assertIn("\n  book:\n", self.live)
+        book = self.live.split("\n  book:\n", 1)[1].split("\n  tell:\n", 1)[0]
+        self.assertTrue(book.startswith("    needs: due\n"
+                                        "    if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}\n"),
+                        book[:300])
+        self.assertIn("    timeout-minutes: 10\n", book)
+        # Its token may work the repository's Actions and nothing else: a
+        # job's own permissions are all it has.
+        block = re.search(r"\n    permissions:\n((?:      .*\n)+)", book).group(1)
+        self.assertEqual(re.findall(r"^      ([\w-]+): (\w+)", block, re.M), [("actions", "write")])
+        self.assertIn("          SPAN: ${{ needs.due.outputs.span }}\n", book)
+
+    @unittest.skipIf(sys.platform == "win32", "the live run is Linux")
+    def test_the_next_run_is_booked_for_one_past_the_next_ten_minutes(self):
+        # One past the ten minutes after those this run was decided in, as the
+        # relay books itself (relay.yml): every run in the same ten minutes
+        # books the same time, however long it takes and whether it stood down.
+        script = self._script(self.live, "Book the next ten minutes' run")
+        hour = 1791986400  # 14:00 UTC on 14 October 2026
+
+        def at(minutes, seconds=0):
+            return str(hour + minutes * 60 + seconds)
+
+        def booked(due):
+            return f"workflow run relay.yml -R owner/repo --ref main -f at={due}\n"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            self._clock(here)
+            self._fakes(here,
+                        gh='echo "$*" >> "$CALLS"\n'
+                           'case "$1 $2" in\n'
+                           '  "workflow run") [ "$(grep -c . "$CALLS")" -gt "${FAILS:-0}" ] ;;\n'
+                           '  *) exit 2 ;;\n'
+                           'esac\n',
+                        sleep='echo "$1" >> "$SLEPT"\n')
+            calls, slept = here / "calls", here / "slept"
+            for span, now, due in (
+                    # Decided at 14:41, as a relayed run is, or at 14:47.
+                    (at(40), at(41, 10), "2026-10-14T14:51:00Z"),
+                    (at(40), at(47, 10), "2026-10-14T14:51:00Z"),
+                    # Decided at 14:49:59 and booking at 14:50:05: the ten minutes decided in.
+                    (at(40), at(50, 5), "2026-10-14T14:51:00Z"),
+                    (at(50), at(50, 5), "2026-10-14T15:01:00Z"),
+                    # No ten minutes from the check: this run's own, by the clock.
+                    ("", at(44), "2026-10-14T14:51:00Z"),
+                    ("x", at(44), "2026-10-14T14:51:00Z"),
+                    # Into the next day.
+                    (at(590), at(594), "2026-10-15T00:01:00Z")):
+                with self.subTest(span=span, now=now):
+                    calls.unlink(missing_ok=True)
+                    slept.unlink(missing_ok=True)
+                    done = self._bash(here, script, SPAN=span, NOW=now, CALLS=str(calls), SLEPT=str(slept),
+                                      GITHUB_REPOSITORY="owner/repo")
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertEqual(calls.read_text(encoding="utf-8"), booked(due))
+                    self.assertFalse(slept.exists())
+            # A booking GitHub turns down is asked again after 15, 30, 60 and
+            # 120 s, about four minutes, and then fails the run.
+            for fails, code, tries in ((1, 0, 2), (4, 0, 5), (5, 1, 5)):
+                with self.subTest(fails=fails):
+                    calls.unlink(missing_ok=True)
+                    slept.unlink(missing_ok=True)
+                    done = self._bash(here, script, SPAN=at(40), NOW=at(41, 10), FAILS=str(fails),
+                                      CALLS=str(calls), SLEPT=str(slept), GITHUB_REPOSITORY="owner/repo")
+                    self.assertEqual(done.returncode, code, done.stderr)
+                    self.assertEqual(calls.read_text(encoding="utf-8"), booked("2026-10-14T14:51:00Z") * tries)
+                    self.assertEqual(slept.read_text(encoding="utf-8") if slept.exists() else "",
+                                     "".join(f"{wait}\n" for wait in (15, 30, 60, 120)[:tries - 1]))
+
+    def test_the_relay_is_only_dispatched_and_holds_one_booking_a_time(self):
+        # It books itself, and every run on main books it, each in the same
+        # ten minutes for the same time: a booking made while one waits waits
+        # behind it, a spare, and GitHub keeps only the latest waiting.
+        relay = self._relay()
+        self.assertIn("\non:\n", relay)
+        on = relay.split("\non:\n", 1)[1].split("\n\n", 1)[0] + "\n"
+        self.assertEqual(re.findall(r"^  (\w+):", on, re.M), ["workflow_dispatch"])
+        self.assertIn("    inputs:\n      at:\n", on)
+        self.assertIn("        required: true\n        type: string\n", on)
+        self.assertIn("\nrun-name: Relay to ${{ inputs.at }}\n", relay)
+        self.assertIn("\nconcurrency:\n  group: relay-${{ inputs.at }}\n  cancel-in-progress: false\n", relay)
+        # Its token may work the repository's Actions and nothing else, and
+        # it runs none of the repository's code and no action.
+        block = re.search(r"\npermissions:\n((?:  .*\n)+)", relay).group(1)
+        self.assertEqual(re.findall(r"^  ([\w-]+): (\w+)", block, re.M), [("actions", "write")])
+        self.assertNotIn("uses:", relay)
+        # GitHub's wait timer, eight minutes, holds it before a runner takes
+        # it, and no deployment is recorded for it.
+        self.assertIn("\n  relay:\n", relay)
+        job = relay.split("\n  relay:\n", 1)[1].split("\n  tell:\n", 1)[0]
+        self.assertIn("    environment:\n      name: relay\n      deployment: false\n", job)
+        self.assertIn("gh api --method PUT repos/OWNER/REPO/environments/relay -F wait_timer=8\n", job)
+        self.assertIn("    runs-on: ubuntu-latest\n    timeout-minutes: 30\n", job)
+        self.assertIn("          GH_TOKEN: ${{ github.token }}\n          AT: ${{ inputs.at }}\n", job)
+
+    @unittest.skipIf(sys.platform == "win32", "the live run is Linux")
+    def test_the_relay_dispatches_the_live_run_when_due_and_books_itself_for_the_next(self):
+        # Let go by GitHub's wait timer, it waits out what is left, and unless
+        # a live run has come since, by GitHub's schedule, a push, a hand or
+        # the booking a spare waited behind, or the live site is paused, it
+        # dispatches the live run and books itself for one past the next ten
+        # minutes: the relay keeps the time, and each run's own booking is a
+        # spare. Not a time as a run books one, or more than fifteen minutes
+        # away, it fails, and says so without repeating what it was given.
+        script = self._script(self._relay(), "Dispatch the live run when it is due, and book the next")
+        hour = 1791986400  # 14:00 UTC on 14 October 2026
+        due = "2026-10-14T14:51:00Z"
+        asked = ('run list -R owner/repo -w live.yml --branch main -L 20 --json createdAt '
+                 f'--jq map(select(.createdAt >= "{due}")) | length\n')
+        state = "api repos/owner/repo/actions/workflows/live.yml --jq .state\n"
+        sent = "workflow run live.yml -R owner/repo --ref main -f relay=true\n"
+        backoff = "15\n30\n60\n120\n"
+
+        def booked(at="2026-10-14T15:01:00Z"):
+            return f"workflow run relay.yml -R owner/repo --ref main -f at={at}\n"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            self._clock(here)
+            self._fakes(here,
+                        gh='echo "$*" >> "$CALLS"\n'
+                           'case "$1 $2" in\n'
+                           '  "run list") [ -z "$UNASKED" ] || exit 1; printf "%s\\n" "$CAME" ;;\n'
+                           '  "api repos/owner/repo/actions/workflows/live.yml") [ -n "$STATE" ] || exit 1; echo "$STATE" ;;\n'
+                           '  "workflow run") case $3 in live.yml) fails=$UNSENT ;; *) fails=$UNBOOKED ;; esac\n'
+                           '                  [ "$(grep -c "^workflow run $3 " "$CALLS")" -gt "$fails" ] ;;\n'
+                           '  *) exit 2 ;;\n'
+                           'esac\n',
+                        sleep='echo "$1" >> "$SLEPT"\n')
+            calls, slept = here / "calls", here / "slept"
+            for at, now, came, unasked, live, unsent, unbooked, code, gh, waited in (
+                    # Let go two minutes early, it waits them out, dispatches and books the next.
+                    (due, 49 * 60, "0", "", "active", 0, 0, 0, asked + state + sent + booked(), "120\n"),
+                    # On time, or late, as behind another booking: at once.
+                    (due, 51 * 60, "0", "", "active", 0, 0, 0, asked + state + sent + booked(), ""),
+                    (due, 55 * 60, "0", "", "active", 0, 0, 0, asked + state + sent + booked(), ""),
+                    # Late into the next ten minutes: the next is one past the ten after those.
+                    (due, 60 * 60 + 30, "0", "", "active", 0, 0, 0,
+                     asked + state + sent + booked("2026-10-14T15:11:00Z"), ""),
+                    # A live run has come since, and books the next itself: nothing.
+                    (due, 51 * 60, "1", "", "active", 0, 0, 0, asked, ""),
+                    (due, 51 * 60, "2", "", "active", 0, 0, 0, asked, ""),
+                    # GitHub could not say, or said nothing: it dispatches.
+                    (due, 51 * 60, "0", "1", "active", 0, 0, 0, asked + state + sent + booked(), ""),
+                    (due, 51 * 60, "", "", "active", 0, 0, 0, asked + state + sent + booked(), ""),
+                    # The live site paused by hand pauses the relay: nothing.
+                    (due, 51 * 60, "0", "", "disabled_manually", 0, 0, 0, asked + state, ""),
+                    # Its state unread: it dispatches, and GitHub decides.
+                    (due, 51 * 60, "0", "", "", 0, 0, 0, asked + state + sent + booked(), ""),
+                    # Fifteen minutes away at most.
+                    (due, 36 * 60, "0", "", "active", 0, 0, 0, asked + state + sent + booked(), "900\n"),
+                    (due, 36 * 60 - 1, "0", "", "active", 0, 0, 1, "", ""),
+                    # Not a time as a run books one.
+                    ("soon", 51 * 60, "0", "", "active", 0, 0, 1, "", ""),
+                    ("", 51 * 60, "0", "", "active", 0, 0, 1, "", ""),
+                    ("2026-10-14T14:51:30Z", 51 * 60, "0", "", "active", 0, 0, 1, "", ""),
+                    ("2026-10-14 14:51:00Z", 51 * 60, "0", "", "active", 0, 0, 1, "", ""),
+                    ("2026-13-40T14:51:00Z", 51 * 60, "0", "", "active", 0, 0, 1, "", ""),
+                    (f"{due}\n::warning::Not the relay's", 51 * 60, "0", "", "active", 0, 0, 1, "", ""),
+                    # A dispatch GitHub turns down is asked again after 15, 30, 60 and 120 s,
+                    # and the next is booked once one is sent: none sent, none booked.
+                    (due, 51 * 60, "0", "", "active", 4, 0, 0, asked + state + sent * 5 + booked(), backoff),
+                    (due, 51 * 60, "0", "", "active", 5, 0, 1, asked + state + sent * 5, backoff),
+                    # A booking GitHub turns down likewise.
+                    (due, 51 * 60, "0", "", "active", 0, 4, 0, asked + state + sent + booked() * 5, backoff),
+                    (due, 51 * 60, "0", "", "active", 0, 5, 1, asked + state + sent + booked() * 5, backoff)):
+                with self.subTest(at=at, now=now, came=came, unasked=unasked, live=live, unsent=unsent,
+                                  unbooked=unbooked):
+                    calls.unlink(missing_ok=True)
+                    slept.unlink(missing_ok=True)
+                    done = self._bash(here, script, AT=at, NOW=str(hour + now), CAME=came, UNASKED=unasked,
+                                      STATE=live, UNSENT=str(unsent), UNBOOKED=str(unbooked), CALLS=str(calls),
+                                      SLEPT=str(slept), GITHUB_REPOSITORY="owner/repo")
+                    self.assertEqual(done.returncode, code, done.stdout + done.stderr)
+                    self.assertEqual(calls.read_text(encoding="utf-8") if calls.exists() else "", gh)
+                    self.assertEqual(slept.read_text(encoding="utf-8") if slept.exists() else "", waited)
+                    # What it was given is said only once it is a time.
+                    self.assertNotIn("\n::warning::", "\n" + done.stdout)
+
+    def test_a_failed_run_or_relay_opens_an_issue_with_a_token_that_may_only_do_that(self):
+        # GitHub notifies whoever started a run that fails, and no one of a
+        # run its own bot started, as it starts the relay and the runs the
+        # relay dispatches. The same step in both workflows, word for word.
+        relay = self._relay()
+        step = "      - name: Open an issue on the failure unless one is open\n"
+        for name, text, needs in (("live.yml", self.live, "[due, run, book]"), ("relay.yml", relay, "relay")):
+            with self.subTest(name):
+                self.assertIn("\n  tell:\n", text)
+                tell = text.split("\n  tell:\n", 1)[1]
+                self.assertTrue(tell.startswith(f"    needs: {needs}\n"
+                                                "    if: ${{ failure() && github.ref == 'refs/heads/main' }}\n"),
+                                tell[:300])
+                self.assertIn("    timeout-minutes: 5\n", tell)
+                block = re.search(r"\n    permissions:\n((?:      .*\n)+)", tell).group(1)
+                self.assertEqual(re.findall(r"^      ([\w-]+): (\w+)", block, re.M), [("issues", "write")])
+                self.assertIn(step, tell)
+                self.assertIn("          WHAT: ${{ github.workflow }}\n          RUN: ${{ github.server_url }}/"
+                              "${{ github.repository }}/actions/runs/${{ github.run_id }}\n", tell)
+        self.assertIn(step, self.live)
+        self.assertIn(step, relay)
+        self.assertEqual(self.live.split(step, 1)[1], relay.split(step, 1)[1])
+
+    @unittest.skipIf(sys.platform == "win32", "the live run is Linux")
+    def test_a_failure_opens_one_issue_at_a_time(self):
+        # The step's own script, under bash, with a gh that answers how many
+        # issues so titled are open, or fails, and keeps the one it is asked
+        # to open. While one is open, a later failure opens none: the Actions
+        # tab lists them all, and closing it asks to be told of the next.
+        script = self._script(self.live, "Open an issue on the failure unless one is open")
+        title = "A run of the live site failed"
+        listed = ('api repos/owner/repo/issues?state=open&per_page=100 '
+                  f'--jq map(select(.title == "{title}")) | length\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            self._fakes(here, gh='case "$2" in\n'
+                                 '  --method) printf "%s\\0" "$@" > "$ISSUE"; echo https://github.com/owner/repo/issues/7 ;;\n'
+                                 '  *) echo "$*" >> "$CALLS"; [ -z "$UNASKED" ] || exit 1; printf "%s\\n" "$OPEN" ;;\n'
+                                 'esac\n')
+            calls, issue = here / "calls", here / "issue"
+            for open_, unasked, opened in (
+                    # None open: one is opened.
+                    ("0", "", True),
+                    # One open on an earlier failure, or two opened at once: none.
+                    ("1", "", False), ("2", "", False),
+                    # GitHub could not say, or said nothing: one is opened.
+                    ("0", "1", True), ("", "", True)):
+                with self.subTest(open=open_, unasked=unasked):
+                    calls.unlink(missing_ok=True)
+                    issue.unlink(missing_ok=True)
+                    done = self._bash(here, script, OPEN=open_, UNASKED=unasked, CALLS=str(calls), ISSUE=str(issue),
+                                      WHAT="Live site", RUN="https://github.com/owner/repo/actions/runs/42",
+                                      GITHUB_REPOSITORY="owner/repo")
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertEqual(calls.read_text(encoding="utf-8"), listed)
+                    self.assertEqual(issue.exists(), opened)
+                    if opened:
+                        args = issue.read_text(encoding="utf-8").split("\0")[:-1]
+                        self.assertEqual(args[:6], ["api", "--method", "POST", "repos/owner/repo/issues",
+                                                    "-f", f"title={title}"])
+                        self.assertEqual(args[6], "-f")
+                        self.assertTrue(args[7].startswith(
+                            "body=Live site failed: https://github.com/owner/repo/actions/runs/42\n\n"), args[7])
+                        self.assertNotIn("\n", args[7].split("\n\n", 1)[1])
+                        self.assertEqual(args[8:], ["--jq", ".html_url"])

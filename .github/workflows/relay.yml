@@ -1,0 +1,132 @@
+# The relay, the clock of the live site (live.yml): each relay run waits for
+# the live run it was booked for, at one past a ten minutes, dispatches it,
+# and books the relay for the next. Each live run on main books it too, as
+# soon as it has decided, so each ten minutes has two bookings, and either
+# keeps the site going. GitHub's own schedule fired 20 of about 830 slots from
+# 16 to 19 October 2026. The relay runs on GitHub's side alone, with no
+# computer of ours to be on, and runs none of the repository's code and no
+# action.
+name: Relay
+run-name: Relay to ${{ inputs.at }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      at:
+        description: When the live run is due, in UTC, as 2026-10-19T13:21:00Z
+        required: true
+        type: string
+
+# One booking a time for each time due. The relay's own booking and the live
+# run's come for the same time, and one made while another waits waits behind
+# it, a spare that dispatches only if no live run has come by then; GitHub
+# keeps only the latest waiting.
+concurrency:
+  group: relay-${{ inputs.at }}
+  cancel-in-progress: false
+
+permissions:
+  actions: write  # to dispatch the live run and book the next
+
+jobs:
+  relay:
+    # The relay environment's wait timer, eight minutes, holds the job on
+    # GitHub's side before a runner takes it, and no deployment is recorded
+    # for it: booked about ten minutes ahead, the job is let go a minute or
+    # two before the run is due, and the step waits out the rest.
+    # Without the timer the step waits it all. It is set with:
+    # gh api --method PUT repos/OWNER/REPO/environments/relay -F wait_timer=8
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: relay
+      deployment: false
+    steps:
+      - name: Dispatch the live run when it is due, and book the next
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AT: ${{ inputs.at }}
+        run: |
+          if ! [[ $AT =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:00Z$ ]] || ! due=$(date -u -d "$AT" +%s); then
+            echo "::error title=Not a time::The time given is not one as a run books one."
+            exit 1
+          fi
+          left=$(( due - $(date -u +%s) ))
+          if [ "$left" -gt 900 ]; then
+            echo "::error title=Too far ahead::$AT is more than fifteen minutes away."
+            exit 1
+          fi
+          if [ "$left" -gt 0 ]; then sleep "$left"; fi
+          # A live run since then, by GitHub's schedule, a push, a hand or the
+          # booking this one waited behind, has booked the next itself.
+          came=$(gh run list -R "$GITHUB_REPOSITORY" -w live.yml --branch main -L 20 --json createdAt \
+                   --jq "map(select(.createdAt >= \"$AT\")) | length") || came=0
+          if [[ $came =~ ^[1-9][0-9]*$ ]]; then
+            echo "A live run has come since $AT."
+            exit 0
+          fi
+          # The live site disabled by hand is paused, and the relay with it.
+          state=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/live.yml" --jq .state) || state=
+          if [ "$state" = disabled_manually ]; then
+            echo "The live site is paused, and the relay stops with it."
+            exit 0
+          fi
+          # Asked again after 15, 30, 60 and 120 s: about four minutes of
+          # GitHub turning it down.
+          again() {
+            local wait
+            for wait in 15 30 60 120 ""; do
+              "$@" && return 0
+              [ -z "$wait" ] || sleep "$wait"
+            done
+            return 1
+          }
+          if ! again gh workflow run live.yml -R "$GITHUB_REPOSITORY" --ref main -f relay=true; then
+            echo "::error title=Not dispatched::The live run due at $AT could not be dispatched."
+            exit 1
+          fi
+          # One past the ten minutes after those the run was due in, or,
+          # dispatched late, after those it was dispatched in.
+          now=$(date -u +%s)
+          from=$(( now > due ? now : due ))
+          next=$(date -u -d "@$(( from - from % 600 + 660 ))" +%Y-%m-%dT%H:%M:%SZ)
+          if ! again gh workflow run relay.yml -R "$GITHUB_REPOSITORY" --ref main -f at="$next"; then
+            echo "::error title=Not booked::The run due at $next could not be booked."
+            exit 1
+          fi
+          echo "Dispatched the live run due at $AT, and booked the next, due at $next."
+
+  # GitHub notifies whoever started a run that fails, and no one of a run its
+  # own bot started, as it starts the relay and the runs the relay dispatches:
+  # a failed relay opens an issue, which notifies the repository's owner,
+  # unless one is open already. The same step as the live run's (live.yml).
+  tell:
+    needs: relay
+    if: ${{ failure() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write  # to open the issue
+    steps:
+      - name: Open an issue on the failure unless one is open
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WHAT: ${{ github.workflow }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="A run of the live site failed"
+          open=$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" \
+                   --jq "map(select(.title == \"$title\")) | length") || open=
+          if [[ $open =~ ^[1-9][0-9]*$ ]]; then
+            echo "An issue is open on an earlier failure; the Actions tab lists this one."
+            exit 0
+          fi
+          body="$WHAT failed: $RUN
+
+          GitHub tells no one of a failed run its own bot started, as it starts the \
+          relay and the runs the relay dispatches, so this issue does. While it is \
+          open, later failures open none, and the Actions tab lists them: close it \
+          to be told of the next."
+          gh api --method POST "repos/$GITHUB_REPOSITORY/issues" -f title="$title" -f body="$body" --jq .html_url

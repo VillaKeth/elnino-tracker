@@ -1,7 +1,7 @@
-# The live site: run the tracker every ten minutes, as GitHub's schedule
-# fires, and publish the run to GitHub Pages. Open pages follow it on their own
-# (elnino/live.py). Each action is pinned to the commit of a release: a tag can
-# be moved, and this run's token may push.
+# The live site: run the tracker every ten minutes, as the relay (relay.yml)
+# dispatches it, and publish the run to GitHub Pages. Open pages follow it on
+# their own (elnino/live.py). Each action is pinned to the commit of a
+# release: a tag can be moved, and this run's token may push.
 name: Live site
 
 on:
@@ -11,12 +11,20 @@ on:
     # first to come publishes, so six publishes an hour, under GitHub Pages'
     # soft limit of ten builds an hour for a site built from a branch, with
     # room for pushes. GitHub holds scheduled runs under load, most at the
-    # start of each hour, and drops some: the first of all, and about four
-    # slots in five from 6 to 15 October 2026. So each slot is a second chance
-    # for the one before: it stands down when its ten minutes' run has come,
-    # and held into the next ten it is that ten's run.
+    # start of each hour, and drops some: the first of all, about four slots
+    # in five from 6 to 15 October 2026, and all but 20 of about 830 from 16
+    # to 19 October. So the relay (relay.yml) dispatches a run at one past
+    # each ten minutes, booked by itself and by each run (the book job below),
+    # and each slot is a second chance: it stands down when its ten minutes'
+    # run has come, held into the next ten it is that ten's run, and as every
+    # run books, it takes the relay up again should both bookings be lost.
     - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
   workflow_dispatch:
+    inputs:
+      relay:
+        description: Dispatched by the relay or its backup, standing down as a scheduled run does
+        type: boolean
+        default: false
   push:
     branches: [main]
 
@@ -31,18 +39,23 @@ permissions:
 
 jobs:
   # Whether this run is due: one run in each ten minutes, the time cut into
-  # tens from :00 UTC. A scheduled run stands down when the site was published
-  # in its ten minutes, by a push, a dispatch or a run held into them. Held
-  # past its ten, as GitHub held runs to 08:01 and 14:03 on 14 October 2026,
-  # it is the next ten's run. A push or a dispatch runs, unless a later run
-  # takes its place while it waits: GitHub keeps only the latest waiting. Any
-  # doubt runs it, as a publish dated ahead of the clock does: publish.py
-  # stamps the commit with the clock of the machine it runs on.
+  # tens from :00 UTC. A scheduled or relayed run stands down when the site
+  # was published in its ten minutes, by a push, a dispatch or a run held into
+  # them. Held past its ten, as GitHub held runs to 08:01 and 14:03 on 14
+  # October 2026, it is the next ten's run. A push or a dispatch by hand runs,
+  # unless a later run takes its place while it waits: GitHub keeps only the
+  # latest waiting. Any doubt runs it, as a publish dated ahead of the clock
+  # does: publish.py stamps the commit with the clock of the machine it runs
+  # on. The ten minutes it was decided in, by the same reading of the clock,
+  # are the booking's (the book job).
   due:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read  # to read when the site was published
     outputs:
       skip: ${{ steps.age.outputs.skip }}
+      span: ${{ steps.age.outputs.span }}
     steps:
       - name: Stand down if these ten minutes' run has come
         id: age
@@ -50,16 +63,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
+          RELAY: ${{ inputs.relay }}
         run: |
           skip=false
-          if [ "$EVENT" = schedule ] &&
+          now=$(date -u +%s)
+          if { [ "$EVENT" = schedule ] || [ "$RELAY" = true ]; } &&
              age=$(gh api "repos/$GITHUB_REPOSITORY/commits/gh-pages" \
                      --jq '(now - (.commit.committer.date | fromdateiso8601)) | floor'); then
-            into=$(( $(date -u +%s) % 600 ))
+            into=$(( now % 600 ))
             echo "The site was published $age seconds ago, and these ten minutes began $into seconds ago."
             if [ "$age" -ge 0 ] 2>/dev/null && [ "$age" -le "$into" ]; then skip=true; fi
           fi
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "span=$(( now - now % 600 ))" >> "$GITHUB_OUTPUT"
 
   run:
     needs: due
@@ -138,10 +154,91 @@ jobs:
           fi
 
       # GitHub pauses the schedules of a public repository after 60 days
-      # without activity; a workflow enabled from its own run keeps going.
+      # without activity, and the workflow with them, which the relay could
+      # not dispatch then; a workflow enabled from its own run keeps going.
+      # One disabled by hand while this run ran stays paused.
       - name: Keep the schedule from pausing
-        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.relay) }}
         continue-on-error: true
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/live.yml/enable"
+        run: |
+          state=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/live.yml" --jq .state) || state=
+          if [ "$state" != disabled_manually ]; then
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/live.yml/enable"
+          fi
+
+  # Book the next ten minutes' run with the relay (relay.yml), as the relay
+  # books itself: one past the ten minutes after those this run was decided
+  # in, as soon as it has decided, however long it then takes. Every run on
+  # main books, one that stood down too, so a site published from elsewhere
+  # keeps the relay going; every run in the same ten minutes books the same
+  # time, and the relay holds one booking for each time, the rest spares.
+  book:
+    needs: due
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write  # to dispatch the relay
+    steps:
+      - name: Book the next ten minutes' run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPAN: ${{ needs.due.outputs.span }}
+        run: |
+          from=$SPAN
+          [[ $from =~ ^[0-9]+$ ]] || from=$(date -u +%s)
+          at=$(date -u -d "@$(( from - from % 600 + 660 ))" +%Y-%m-%dT%H:%M:%SZ)
+          echo "Booking the next run, due at $at."
+          # Asked again after 15, 30, 60 and 120 s: about four minutes of
+          # GitHub turning it down.
+          again() {
+            local wait
+            for wait in 15 30 60 120 ""; do
+              "$@" && return 0
+              [ -z "$wait" ] || sleep "$wait"
+            done
+            return 1
+          }
+          if ! again gh workflow run relay.yml -R "$GITHUB_REPOSITORY" --ref main -f at="$at"; then
+            echo "::error title=Not booked::The run due at $at could not be booked."
+            exit 1
+          fi
+
+  # GitHub notifies whoever started a run that fails, and no one of a run its
+  # own bot started, as it starts the relay (relay.yml) and the runs the relay
+  # dispatches: a failed run on main opens an issue, which notifies the
+  # repository's owner, unless one is open already. The same step as the
+  # relay's.
+  tell:
+    needs: [due, run, book]
+    if: ${{ failure() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write  # to open the issue
+    steps:
+      - name: Open an issue on the failure unless one is open
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WHAT: ${{ github.workflow }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="A run of the live site failed"
+          open=$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" \
+                   --jq "map(select(.title == \"$title\")) | length") || open=
+          if [[ $open =~ ^[1-9][0-9]*$ ]]; then
+            echo "An issue is open on an earlier failure; the Actions tab lists this one."
+            exit 0
+          fi
+          body="$WHAT failed: $RUN
+
+          GitHub tells no one of a failed run its own bot started, as it starts the \
+          relay and the runs the relay dispatches, so this issue does. While it is \
+          open, later failures open none, and the Actions tab lists them: close it \
+          to be told of the next."
+          gh api --method POST "repos/$GITHUB_REPOSITORY/issues" -f title="$title" -f body="$body" --jq .html_url
