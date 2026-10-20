@@ -58,7 +58,7 @@ import math
 
 from . import coastline, cyclones, fields, geo
 from .grids import Field
-from .impacts import CATALOGUE, evaluate, flavour_of, flavour_penalty
+from .impacts import CATALOGUE, evaluate, flavour_of, flavour_penalty, window_text
 from .storms import NEUTRAL, STORM_HUES
 from .svg import esc, relative_d
 
@@ -456,7 +456,7 @@ def dossier(peak_index: float, current_index: float, flavour_index: float,
             "region": link.region,
             "area": link.area,
             "scope": footprint.scope,
-            "window": link.window,
+            "window": window_text(link.window),
             "effect": link.effect,
             "polarity": link.polarity,
             "polarity_name": POLARITY_NAME.get(link.polarity, link.polarity),
@@ -526,10 +526,10 @@ def _table(links: list[dict]) -> str:
             f'<td>{_chip(link["peak"]["likelihood"])}</td>'
             f'<td>{esc(link["confidence"])}</td>'
             "</tr>")
-    return (f'<details class="tableview"><summary>Table view: all '
+    return (f'<details class="tableview"><summary>Table view &mdash; all '
             f"{len(links)} catalogued regions, with coordinates</summary>"
-            f'<table class="dtable"><thead>{head}</thead>'
-            f'<tbody>{"".join(body)}</tbody></table></details>')
+            f'<div class="tablewrap"><table class="dtable"><thead>{head}</thead>'
+            f'<tbody>{"".join(body)}</tbody></table></div></details>')
 
 
 # --- the card ---------------------------------------------------------------

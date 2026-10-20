@@ -604,7 +604,8 @@ def track_map(storms) -> str:
 
 
 def _clock(stamp: str) -> str:
-    return (f"{stamp[6:8]} {_MONTH[int(stamp[4:6])]} {stamp[8:10]}Z"
+    """A deck's YYYYMMDDHH stamp as the site gives a fix time: 5 Oct 06Z."""
+    return (f"{int(stamp[6:8])} {_MONTH[int(stamp[4:6])]} {stamp[8:10]}Z"
             if len(stamp) == 10 else stamp)
 
 
@@ -970,7 +971,7 @@ def season_card(state) -> str:
             f'{index_value:+.2f} ({esc(scored["likelihood"])}, '
             f'{esc(scored["confidence"])} confidence). Observed activity is '
             f'<strong>{esc(scored["observed"])}</strong>: {season.ace:.0f} ACE '
-            f'against {scored["normal_ace"]:.0f} normal by {esc(season.through)}'
+            f'against {season.normal_ace:.0f} normal by {esc(season.through)}'
             + (f', and {scored["elnino_ratio"]:.2f}&#215; the composite of '
                f'{scored["sample"]} past El Nino seasons at the same date'
                if scored["elnino_ratio"] is not None else "")
@@ -1130,10 +1131,10 @@ def _fury_dumbbell(moves: list[dict], skill: dict) -> str:
                      f'text-anchor="middle" class="pointlabel">actual</text>')
         detail = (f'{move["wind_before"]} kt before, {move["predicted_kt"]} kt '
                   f'predicted, {move["wind_after"]} kt observed')
-        plot.add(_hit(guess, y, f'{move["storm"]}, {move["stamp"]}', detail,
+        plot.add(_hit(guess, y, f'{move["storm"]}, {_clock(move["stamp"])}', detail,
                       f'eyewall {move["from_nm"]} to {move["to_nm"]} nm '
                       f'in {move["hours"]} h'))
-        plot.add(_hit(after, y, f'{move["storm"]}, {move["stamp"]}', detail,
+        plot.add(_hit(after, y, f'{move["storm"]}, {_clock(move["stamp"])}', detail,
                       f'observed change {move["observed_pct"]:+.0f}%'))
 
     desc = (f'{len(shown)} natural eyewall expansions. Angular momentum '
@@ -1243,12 +1244,12 @@ def fury_card(state) -> str:
     dumbbell = _fury_dumbbell(fury.moves, fury.skill)
     histogram = _fury_histogram(fury.swings)
 
-    move_rows = [[m["storm"], m["stamp"], f'{m["from_nm"]}→{m["to_nm"]} nm',
+    move_rows = [[m["storm"], _clock(m["stamp"]), f'{m["from_nm"]}→{m["to_nm"]} nm',
                   f'{m["hours"]} h', f'{m["wind_before"]} kt',
                   f'{m["predicted_kt"]} kt', f'{m["wind_after"]} kt',
                   f'{m["observed_pct"]:+.0f}%']
                  for m in fury.moves if m.get("predicted_kt")]
-    swing_rows = [[c["storm"], c["stamp"], f'{c["from_kt"]} kt',
+    swing_rows = [[c["storm"], _clock(c["stamp"]), f'{c["from_kt"]} kt',
                    f'{c["to_kt"]} kt', f'{c["pct"]:+.1f}%']
                   for c in sorted(fury.swings.get("changes") or [],
                                   key=lambda c: c["pct"])]

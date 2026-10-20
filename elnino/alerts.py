@@ -100,12 +100,20 @@ class Alert:
 class AlertSet:
     alerts: list[Alert] = field(default_factory=list)
     # The codes of the alerts cleared in the day before this run, the latest
-    # first, but those raised again since.
+    # first, but those raised again since; and each one's title as it last
+    # stood, for the page, which names alerts by title.
     cleared: list[str] = field(default_factory=list)
+    cleared_titles: dict[str, str] = field(default_factory=dict)
 
     @property
     def new(self) -> list[Alert]:
         return [alert for alert in self.alerts if alert.is_new]
+
+    @property
+    def cleared_named(self) -> list[str]:
+        """The cleared alerts by title, as the page and the report name the
+        open ones; a code with no title stands for itself."""
+        return [self.cleared_titles.get(code, code) for code in self.cleared]
 
     @property
     def worst(self) -> str:
@@ -825,7 +833,7 @@ def product_rules(storms, now: str | None = None) -> list[Alert]:
             if area.potential != "high":
                 continue
             title = f"{area.label}: high potential for a tropical cyclone within 24 h"
-            detail = (f"JTWC's advisory of {area.issued or 'this run'} places it near "
+            detail = (f"JTWC's advisory of {_issued(area.issued) or 'this run'} places it near "
                       f"{_latlon(area.lon, area.lat)} and rates the potential for a "
                       "significant tropical cyclone within 24 hours high.")
             if area.alert:
@@ -847,7 +855,7 @@ def product_rules(storms, now: str | None = None) -> list[Alert]:
             title = (f"{area.label}: {area.chance_7day}% chance of a tropical "
                      "cyclone within 7 days")
             words = re.sub(r"^\d+\.\s*[^:]*:\s*", "", area.text)
-            detail = (f"{area.centre}'s outlook of {area.issued or 'this run'}: "
+            detail = (f"{area.centre}'s outlook of {_issued(area.issued) or 'this run'}: "
                       f"{area.chance_2day}% within 48 hours, {area.chance_7day}% "
                       f"within 7 days. {words}")
         _add(out, code=f"tc_formation_{area.key}", level=WATCH, title=title,
@@ -977,14 +985,25 @@ def _pos(fix) -> str:
 
 def utc_time(stamp: str) -> str:
     """A run's time as the alerts say it: 15 Oct 2026 13:30 UTC. One without
-    a zone is UTC, as the record's are."""
+    a zone is UTC, as the record's are, and so is one in "Z", as JTWC's are,
+    which Python reads only from 3.11."""
     try:
-        moment = datetime.fromisoformat(stamp)
-    except (TypeError, ValueError):
+        moment = datetime.fromisoformat(stamp[:-1] + "+00:00" if stamp.endswith("Z") else stamp)
+    except (AttributeError, TypeError, ValueError):
         return str(stamp)
     if moment.tzinfo is not None:
         moment = moment.astimezone(timezone.utc)
     return f"{moment.day} {moment:%b %Y %H:%M} UTC"
+
+
+def _issued(text: str) -> str:
+    """An outlook's issue time as the alerts give every time, 20 Oct 2026
+    11:52 UTC: from the time NHC names its outlook document with,
+    "Tue Oct 20 11:52:05 2026", in UTC, or an ISO time; else as written."""
+    try:
+        return utc_time(datetime.strptime(text.strip(), "%a %b %d %H:%M:%S %Y").isoformat())
+    except (AttributeError, ValueError):
+        return utc_time(text) if text else ""
 
 
 def _stamp(atcf: str) -> str:
@@ -1033,13 +1052,14 @@ def reconcile(conn, alerts: list[Alert], seen_at: str) -> AlertSet:
         rose = row["raised_from"]
         alert.escalated_from = (rose if rose and _news(row["raised_at"], seen_at)
                                 and alert.rank < LEVEL_ORDER.get(rose, 9) else None)
-    cleared = []
+    cleared, titles = [], {}
     for row in storage.cleared_since(conn, seen_at, NEWS):
         code = row["code"]
         if (code not in open_rows and code not in cleared and _news(row["cleared_at"], seen_at)
                 and not _held(code, open_rows)):
             cleared.append(code)
-    return AlertSet(alerts=ordered, cleared=cleared)
+            titles[code] = row["title"]
+    return AlertSet(alerts=ordered, cleared=cleared, cleared_titles=titles)
 
 
 def rung(code: str) -> tuple[str, float] | None:

@@ -30,8 +30,10 @@ seasonal composites and WMO El Nino/La Nina Updates.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 
-from .classify import CP_FLAVOUR, EP_FLAVOUR
+from .classify import CP_FLAVOUR, EP_FLAVOUR, Episode
+from .forecast import Projection, season_months
 
 # Confidence reflects how consistently the relationship appears across past
 # events, not how severe the outcome is.
@@ -48,6 +50,12 @@ FLAVOUR_PENALTY = 0.75
 # "Probable" is the bar for the outlook itself; below it a link is on watch.
 PROBABLE_MARGIN = 0.4
 LIKELY_MARGIN = 1.0
+# The month names a link's window is written in, "Jun-Sep".
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+# An event grows through the boreal summer and peaks in the winter: a window
+# opening from May falls in the year it grows, one opening earlier in the next.
+GROWING_FROM = 5
+Month = tuple[int, int]  # (year, month)
 
 
 @dataclass(frozen=True)
@@ -69,12 +77,14 @@ class ActiveImpact:
     link: Teleconnection
     likelihood: str
     margin: float  # projected peak minus the link's threshold, flavour included
-    timing: str
+    timing: str  # the window, dated for this event and set against today
     flavour_note: str = ""
     # The peak at which the link would reach "probable" and join the outlook,
     # flavour penalty included. None for a contested link, which is never
     # rated above "possible" however strong the event.
     needs: float | None = None
+    when: str = ""  # "ahead", "under way" or "past"; "" when undated
+    dated: str = ""  # the window dated for this event, Dec 2026–Mar 2027; "" when undated
 
     @property
     def severity(self) -> int:
@@ -382,11 +392,71 @@ def evaluate(link: Teleconnection, value: float,
     return margin, _likelihood(margin, link.confidence), note
 
 
+def event_peak(episode: Episode | None, forecast_peak: Projection | None) -> tuple[str, int] | None:
+    """The season the event peaks in, a (season, year) pair as CPC dates it,
+    which each effect's window is dated by.
+
+    An El Nino under way peaks at its highest, seen or forecast: a forecast
+    above the episode's own peak is still to come, and one below it is the
+    decay of an event that has peaked, whose southern African rains in June
+    2027 were those of 2026-27, not those of the forecast's highest season a
+    year on. With none under way the event is the one the forecast grows.
+    """
+    if episode is None:
+        return (forecast_peak.season, forecast_peak.year) if forecast_peak else None
+    if forecast_peak is not None and forecast_peak.mean > episode.peak.value:
+        return forecast_peak.season, forecast_peak.year
+    return episode.peak.season, episode.peak.year
+
+
+def window_span(window: str, peak_season: tuple[str, int]) -> tuple[Month, Month]:
+    """The (year, month) a link's window opens and closes in, for an event
+    peaking in ``peak_season``, a (season, year) pair as CPC dates it.
+
+    An event peaking in NDJ 2026 brings India's Jun-Sep monsoon of 2026,
+    southern Africa's Dec-Mar rains of 2026-27 and Northeast Brazil's Feb-May
+    of 2027; one peaking in JFM 2027 grew in 2026 all the same.
+    """
+    start, end = (MONTHS.index(name) + 1 for name in window.split("-"))
+    year, month = season_months(*peak_season)[1]
+    grew = year if month >= GROWING_FROM else year - 1
+    first = grew if start >= GROWING_FROM else grew + 1
+    last = first + 1 if end < start else first
+    return (first, start), (last, end)
+
+
+def _dated(first: Month, last: Month) -> str:
+    """A window as dated: Jun\u2013Sep 2026, or Dec 2026\u2013Mar 2027 across a new year."""
+    (y0, m0), (y1, m1) = first, last
+    if y0 == y1:
+        return f"{MONTHS[m0 - 1]}\u2013{MONTHS[m1 - 1]} {y0}"
+    return f"{MONTHS[m0 - 1]} {y0}\u2013{MONTHS[m1 - 1]} {y1}"
+
+
+def window_text(window: str) -> str:
+    """A link's window as the page writes a span of months: Dec–Mar."""
+    return window.replace("-", "–")
+
+
+def peak_when(peak_season: tuple[str, int], today: date) -> str:
+    """How far ``today`` is from the peak season: "about 3 months away" to its
+    centre month, "under way" within it, "now past" after it."""
+    months = season_months(*peak_season)
+    now = (today.year, today.month)
+    if now > months[-1]:
+        return "now past"
+    if now >= months[0]:
+        return "under way"
+    year, month = months[1]
+    return f"about {(year - today.year) * 12 + month - today.month} months away"
+
+
 def assess(
     peak_index: float,
     flavour_index: float,
     current_index: float | None = None,
-    months_to_peak: int | None = None,
+    peak_season: tuple[str, int] | None = None,
+    today: date | None = None,
     index_name: str = "RONI",
 ) -> ImpactAssessment:
     """Which teleconnections the projected event puts in play.
@@ -394,7 +464,9 @@ def assess(
     ``peak_index`` is the projected peak of the official index, and the
     catalogue's thresholds are read against it. ``flavour_index`` is the
     Nino-1+2 minus Nino-4 anomaly difference: strongly positive means an
-    east-Pacific event, negative a central-Pacific one.
+    east-Pacific event, negative a central-Pacific one. Given the peak's
+    ``peak_season`` and ``today``, each link's window is dated for this event
+    and marked ahead, under way or past, and the past are listed last.
     """
     flavour = flavour_of(flavour_index)
 
@@ -404,19 +476,24 @@ def assess(
 
     for link in CATALOGUE:
         margin, likelihood, flavour_note = evaluate(link, peak_index, flavour)
-        timing = link.window
-        if months_to_peak is not None and months_to_peak > 0:
-            timing = f"{link.window} (peak expected in ~{months_to_peak} months)"
+        timing, when, dated = window_text(link.window), "", ""
+        if peak_season is not None and today is not None:
+            first, last = window_span(link.window, peak_season)
+            now = (today.year, today.month)
+            when = "ahead" if now < first else "past" if now > last else "under way"
+            dated = _dated(first, last)
+            timing = f"{dated}, {when}"
 
         impact = ActiveImpact(link, likelihood, margin, timing, flavour_note,
-                              needs(link, flavour))
+                              needs(link, flavour), when, dated)
         if likelihood in ("likely", "probable"):
             active.append(impact)
         elif likelihood in ("possible", "uncertain"):
             watch.append(impact)
 
-    active.sort(key=lambda i: -i.severity)
-    watch.sort(key=lambda i: -i.severity)
+    # What is still to come first; an effect whose season has passed, last.
+    active.sort(key=lambda i: (i.when == "past", -i.severity))
+    watch.sort(key=lambda i: (i.when == "past", -i.severity))
 
     # The outlook proper, by area. Watch items are listed once, separately,
     # with what it would take to promote them.

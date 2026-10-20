@@ -85,8 +85,8 @@ class TestTheFollowerScript(unittest.TestCase):
 # The runs a test page shows and the site serves: the page's own, the next
 # hour's and the one after.
 RUN0, RUN1, RUN2 = RUN, "2026-10-01T12:12:00+00:00", "2026-10-01T13:12:00+00:00"
-OFFER = ["The site has a new run, from 01 Oct 2026 12:12 UTC.", "Update now", "Later"]
-ARRIVED = ["Now showing the run of 01 Oct 2026 12:12 UTC."]
+OFFER = ["The site has a new run, from 1 Oct 2026 12:12 UTC.", "Update now", "Later"]
+ARRIVED = ["Now showing the run of 1 Oct 2026 12:12 UTC."]
 
 # A browser for the follower: a clock the test moves, the site's run.json, a
 # page with a body, a mark and sections, and the tab's sessionStorage.
@@ -506,7 +506,7 @@ var offered = said();
 await pass(2 * MINUTE);
 console.log(JSON.stringify({offered: offered, reloads: RELOADS}));
 """)
-        self.assertEqual(got, {"offered": ["The site has a new run, from 01 Oct 2026 12:12 UTC, which this page "
+        self.assertEqual(got, {"offered": ["The site has a new run, from 1 Oct 2026 12:12 UTC, which this page "
                                            "could take only in part.", "Update now"],
                                "reloads": [2]})
 
@@ -522,7 +522,7 @@ await pass(1 * MINUTE);
 console.log(JSON.stringify({takes: takes, said: said(), reloads: RELOADS}));
 """)
         self.assertEqual(got, {"takes": [0], "reloads": [],
-                               "said": ["The site has a new run, from 01 Oct 2026 13:12 UTC.", "Update now", "Later"]})
+                               "said": ["The site has a new run, from 1 Oct 2026 13:12 UTC.", "Update now", "Later"]})
 
     def test_a_page_taking_runs_in_place_loaded_for_one_puts_its_place_back(self):
         got = self.page(r"""
@@ -1271,7 +1271,7 @@ var shown = {said: said(), reloads: RELOADS.slice()};
 await pass(2 * MINUTE);
 console.log(JSON.stringify({shown: shown, reloads: RELOADS, handed: JSON.parse(DATA[KEY]).run}));
 """)
-        self.assertEqual(got, {"shown": {"said": ["The site has a new run, from 01 Oct 2026 13:12 UTC.",
+        self.assertEqual(got, {"shown": {"said": ["The site has a new run, from 1 Oct 2026 13:12 UTC.",
                                                   "Update now", "Later"], "reloads": []},
                                "reloads": [182], "handed": RUN2})
 
@@ -1304,7 +1304,7 @@ await pass(1 * MINUTE);
 button().click();
 console.log(JSON.stringify({said: said(), handed: JSON.parse(DATA[KEY]).run}));
 """)
-        self.assertEqual(got, {"said": ["The site has a new run, from 01 Oct 2026 13:12 UTC.", "Update now",
+        self.assertEqual(got, {"said": ["The site has a new run, from 1 Oct 2026 13:12 UTC.", "Update now",
                                         "Later"], "handed": RUN2})
 
     def test_later_keeps_the_page_as_it_is_until_the_next_run(self):
@@ -1327,7 +1327,7 @@ await pass(1 * MINUTE);
 console.log(JSON.stringify({offered: offered, put: put, still: still, next: next, reloads: RELOADS}));
 """)
         self.assertEqual(got, {"offered": OFFER, "put": [], "still": {"said": [], "reloads": []},
-                               "next": ["The site has a new run, from 01 Oct 2026 13:12 UTC.", "Update now",
+                               "next": ["The site has a new run, from 1 Oct 2026 13:12 UTC.", "Update now",
                                         "Later"],
                                "reloads": [12]})
 
@@ -2346,7 +2346,7 @@ await settled();
 out.push(TILES.length);
 console.log(JSON.stringify(out));
 """)
-        head = "<h4>Today here, from NASA</h4>"
+        head = '<h3 class="subhead">Today here, from NASA</h3>'
         self.assertEqual(got, [
             head + '<p id="here-sst">Ocean today (MUR SST anomaly, 2026-09-30): reading NASA\u2019s tile\u2026</p>',
             self.READ,
@@ -2397,7 +2397,7 @@ class TestTheDashboardAges(unittest.TestCase):
         self.assertEqual(js.count("  ages();\n  setInterval(ages, 60000);\n"), 1)
         functions = "\n".join(_js_function(js, name) for name in ("span", "ago", "ages"))
         got = _node_json(self, functions + r"""
-var STAMP = {attrs: {"datetime": "2026-10-01T11:12:00+00:00", "data-age": "01 Oct 2026 11:12 UTC"},
+var STAMP = {attrs: {"datetime": "2026-10-01T11:12:00+00:00", "data-age": "1 Oct 2026 11:12 UTC"},
              textContent: ""};
 STAMP.getAttribute = function (name) { return this.attrs[name]; };
 var document = {querySelectorAll: function (sel) { return sel === "time[data-age]" ? [STAMP] : []; }};
@@ -2409,8 +2409,8 @@ var said = [];
 });
 console.log(JSON.stringify(said));
 """)
-        self.assertEqual(got, ["01 Oct 2026 11:12 UTC (0 min ago)", "01 Oct 2026 11:12 UTC (12 min ago)",
-                               "01 Oct 2026 11:12 UTC (3 h 5 min ago)", "01 Oct 2026 11:12 UTC (3 days ago)"])
+        self.assertEqual(got, ["1 Oct 2026 11:12 UTC (0 min ago)", "1 Oct 2026 11:12 UTC (12 min ago)",
+                               "1 Oct 2026 11:12 UTC (3 h 5 min ago)", "1 Oct 2026 11:12 UTC (3 days ago)"])
 
 
 class TestTheAtlasFollows(unittest.TestCase):

@@ -62,7 +62,6 @@ from . import cyclones
 OMEGA = 7.292115e-5        # Earth's rotation rate, rad/s
 KT_TO_MS = 0.514444
 NM_TO_M = 1852.0
-NM_TO_KM = 1.852
 
 # --- the hypothesis ----------------------------------------------------------
 # Eyewall expansion factors to tabulate. STORMFURY aimed to build the new ring

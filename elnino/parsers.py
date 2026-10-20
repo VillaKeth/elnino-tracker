@@ -75,7 +75,7 @@ class WeekObservation:
 
     @property
     def label(self) -> str:
-        return f"{self.week_ending:%d %b %Y}"
+        return f"{self.week_ending.day} {self.week_ending:%b %Y}"
 
 
 def _valid(value: float) -> bool:
@@ -354,19 +354,27 @@ def parse_discussion(text: str) -> dict[str, str]:
     )
     paragraphs = [ln for ln in lines if len(ln) > 180 and not boilerplate.search(ln)]
 
-    # Page chrome (title bar, nav, mailing-list blurb) also mentions ENSO, so the
-    # synopsis is taken as the first real sentence about the state of the system.
+    # CPC labels its synopsis, and the sentence after "Synopsis:", on its line
+    # or the next, is it, whatever it opens with ("A transition from ...").
+    # Without the label, page chrome (title bar, nav, mailing-list blurb) also
+    # mentions ENSO, so it is the first real sentence about the state of the system.
     chrome = re.compile(
         r"(?i)diagnostic discussion|prediction center:|site map|climate prediction|"
         r"^home$|noaa\.gov|e-mail|search"
     )
     synopsis = ""
-    for line in lines:
-        if not 40 < len(line) <= 500 or chrome.search(line):
-            continue
-        if re.match(r"(?i)^(el nin|la nin|enso|there is|transition|during)", line) and line.endswith("."):
-            synopsis = line
+    for index, line in enumerate(lines):
+        match = re.match(r"(?i)^synopsis:\s*(.*)$", line)
+        if match:
+            synopsis = match.group(1) or (lines[index + 1] if index + 1 < len(lines) else "")
             break
+    if not synopsis:
+        for line in lines:
+            if not 40 < len(line) <= 500 or chrome.search(line):
+                continue
+            if re.match(r"(?i)^(el nin|la nin|enso|there is|transition|during)", line) and line.endswith("."):
+                synopsis = line
+                break
 
     next_update = ""
     for line in lines:

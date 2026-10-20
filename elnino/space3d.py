@@ -36,6 +36,7 @@ import json
 import math
 
 from . import grids
+from .fields import BEHIND_DAYS, days_behind
 from .grids import Mesh, lat_name, lon_name
 from .svg import esc, table
 
@@ -161,8 +162,9 @@ def _interpolate_mesh(mesh: Mesh) -> tuple[list[float], list[float], list[list[d
     return lons, lats, [[cell for cell in row] for row in grid]
 
 
-def thermocline(mesh: Mesh, width: int = 620, height: int = 430) -> str:
-    """The 20 °C isotherm as a rotatable surface over the equatorial Pacific."""
+def thermocline(mesh: Mesh, width: int = 620, height: int = 430, age: int | None = None) -> str:
+    """The 20 °C isotherm as a rotatable surface over the equatorial Pacific,
+    marked with how many days behind it is when that is more than a few."""
     lons, lats, grid = _interpolate_mesh(mesh)
     if len(lons) < 3:
         return ""
@@ -243,7 +245,7 @@ def thermocline(mesh: Mesh, width: int = 620, height: int = 430) -> str:
     if measured is not None:
         drop = measured[0]
         tilt = (
-            f" The east-west tilt along the equator is currently "
+            f" The east-west tilt along the equator is "
             f"<strong>{drop:.0f} m</strong> on this daily array; a neutral Pacific "
             f"runs near 100 m, and a strong event flattens it. The cross-section "
             f"below quotes the same tilt from the monthly moorings, over a wider "
@@ -255,10 +257,14 @@ def thermocline(mesh: Mesh, width: int = 620, height: int = 430) -> str:
         "month." if use_anomaly else
         "Colour is absolute depth; the anomaly climatology was unavailable this run."
     )
+    # The daily array is a day or two behind; older than the maps' bar, the
+    # surface says how far, as a copy served while its server refuses does.
+    chip = days_behind(age, BEHIND_DAYS)
+    behind = f" {chip}" if chip else ""
     return f"""<section class="card" id="thermocline-3d">
   <h2>The thermocline, in three dimensions</h2>
   <p class="caption">Depth of the 20 °C isotherm across the TAO/TRITON array, as of
-    {esc(mesh.as_of)}. Longitude runs west to east, latitude across, and the surface
+    {esc(mesh.as_of)}{behind}. Longitude runs west to east, latitude across, and the surface
     height is depth, so the sheet you are looking at is the top of the cold water.
     {esc(scale_note)}{tilt}
     <span class="hint">Drag to rotate. Use the buttons for fixed views.</span></p>

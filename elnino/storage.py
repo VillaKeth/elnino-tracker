@@ -276,12 +276,6 @@ def open_alerts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def alert_log(conn: sqlite3.Connection, limit: int = 50) -> list[sqlite3.Row]:
-    return conn.execute(
-        "SELECT * FROM alerts ORDER BY first_seen DESC LIMIT ?", (limit,)
-    ).fetchall()
-
-
 def record_fetches(conn: sqlite3.Connection, run_at: str, fetched: dict) -> None:
     conn.executemany(
         "INSERT OR REPLACE INTO fetch_log (run_at, key, ok, cached, bytes, error) "
@@ -307,15 +301,3 @@ def prune(conn: sqlite3.Connection, run_at: str) -> None:
     cutoff = (datetime.fromisoformat(run_at) - timedelta(days=FETCH_LOG_DAYS)).isoformat(timespec="seconds")
     conn.execute("DELETE FROM fetch_log WHERE run_at < ?", (cutoff,))
     conn.commit()
-
-
-def feed_reliability(conn: sqlite3.Connection, key: str, runs: int = 30) -> float:
-    """Fraction of the last N runs in which a feed came back live."""
-    rows = conn.execute(
-        "SELECT ok, cached FROM fetch_log WHERE key = ? ORDER BY run_at DESC LIMIT ?",
-        (key, runs),
-    ).fetchall()
-    if not rows:
-        return 1.0
-    live = sum(1 for row in rows if row["ok"] and not row["cached"])
-    return live / len(rows)

@@ -56,8 +56,6 @@ STRIDE = 15             # -> 0.25 degrees
 ROWS_PER_REQUEST = 60   # about 350 kB a request, 13 requests for the world
 
 OFFSET = 11000          # added before packing, so the deepest trench is positive
-DEEPEST = -11000        # anything below this is not on this planet
-HIGHEST = 9000
 
 
 def get(url: str, tries: int = 4) -> bytes:

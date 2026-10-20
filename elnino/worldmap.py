@@ -32,6 +32,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from . import atlas, atlasview, composite, geo, grids
+from .impacts import peak_when
 from .svg import esc
 
 ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/"
@@ -101,7 +102,6 @@ HIDE_ABOVE = 12
 # "insufficient data" come as whole granules, over the ocean too; they are
 # drawn at this strength so they do not hide the sea. Floods stay full strength.
 FAINT = 0.2
-ENSO_CREDITS = {l["id"]: l["credit"] for l in ENSO_TILES}
 
 # NASA's own colour maps, bin for bin, so a tapped pixel reads back to its
 # value. From https://gibs.earthdata.nasa.gov/colormaps/v1.3/
@@ -190,16 +190,18 @@ def _built_day(state) -> date:
 def _links(state) -> list:
     """The documented teleconnections with their footprints, each marked with
     whether this event puts it in play ("in play"), keeps it on the watch list
-    ("watch"), or neither ("")."""
+    ("watch"), or neither (""), and for the first two how likely it is, its
+    window dated for this event (Dec 2026–Mar 2027) and when that falls
+    against today ("ahead", "under way" or "past")."""
     impacts = getattr(state, "impacts", None)
     status: dict = {}
     for kind, word in (("watch", "watch"), ("active", "in play")):
         for impact in getattr(impacts, kind, None) or ():
-            status[impact.link.region] = (word, impact.likelihood, impact.timing)
+            status[impact.link.region] = (word, impact.likelihood, impact.dated, impact.when)
     out = []
     for row in atlasview._links_payload():
-        word, likelihood, timing = status.get(row["region"], ("", "", ""))
-        out.append({**row, "status": word, "likelihood": likelihood, "timing": timing})
+        word, likelihood, dated, when = status.get(row["region"], ("", "", "", ""))
+        out.append({**row, "status": word, "likelihood": likelihood, "dated": dated, "when": when})
     return out
 
 
@@ -264,23 +266,36 @@ def _impact_item(impact) -> str:
             f'{show}</li>')
 
 
-_LAYER_FACTS = (
-    ("Rainfall and temperature",
-     "What past events did, not a forecast: the mean of the El Ni\u00f1o seasons since 1979 "
-     "(RONI +1.0 or more) minus the mean of the neutral ones (RONI within 0.5), per season "
-     "and cell, from GPCP v2.3 rainfall (2.5\u00b0) and GHCN-CAMS land temperature (2\u00b0), "
-     "computed by this tracker (composite.py), with Welch's t for each cell. Drawn blended "
-     "between the cell centres; a tap reads the whole cell."),
-    ("Ocean today", "GHRSST MUR L4 sea surface temperature anomaly, daily, via NASA GIBS."),
-    ("Floods", "The MODIS (Terra and Aqua) combined flood product, three-day window, via NASA GIBS."),
-    ("Impact regions",
-     "This tracker's catalogue of documented teleconnections: coarse boxes by design, solid "
-     "where this event puts the effect in play. Drawn when ticked, or one at a time from "
-     "Show."),
-    ("Ni\u00f1o regions", "CPC's four boxes, with this week's anomalies."),
-    ("Street maps", "Esri's street, satellite and terrain maps; OpenStreetMap's when the page is served."),
-    ("Google", "Google's own map, satellite view and Street View of a point, loaded only when asked for."),
-)
+# How the anomalies the Nino boxes carry are taken, as the panel says it of
+# Nino 3.4 this week and of the boxes on the layer's line.
+_BASIS_WORDS = {
+    "relative": "against the tropical mean, as CPC now quotes it",
+    "traditional": "against CPC's fixed 1991\u20132020 normal, the traditional anomaly",
+}
+
+
+def _layer_facts(basis: str) -> tuple:
+    """What each of the map's layers is, in the order the controls give them:
+    the Nino boxes with how this week's anomalies are taken, on ``basis``."""
+    nino = _BASIS_WORDS.get(basis)
+    return (
+        ("Rainfall and temperature",
+         "What past events did, not a forecast: the mean of the El Ni\u00f1o seasons since 1979 "
+         "(RONI +1.0 or more) minus the mean of the neutral ones (RONI within 0.5), per season "
+         "and cell, from GPCP v2.3 rainfall (2.5\u00b0) and GHCN-CAMS land temperature (2\u00b0), "
+         "computed by this tracker (composite.py), with Welch's t for each cell. Drawn blended "
+         "between the cell centres; a tap reads the whole cell."),
+        ("Ocean today", "GHRSST MUR L4 sea surface temperature anomaly, daily, via NASA GIBS."),
+        ("Floods", "The MODIS (Terra and Aqua) combined flood product, three-day window, via NASA GIBS."),
+        ("Impact regions",
+         "This tracker's catalogue of documented teleconnections: coarse boxes by design, solid "
+         "where this event puts the effect in play. Drawn when ticked, or one at a time from "
+         "Show."),
+        ("Ni\u00f1o regions",
+         "CPC's four boxes" + (f", each with this week's anomaly {nino}" if nino else "") + "."),
+        ("Street maps", "Esri's street, satellite and terrain maps; OpenStreetMap's when the page is served."),
+        ("Google", "Google's own map, satellite view and Street View of a point, loaded only when asked for."),
+    )
 
 
 def section(state) -> str:
@@ -305,31 +320,34 @@ def section(state) -> str:
     if box["anomaly"] is None:
         out.append("<p>No weekly SSTs arrived this run.</p>")
     else:
-        basis = ("against the tropical mean, as CPC now quotes it" if box["basis"] == "relative"
-                 else "the traditional anomaly")
-        out.append(f"<p>Ni\u00f1o 3.4 this week: <b>{box['anomaly']:+.2f} \u00b0C</b>, {basis} "
-                   f"(the week centred on {esc(a.latest_week.label)}).</p>")
+        week = getattr(a, "latest_week", None)
+        out.append(f"<p>Ni\u00f1o 3.4 this week: <b>{box['anomaly']:+.1f} \u00b0C</b> "
+                   f"{esc(_BASIS_WORDS[box['basis']])}"
+                   + (f" (the week centred on {esc(week.label)})" if week is not None else "")
+                   + ".</p>")
     peak = getattr(getattr(state, "forecast", None), "peak", None)
     if peak is None:
         out.append("<p>No forecast this run.</p>")
     else:
         index = getattr(a, "index_name", "the index")
+        when = peak_when((peak.season, peak.year), _built_day(state))
         out.append(f"<p>Forecast peak of {esc(index)}: <b>{peak.mean:+.2f} \u00b0C</b> in "
-                   f"{esc(peak.label)} (10 to 90%: {peak.low:+.2f} to {peak.high:+.2f} \u00b0C).</p>")
+                   f"{esc(peak.label)}, {when} "
+                   f"(10 to 90%: {peak.low:+.2f} to {peak.high:+.2f} \u00b0C).</p>")
     impacts = getattr(state, "impacts", None)
     if impacts is None:
         out.append("<p>The impact outlook did not run.</p>")
     else:
-        out.append("<h4>In play this event</h4>")
+        out.append('<h3 class="subhead">In play this event</h3>')
         out.append('<ul class="wwlist">' + "".join(_impact_item(i) for i in impacts.active) + "</ul>"
                    if impacts.active else "<p>No documented effect is in play at this strength.</p>")
         if impacts.watch:
-            out.append("<h4>Watch list</h4>")
+            out.append('<h3 class="subhead">Watch list</h3>')
             out.append('<ul class="wwlist">' + "".join(_impact_item(i) for i in impacts.watch)
                        + "</ul>")
-    out.append("<h4>What the map layers are</h4>")
+    out.append('<h3 class="subhead">What the map layers are</h3>')
     out.append('<dl class="facts">' + "".join(f"<dt>{esc(term)}</dt><dd>{esc(words)}</dd>"
-                                              for term, words in _LAYER_FACTS) + "</dl>")
+                                              for term, words in _layer_facts(box["basis"])) + "</dl>")
     out.append("</section>")
     return "".join(out)
 
@@ -585,7 +603,7 @@ _JS = r"""
     return esc(text) + ": <b>" + esc(got.verdict) + "</b>";
   }
   function ensoHereHtml(h) {
-    var html = ["<h4>El Niño here</h4>",
+    var html = ['<h3 class="subhead">El Niño here</h3>',
       '<p class="method">What the El Niño seasons since 1979 (RONI +1.0 or more) did here against the neutral ones ' +
       "(RONI within 0.5), season by season. " +
       "It is the record of past events, not this season’s forecast.</p>",
@@ -611,13 +629,19 @@ _JS = r"""
     html.push("</details>");
     var local = h.regions.filter(function (l) { return l.scope !== "global"; });
     var everywhere = h.regions.filter(function (l) { return l.scope === "global"; });
+    // Each effect's season once: dated for this event where the outlook
+    // dates it, with how likely it is and when it falls, an effect whose
+    // season has passed as past; else the catalogue's season.
     function region(l) {
-      var said = l.status === "in play" ? "In play this event: " + l.likelihood + (l.timing ? ", " + l.timing : "") + "."
-               : l.status === "watch" ? "On the watch list this event." : "";
-      return "<li><b>" + esc(l.region) + "</b>: " + esc(l.effect) + " (" + esc(l.window) + ", " + esc(l.confidence) +
-             " confidence)." + (said ? " <b>" + esc(said) + "</b>" : "") + "</li>";
+      var when = l.dated ? l.dated + ", " + (l.when === "past" ? "now past" : l.when) : "";
+      var said = !l.status ? ""
+               : l.when === "past" ? l.likelihood.charAt(0).toUpperCase() + l.likelihood.slice(1) + " this event, " + when + "."
+               : (l.status === "in play" ? "In play this event: " + l.likelihood : "On the watch list this event") +
+                 (when ? ", " + when : "") + ".";
+      return "<li><b>" + esc(l.region) + "</b>: " + esc(l.effect) + " (" + (l.dated ? "" : esc(l.window) + ", ") +
+             esc(l.confidence) + " confidence)." + (said ? " <b>" + esc(said) + "</b>" : "") + "</li>";
     }
-    html.push("<h4>Documented effects here</h4>");
+    html.push('<h3 class="subhead">Documented effects here</h3>');
     html.push(local.length ? '<ul class="wwlist">' + local.map(region).join("") + "</ul>"
                            : "<p>No regional effect in the catalogue has a footprint here.</p>");
     if (everywhere.length) html.push("<p>Everywhere:</p><ul class=\"wwlist\">" + everywhere.map(region).join("") + "</ul>");
@@ -651,7 +675,7 @@ _JS = r"""
   function googleHtml(lat, lon, z) {
     var l = googleLinks(lat, lon, z);
     var kinds = [["map", "Map"], ["satellite", "Satellite"]];
-    return "<h4>Google Maps here</h4>" +
+    return '<h3 class="subhead">Google Maps here</h3>' +
       '<div class="herebtns">' + kinds.map(function (k) {
         return '<button type="button" class="toolbtn" data-google="' + k[0] + '" aria-pressed="false">' + k[1] + "</button>";
       }).join("") + '<button type="button" class="toolbtn" data-here="street" data-row="google">Street View' +
@@ -741,18 +765,32 @@ _JS = r"""
     }
     return h.join("");
   }
-  // Each box named with this week's anomaly, above its northwest corner, or
-  // under the box where a neighbour's name has the room above; each region
-  // in play named at its anchor from zoom 3, where a name fits, and the one
-  // Show asked for, whatever its status.
+  // Each box named with this week's anomaly, in tenths as CPC gives it,
+  // from inside its own west edge, or the screen's where that edge is off
+  // it, and never leftward over a neighbour's box: above the box where there
+  // is room, else under it, else (the small Nino 1+2) beside it to the east,
+  // else inside its top edge, else left out. Nino 3.4, the index's own box,
+  // is named first; a box out of view is not named. Each region in play is
+  // named at its anchor from zoom 3, where a name fits, and the one Show
+  // asked for, whatever its status.
   function ensoLabels(sx, sy, off, label) {
     var out = [];
-    if (S.enso.boxes) (D.enso.boxes || []).forEach(function (b) {
+    if (S.enso.boxes) (D.enso.boxes || []).slice().sort(function (a, b) {
+      return (b.key === "nino34") - (a.key === "nino34");
+    }).forEach(function (b) {
+      var lines = [[b.label + (b.anomaly === null ? "" : " " + signedText(b.anomaly, 1) + " °C"), "dl2"]];
       copies(mx((b.lon0 + b.lon1) / 2), 200).forEach(function (k) {
-        var x = sx(b.lon0, k), y = sy(b.lat1) - 9, under = sy(b.lat0) + 13;
-        var lines = [[b.label + (b.anomaly === null ? "" : " " + signedText(b.anomaly, 2) + " °C"), "dl2"]];
-        if (off(x, y, 0)) return;
-        out.push(label(x, y, 0, lines) || (off(x, under, 0) ? "" : label(x, under, 0, lines)));
+        var x = Math.max(sx(b.lon0, k), 0), top = sy(b.lat1), bottom = sy(b.lat0);
+        if (x > S.w || sx(b.lon1, k) < 0) return;
+        var spots = [[x, top - 9], [x, bottom + 13]];
+        if (b.key === "nino12") spots.push([sx(b.lon1, k), sy((b.lat0 + b.lat1) / 2)]);
+        if (Math.max(top, 0) + 17 <= bottom) spots.push([x, Math.max(top, 0) + 13]);
+        var words = "";
+        spots.some(function (s) {
+          return !off(s[0], s[1], 0) &&
+                 (words = label(s[0], s[1], 0, lines, false, function (left) { return left >= s[0]; }));
+        });
+        if (words) out.push(words);
       });
     });
     if ((S.enso.regions || S.enso.shown) && S.z >= 3) (D.enso.links || []).forEach(function (l) {
@@ -920,7 +958,7 @@ _JS = r"""
   function ensoTodayHtml(lon, lat) {
     var on = ensoTileLayers().filter(function (l) { return S.enso.tiles[l.id]; });
     if (!on.length) return "";
-    return "<h4>Today here, from NASA</h4>" + on.map(function (l) {
+    return '<h3 class="subhead">Today here, from NASA</h3>' + on.map(function (l) {
       var f = frameOf(source(l.id), 0), had = f && TODAY[todayKey(l.id, f.key, lon, lat)];
       return '<p id="here-' + l.id + '">' + esc(had || ensoWhat(l, f) + ": reading NASA’s tile…") + "</p>";
     }).join("");

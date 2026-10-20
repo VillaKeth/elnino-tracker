@@ -64,7 +64,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from . import assets, atlas, atlasdata, coastline, composite, fields, geo, live, relief, sitenav
-from .impacts import CATALOGUE
+from .impacts import CATALOGUE, window_text
 from .svg import esc, table
 
 # Degrees of longitude per pixel at the two ends of the zoom range. The wide
@@ -184,7 +184,7 @@ def _links_payload() -> list:
         out.append({
             "region": link.region,
             "effect": link.effect,
-            "window": link.window,
+            "window": window_text(link.window),
             "confidence": link.confidence,
             "polarity": link.polarity,
             "scope": footprint.scope,
@@ -2394,10 +2394,10 @@ def page(state) -> str:
     # the card, and a top-level import back would close the circle.
     from .dashboard import _css as shell_css
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    data = json.dumps(_run_payload(state), separators=(",", ":"))
-    # A closing tag inside a JSON string ends the script element wherever it
-    # appears, including inside a quoted place name.
-    data = data.replace("</", "<\\/")
+    # Every "<" written as its escape, as the desk's data is: a closing tag
+    # inside a JSON string ends the script element wherever it appears, and a
+    # storm named "<!--<script>" leaves the page's own closing tag unable to.
+    data = json.dumps(_run_payload(state), separators=(",", ":")).replace("<", "\\u003c")
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>

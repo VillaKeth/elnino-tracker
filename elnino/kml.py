@@ -149,18 +149,6 @@ def document_name(text: str) -> str:
     return _text(document, "name") if document is not None else ""
 
 
-def document_text(text: str) -> str:
-    """The document description as plain words, tags and all removed."""
-    root = _root(text)
-    document = root if root.tag == "Document" else root.find("Document")
-    if document is None:
-        return ""
-    found = document.find("description")
-    if found is None:
-        return ""
-    return " ".join(" ".join(found.itertext()).split())
-
-
 def continuous(points) -> tuple:
     """The points with each longitude within 180 degrees of the one before.
 

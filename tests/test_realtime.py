@@ -2121,6 +2121,9 @@ class TestDailyCard(unittest.TestCase):
         html = self.card(weeks=weeks)
         self.assertEqual(html.count('class="weekdot"'), 2)
         self.assertIn("CPC traditional weekly Nino-3.4", html)
+        # Each week's hover gives CPC's value to the tenth CPC gives it.
+        self.assertRegex(html, r"CPC week \+1\.6(?!\d)")
+        self.assertRegex(html, r"CPC week \+1\.8(?!\d)")
         self.assertNotIn("CPC weekly", self.card())
 
     def test_the_caption_gives_the_latest_value_and_the_week_s_change(self):

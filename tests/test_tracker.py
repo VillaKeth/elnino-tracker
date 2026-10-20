@@ -95,6 +95,12 @@ class TestParsers(unittest.TestCase):
         self.assertEqual(latest.week_ending, date(2026, 9, 9))
         self.assertAlmostEqual(latest.nino34_anom, 2.9)
 
+    def test_a_week_is_named_as_the_site_names_a_day(self):
+        # "Week centred on 9 Sep 2026", as every other date on the site is
+        # written: not CPC's 09SEP2026, nor "09 Sep 2026".
+        latest = parsers.parse_weekly_sst(fixture("weekly.for"))[-1]
+        self.assertEqual(latest.label, "9 Sep 2026")
+
     def test_soi_returns_both_tables_and_drops_fill_values(self):
         tables = parsers.parse_soi(fixture("soi.txt"))
         self.assertIn("anomaly", tables)
@@ -145,6 +151,26 @@ class TestParsers(unittest.TestCase):
         self.assertIn("thermocline", parsed["body"])
         self.assertNotIn("consolidated effort", parsed["body"])
         self.assertEqual(parsed["next_update"], "8 October 2026")
+
+    def test_the_synopsis_is_cpc_s_labelled_sentence_whatever_it_opens_with(self):
+        # CPC's synopses of February to April 2024 opened "A transition from
+        # El Nino to ENSO-neutral", an opening the parser did not know: the
+        # synopsis came back empty and the CPC card dropped off the dashboard.
+        said = ("A transition from El Ni&ntilde;o to ENSO-neutral is likely by April-June 2024 "
+                "(79% chance), with increasing odds of La Ni&ntilde;a developing in summer 2024 "
+                "(55% chance in June-August).")
+        html = ("<html><body><p>Climate Prediction Center: ENSO Diagnostic Discussion</p>"
+                "<p>8 February 2024</p>"
+                "<p><font><u>Synopsis:</u>&nbsp;<strong>\n" + said + "\n</strong></font></p>"
+                "<p>" + ("Real analysis of the subsurface and the thermocline. " * 6) + "</p>"
+                "</body></html>")
+        self.assertEqual(parsers.parse_discussion(html)["synopsis"],
+                         "A transition from El Nino to ENSO-neutral is likely by April-June 2024 "
+                         "(79% chance), with increasing odds of La Nina developing in summer 2024 "
+                         "(55% chance in June-August).")
+        # The label and its sentence on one line read the same.
+        one_line = html.replace("&nbsp;<strong>\n", "&nbsp;<strong>")
+        self.assertTrue(parsers.parse_discussion(one_line)["synopsis"].startswith("A transition from"))
 
 
 class TestClassification(unittest.TestCase):
@@ -789,6 +815,111 @@ class TestImpacts(unittest.TestCase):
         self.assertIn("+1.85 &deg;C, not today", html)
 
 
+class TestImpactTiming(unittest.TestCase):
+    """Each effect's season is the event's own, dated and set against today:
+    an El Nino peaking in NDJ 2026 brings India's Jun-Sep monsoon of 2026 and
+    southern Africa's Dec-Mar rains of 2026-27. The peak's distance is told in
+    months, not in the seasons the forecast stepped through to reach it."""
+
+    PEAK = ("NDJ", 2026)
+    TODAY = date(2026, 10, 20)
+
+    def assessed(self):
+        return impacts.assess(2.3, 0.0, current_index=1.7, peak_season=self.PEAK,
+                              today=self.TODAY)
+
+    def test_a_window_is_dated_by_the_event_it_belongs_to(self):
+        span = impacts.window_span
+        self.assertEqual(span("Jun-Sep", self.PEAK), ((2026, 6), (2026, 9)))
+        self.assertEqual(span("Dec-Mar", self.PEAK), ((2026, 12), (2027, 3)))
+        self.assertEqual(span("Feb-May", self.PEAK), ((2027, 2), (2027, 5)))
+        self.assertEqual(span("Dec-Nov", self.PEAK), ((2026, 12), (2027, 11)))
+        self.assertEqual(span("Jun-Feb", self.PEAK), ((2026, 6), (2027, 2)))
+        # An event peaking in JFM 2027 grew in 2026 all the same.
+        self.assertEqual(span("Jun-Sep", ("JFM", 2027)), ((2026, 6), (2026, 9)))
+
+    def test_each_effect_says_when_its_season_falls_against_today(self):
+        a = self.assessed()
+        timing = {i.link.region: i.timing for i in a.active + a.watch}
+        self.assertEqual(timing["India and Pakistan"], "Jun\u2013Sep 2026, past")
+        self.assertEqual(timing["Central American Dry Corridor"], "May\u2013Aug 2026, past")
+        self.assertEqual(timing["Equatorial East Africa"], "Oct\u2013Dec 2026, under way")
+        self.assertEqual(timing["Indonesia and Malaysia"], "Jun 2026\u2013Feb 2027, under way")
+        self.assertEqual(timing["Southern Africa"], "Dec 2026\u2013Mar 2027, ahead")
+        self.assertEqual(timing["Northeast Brazil"], "Feb\u2013May 2027, ahead")
+        # The season lead the forecast stepped through is no count of months.
+        self.assertFalse([t for t in timing.values() if "peak" in t])
+
+    def test_effects_whose_season_has_passed_come_last(self):
+        a = self.assessed()
+        self.assertIn("past", [i.when for i in a.active])
+        for listed in (a.active, a.watch):
+            past = [i.when == "past" for i in listed]
+            self.assertEqual(past, sorted(past), [i.link.region for i in listed])
+            to_come = [i for i in listed if i.when != "past"]
+            self.assertEqual([i.severity for i in to_come],
+                             sorted((i.severity for i in to_come), reverse=True))
+
+    def test_without_a_peak_or_a_day_the_window_stands_as_written(self):
+        # The catalogue's season, written as a span of months is, Dec\u2013Mar.
+        for a in (impacts.assess(2.3, 0.0), impacts.assess(2.3, 0.0, peak_season=self.PEAK)):
+            self.assertTrue(all(i.timing == i.link.window.replace("-", "\u2013")
+                                and i.when == i.dated == "" for i in a.active + a.watch))
+        dated = {i.link.region: i.dated for i in self.assessed().active}
+        self.assertEqual(dated["Southern Africa"], "Dec 2026\u2013Mar 2027")
+
+    def test_the_desk_and_the_report_date_each_effect_s_season(self):
+        state = SimpleNamespace(impacts=self.assessed())
+        self.assertIn('<span class="impact-window">Dec 2026\u2013Mar 2027, ahead</span>',
+                      panels.impact_panel(state))
+        said = " ".join(" ".join(report._section_impacts(state)).split())
+        self.assertIn("(Oct-Dec 2026, under way)", said)
+        self.assertIn("(Jun-Sep 2026, past)", said)
+
+    # An El Nino decaying through AMJ 2027 from its NDJ 2026 peak.
+    DECAY = (("MJJ", 2026, 0.6), ("JJA", 2026, 0.9), ("JAS", 2026, 1.2), ("ASO", 2026, 1.5),
+             ("SON", 2026, 1.8), ("OND", 2026, 2.0), ("NDJ", 2026, 2.1), ("DJF", 2027, 2.0),
+             ("JFM", 2027, 1.7), ("FMA", 2027, 1.3), ("MAM", 2027, 1.0), ("AMJ", 2027, 0.8))
+
+    def test_an_event_past_its_peak_dates_each_effect_by_that_peak(self):
+        # The forecast's highest season was its first, MJJ 2027, and every
+        # window was dated by it, a year on: southern Africa's rains of
+        # 2026-27 read "Dec 2027-Mar 2028, ahead" in June 2027.
+        seasons = [SeasonValue(*s) for s in self.DECAY]
+        assessment = SimpleNamespace(index_latest=seasons[-1], episode=Episode(seasons),
+                                     scale=None, index_name="RONI")
+        first_lead = SimpleNamespace(season="MJJ", year=2027, mean=0.6)
+        a = pipeline.outlook(assessment, first_lead, date(2027, 6, 15))
+        timing = {i.link.region: i.timing for i in a.active + a.watch}
+        self.assertEqual(timing["Southern Africa"], "Dec 2026\u2013Mar 2027, past")
+        self.assertEqual(timing["Northeast Brazil"], "Feb\u2013May 2027, past")
+        self.assertEqual(timing["Ethiopian highlands and Sudan"], "Jun\u2013Sep 2026, past")
+        # Its thresholds are read against today's index, above the forecast's.
+        self.assertEqual(a.peak_index, 0.8)
+
+    def test_the_event_peaks_at_its_highest_seen_or_forecast(self):
+        peak = impacts.event_peak
+        decayed = Episode([SeasonValue(*s) for s in self.DECAY])
+        growing = Episode([SeasonValue(*s) for s in self.DECAY[:3]])
+        ahead = SimpleNamespace(season="NDJ", year=2026, mean=2.3)
+        behind = SimpleNamespace(season="MJJ", year=2027, mean=0.6)
+        self.assertEqual(peak(growing, ahead), ("NDJ", 2026))   # still to come: the forecast's
+        self.assertEqual(peak(decayed, behind), ("NDJ", 2026))  # passed: the episode's own
+        self.assertEqual(peak(decayed, ahead), ("NDJ", 2026))   # forecast above it: the forecast's
+        self.assertEqual(peak(None, ahead), ("NDJ", 2026))      # none under way: the one forecast
+        self.assertEqual(peak(growing, None), ("JAS", 2026))    # no forecast: the highest seen
+        self.assertIsNone(peak(None, None))
+
+    def test_the_peak_says_how_far_away_it_is(self):
+        when = impacts.peak_when
+        self.assertEqual(when(self.PEAK, self.TODAY), "about 2 months away")
+        self.assertEqual(when(self.PEAK, date(2026, 9, 30)), "about 3 months away")
+        self.assertEqual(when(("DJF", 2027), date(2026, 11, 15)), "about 2 months away")
+        self.assertEqual(when(("DJF", 2027), date(2026, 12, 1)), "under way")
+        self.assertEqual(when(self.PEAK, date(2027, 1, 31)), "under way")
+        self.assertEqual(when(("SON", 2026), date(2026, 12, 1)), "now past")
+
+
 class TestAlertLevels(unittest.TestCase):
     """The level constants are lowercase; every table keyed on them must agree.
 
@@ -1207,6 +1338,18 @@ class TestJtwc(unittest.TestCase):
 
     def test_the_rss_lists_only_jtwc_basins(self):
         self.assertEqual(jtwc.warning_files(fixture("jtwc.rss")), ["wp2526.tcw"])
+
+    def test_an_advisory_s_period_wrapped_across_lines_is_read(self):
+        # The Indian Ocean advisory breaks its period after the dash, as
+        # ABIO10 of 29 September 2026 did: read with the break as a space it
+        # had no time, and an alert it no longer cited was kept.
+        text = ("ABIO10 PGTW 291800\n"
+                "SUBJ/SIGNIFICANT TROPICAL WEATHER ADVISORY FOR THE INDIAN OCEAN/291800Z-\n"
+                "301800ZSEP2026//\nRMKS/\n")
+        self.assertEqual(jtwc.advisory_time(text), "2026-09-29T18:00:00Z")
+        self.assertEqual(jtwc.advisory_time(text.replace("Z-\n", "Z-\n   ")), "2026-09-29T18:00:00Z")
+        self.assertEqual(jtwc.advisory_time("PACIFIC OCEANS REISSUED/291700Z-300600ZSEP2026//"),
+                         "2026-09-29T17:00:00Z")
 
     def test_a_warning_becomes_a_storm_with_history_and_forecast(self):
         storm = jtwc.parse_tcw(fixture("jtwc_wp2526.tcw"))
@@ -2508,6 +2651,38 @@ class TestProductAlerts(unittest.TestCase):
     def test_no_watches_no_alerts(self):
         self.assertEqual(alerts.product_rules(self.state()), [])
 
+    def test_a_formation_watch_gives_the_outlook_s_time_in_utc(self):
+        # "NHC's outlook of Tue Oct 20 11:52:05 2026" gave the time as NHC
+        # names its outlook document, with no zone.
+        area = outlook.Disturbance(
+            centre="NHC", basin="EP", label="Area ep1", lon=-100.0, lat=12.0, chance_2day=40,
+            chance_7day=90, potential="high", text="", area=(), arrow=(), alert=False,
+            issued="Fri Sep 25 11:40:21 2026", key="ep1")
+        [watch] = [a for a in alerts.product_rules(self.state(outlook=[area]))
+                   if a.code == "tc_formation_ep1"]
+        self.assertIn("NHC's outlook of 25 Sep 2026 11:40 UTC:", watch.detail)
+
+    def test_jtwc_s_watch_gives_its_advisory_s_time_as_a_time(self):
+        # "JTWC's advisory of 2026-10-20T06:00:00Z": the stamp as the run
+        # keeps it, where NHC's beside it read "25 Sep 2026 11:40 UTC".
+        area = outlook.Disturbance(
+            centre="JTWC", basin="WP", label="Invest 98W", lon=140.0, lat=12.0, chance_2day=None,
+            chance_7day=None, potential="high", text="", area=(), arrow=(), alert=False,
+            issued="2026-10-20T06:00:00Z", key="98w")
+        [watch] = [a for a in alerts.product_rules(self.state(outlook=[area]))
+                   if a.code == "tc_formation_98w"]
+        self.assertIn("JTWC's advisory of 20 Oct 2026 06:00 UTC places it near", watch.detail)
+
+    def test_a_time_in_zulu_is_read_as_utc_on_any_python(self):
+        # Python before 3.11 reads no "Z": JTWC's times, which end so, were
+        # given as stamped on 3.10 and as times on the runner's 3.12.
+        self.assertEqual(alerts.utc_time("2026-10-20T06:00:00Z"), "20 Oct 2026 06:00 UTC")
+        self.assertEqual(alerts.utc_time("2026-10-20T08:00:00+02:00"), "20 Oct 2026 06:00 UTC")
+        self.assertEqual(alerts.utc_time("2026-10-20T06:00:00"), "20 Oct 2026 06:00 UTC")
+        for odd in ("soon", "", None, 5):
+            with self.subTest(odd=odd):
+                self.assertEqual(alerts.utc_time(odd), str(odd))
+
     def test_formation_chances_raise_a_watch_when_high(self):
         def area(key, centre, chance, potential):
             return outlook.Disturbance(
@@ -2687,6 +2862,33 @@ class _DeskFixtures:
         return {s["id"]: s for s in stormdesk.payload(self.state(*storms))["storms"]}
 
 
+class TestDeskLinks(unittest.TestCase):
+    """A link the storm desk writes from a feed goes to a web address, or is
+    the words alone: CurrentStorms.json's URLs are written into href, and a
+    javascript: one passed the http upgrade untouched."""
+
+    def test_a_feed_url_that_is_no_web_address_is_written_as_words(self):
+        # "https://[x" is no address urlsplit can read: it raised, and the
+        # whole publish stopped on one storm's link.
+        for url in ("javascript:alert(document.domain)", " JavaScript:alert(1)",
+                    "java\tscript:alert(1)", "data:text/html,<b>x</b>", "//example.com/x", "", None,
+                    "https://[x", "http://[::1"):
+            with self.subTest(url=url):
+                self.assertEqual(stormdesk._link(url, "Public advisory & more"),
+                                 "Public advisory &amp; more")
+
+    def test_a_web_address_is_linked_and_one_that_says_http_upgraded(self):
+        self.assertEqual(
+            stormdesk._link("http://www.nhc.noaa.gov/text/MIATCPEP2.shtml", "Public advisory"),
+            '<a href="https://www.nhc.noaa.gov/text/MIATCPEP2.shtml" target="_blank" '
+            'rel="noopener">Public advisory</a>')
+        self.assertIn('href="https://www.nhc.noaa.gov/text/MIATCPEP2.shtml"',
+                      stormdesk._link("HTTP://www.nhc.noaa.gov/text/MIATCPEP2.shtml", "Public advisory"))
+        self.assertIn('href="https://www.metoc.navy.mil/jtwc/jtwc.html?western-pacific&amp;x=1"',
+                      stormdesk._link("https://www.metoc.navy.mil/jtwc/jtwc.html?western-pacific&x=1",
+                                      "JTWC"))
+
+
 class TestForecastBadges(unittest.TestCase):
     """The mark a forecast map writes on each of its points, as NHC's track
     graphic does: what the storm is forecast to be there."""
@@ -2793,6 +2995,28 @@ class TestStormDeskPayload(_DeskFixtures, unittest.TestCase):
     def test_the_peak_of_a_forecast_no_stronger_than_now_is_its_first_strongest_point(self):
         polo = self.storms(self.polo())["ep172026"]
         self.assertEqual((polo["peak"]["hour"], polo["peak"]["wind"]), (3, 155))
+
+    def test_the_advisories_are_as_of_the_newest_the_desk_draws(self):
+        # The time came from NHC's current storms alone: with only JTWC's
+        # storms up, the footer said "storm advisories as of unknown".
+        state = self.state(self.surigae())
+        state.cyclones.as_of = ""
+        data = stormdesk.payload(state)
+        self.assertEqual(data["as_of"], "2026-09-25T15:00:00Z")
+        self.assertIn('storm advisories as of <time datetime="2026-09-25T15:00:00Z"',
+                      stormdesk._about(data))
+        # NHC's newer advisory is the newest.
+        polo = self.polo()
+        polo.advisory["last_update"] = "2026-09-25T21:00:00.000Z"
+        self.assertEqual(stormdesk.payload(self.state(polo, self.surigae()))["as_of"],
+                         "2026-09-25T21:00:00Z")
+        # No storm, no advisory to be as of.
+        quiet = self.state()
+        quiet.cyclones.as_of = ""
+        about = stormdesk._about(stormdesk.payload(quiet))
+        self.assertNotIn("unknown", about)
+        self.assertNotIn("advisories as of", about)
+        self.assertIn("Built <time", about)
 
     def test_the_payload_survives_a_json_round_trip(self):
         data = stormdesk.payload(self.state(self.polo(), self.surigae(), self.iona()))
@@ -4878,10 +5102,10 @@ class TestEnsoHereRuns(_DeskFixtures, unittest.TestCase):
             "nearestAt", "nearestLon", "critOf", "cellAt", "verdictOf", "percentOf",
             "regionsAt", "ensoHere", "signedText", "ensoCellText", "ensoHereHtml")
 
-    def _here(self, body: str):
+    def _here(self, body: str, state=None):
         script = stormdesk.script()
         harness = "var GRIDS = {};\nvar D = {enso: %s};\n%s\n%s" % (
-            json.dumps(worldmap.payload(self.state())),
+            json.dumps(worldmap.payload(state or self.state())),
             "\n".join(_js_function(script, n) for n in self.HERE), body)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "here.js"
@@ -4909,13 +5133,44 @@ class TestEnsoHereRuns(_DeskFixtures, unittest.TestCase):
             self.assertEqual(regions, want, (lon, lat))
         self.assertTrue(any(len(regions) > 1 for regions in got))
 
+    def test_here_gives_each_effect_s_season_once_and_says_which_have_passed(self):
+        # The card gave each season twice, "(Dec-Mar, high confidence). In
+        # play this event: likely, Dec 2026-Mar 2027, ahead.", the catalogue's
+        # with a hyphen and the event's with a dash, and called an effect
+        # whose season had passed "in play".
+        state = self.state()
+        state.impacts = impacts.assess(2.3, 0.0, current_index=1.7, peak_season=("NDJ", 2026),
+                                       today=date(2026, 10, 20))
+        places = [(31.05, -17.83), (36.82, -1.29), (38.75, 9.0), (77.2, 28.6)]
+        harare, nairobi, addis, delhi = self._here(
+            "console.log(JSON.stringify(%s.map(function (p) {\n"
+            " return ensoHereHtml(ensoHere(p[0], p[1]));\n})));" % json.dumps(places), state)
+
+        def item(region, confidence, said):
+            return r"<li><b>%s</b>: [^<]* \(%s confidence\)\.%s</li>" % (
+                re.escape(region), re.escape(confidence), re.escape(" <b>%s</b>" % said if said else ""))
+        self.assertRegex(harare, item("Southern Africa", "high",
+                                      "In play this event: likely, Dec 2026\u2013Mar 2027, ahead."))
+        self.assertRegex(nairobi, item("Equatorial East Africa", "high",
+                                       "In play this event: likely, Oct\u2013Dec 2026, under way."))
+        self.assertRegex(addis, item("Ethiopian highlands and Sudan", "high",
+                                     "Likely this event, Jun\u2013Sep 2026, now past."))
+        self.assertRegex(delhi, item("India and Pakistan", "weaker / contested",
+                                     "Possible this event, Jun\u2013Sep 2026, now past."))
+        # With no outlook to date it, an effect gives the catalogue's season,
+        # written as a span of months is.
+        plain = self._here("console.log(JSON.stringify(ensoHereHtml(ensoHere(31.05, -17.83))));")
+        self.assertRegex(plain, item("Southern Africa", "Dec\u2013Mar, high", ""))
+        for page in (atlasview._links_payload(), globe.dossier(2.3, 1.7, 0.0, "NDJ 2026")):
+            self.assertEqual({row["window"] for row in page if "-" in row["window"]}, set())
+
     def test_here_reads_every_season_and_the_record_behind_it(self):
         lima, sea = (-77.03, -12.05), (-140.0, -40.0)
         land_html, sea_html, sizes = self._here(
             "var h = ensoHere(%r, %r);\nconsole.log(JSON.stringify([ensoHereHtml(h),\n"
             " ensoHereHtml(ensoHere(%r, %r)), h.sizes]));" % (*lima, *sea))
         payload = worldmap.payload(self.state())
-        self.assertIn("<h4>El Niño here</h4>", land_html)
+        self.assertIn('<h3 class="subhead">El Niño here</h3>', land_html)
         self.assertIn("not this season’s forecast", land_html)
         self.assertEqual(land_html.count('<tr><th scope="row">'), len(atlas.SEASONS))
         self.assertIn(payload["now"] + " (now)", land_html)
@@ -5073,6 +5328,30 @@ class TestEnsoTilesRuns(_DeskFixtures, unittest.TestCase):
 class TestEnsoNow(_DeskFixtures, unittest.TestCase):
     """Where the event stands this run, and the regions drawn with it."""
 
+    def test_the_forecast_peak_says_how_far_away_it_is(self):
+        state = self.state()
+        state.run_at = "2026-10-20T13:51:00+00:00"
+        state.forecast = SimpleNamespace(peak=forecast.Projection(
+            lead=4, season="NDJ", year=2026, mean=2.29, low=1.68, high=2.9, sigma=0.4))
+        self.assertIn("in NDJ 2026, about 2 months away (10 to 90%", worldmap.section(state))
+
+    def test_the_side_panel_s_headings_nest_under_its_own(self):
+        # "In play this event" and the sections of the Here card were h4s
+        # straight under the panel's h2, and in the outline read as parts of
+        # the street card's h3 above them.
+        state = self.state()
+        state.impacts = impacts.assess(1.8, -1.5, current_index=1.36,
+                                       peak_season=("NDJ", 2026), today=date(2026, 10, 20))
+        levels = re.findall(r"<h(\d)", worldmap.section(state))
+        self.assertEqual(levels[0], "2")
+        self.assertEqual(set(levels[1:]), {"3"})
+        self.assertGreaterEqual(len(levels), 3)
+        js = stormdesk.script()
+        for title in ("Live storms", "Formation outlook", "Who warns here", "El Ni\u00f1o here",
+                      "Documented effects here", "Google Maps here", "Today here, from NASA"):
+            with self.subTest(title=title):
+                self.assertIn(f'<h3 class="subhead">{title}</h3>', js)
+
     def test_a_run_missing_its_index_still_builds_and_says_so(self):
         section = worldmap.section(self.state())
         self.assertIn('id="enso-now"', section)
@@ -5081,6 +5360,41 @@ class TestEnsoNow(_DeskFixtures, unittest.TestCase):
         self.assertEqual([b["key"] for b in boxes], ["nino4", "nino34", "nino3", "nino12"])
         self.assertEqual({b["anomaly"] for b in boxes}, {None})
         self.assertIn("El Ni", stormdesk.page(self.state(), focus="world"))
+
+    def test_the_nino_boxes_say_how_their_anomalies_are_taken_in_tenths(self):
+        # CPC gives the weekly anomalies in tenths; the panel printed
+        # hundredths, and the layer's line did not say which anomaly it was.
+        # Then the Nino 3.4 line and the layer's said it in two wordings.
+        week = SimpleNamespace(label="the week of 23 Sep 2026", week_ending=date(2026, 9, 23),
+                               nino4_anom=1.1, nino34_anom=3.9, nino3_anom=4.7, nino12_anom=4.5)
+        regions = [SimpleNamespace(key=k, anomaly=v)
+                   for k, v in (("nino4", 0.08), ("nino34", 3.14), ("nino3", 2.2), ("nino12", 3.9))]
+        for basis, words, value in (
+                ("relative", "against the tropical mean, as CPC now quotes it", "+3.1"),
+                ("traditional", "against CPC's fixed 1991\u20132020 normal, the traditional anomaly",
+                 "+3.9")):
+            state = SimpleNamespace(run_at="2026-09-29T21:54:00+00:00", assessment=SimpleNamespace(
+                index_latest=None, latest_week=week,
+                scale=SimpleNamespace(basis=basis, regions=regions)))
+            with self.subTest(basis=basis):
+                section = worldmap.section(state)
+                self.assertIn("<dd>" + escape("CPC's four boxes, each with this week's anomaly "
+                                              + words + ".") + "</dd>", section)
+                self.assertIn(f"Ni\u00f1o 3.4 this week: <b>{value} \u00b0C</b> " + escape(words)
+                              + " (", section)
+        none = SimpleNamespace(run_at="2026-09-29T21:54:00+00:00", assessment=SimpleNamespace(
+            index_latest=None, latest_week=None, scale=None))
+        self.assertIn("<dd>" + escape("CPC's four boxes.") + "</dd>", worldmap.section(none))
+        # A relative reading with no week behind it is said without one.
+        weekless = SimpleNamespace(run_at="2026-09-29T21:54:00+00:00", assessment=SimpleNamespace(
+            index_latest=None, latest_week=None,
+            scale=SimpleNamespace(basis="relative", regions=regions)))
+        self.assertIn("Ni\u00f1o 3.4 this week: <b>+3.1 \u00b0C</b> against the tropical mean, "
+                      "as CPC now quotes it.</p>", worldmap.section(weekless))
+        # Each layer in the order the layer controls give them.
+        self.assertEqual(re.findall(r"<dt>([^<]*)</dt>", worldmap.section(none)),
+                         ["Rainfall and temperature", "Ocean today", "Floods", "Impact regions",
+                          "Ni\u00f1o regions", "Street maps", "Google"])
 
     def test_the_boxes_are_cpcs(self):
         box = {b["key"]: b for b in worldmap.payload(self.state())["boxes"]}["nino34"]
@@ -6915,13 +7229,68 @@ console.log(JSON.stringify(out));
 """)
         self.assertEqual(got, [["Peru"], ["Peru", "Chile"], []])
 
+    def _nino_names(self, views, centre: float = -150) -> list:
+        """Each view's box names as drawMarks writes them, [text, anchor, x on
+        its own box], for (width, zoom) views centred on ``centre``: a name
+        is on its own box from its west edge, or the screen's where that edge
+        is off it, or from Nino 1+2's east edge."""
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in (
+            "world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
+            "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels", "signedText",
+            "categoryOf", "shortAt"))
+        boxes = [dict(b, anomaly=a) for b, a in zip(worldmap._boxes(None), (0.1, 2.2, 2.9, 3.9))]
+        return _node_json(self, r"""
+var TILE = 256, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
+var LAYERS = {}, PLACES = [], BYPOP = null, STORMS = [], BYID = {}, marksG = {innerHTML: ""};
+var D = {outlook: [], invests: [], style: {outlook: {}}, enso: {boxes: """ + json.dumps(boxes) + r"""}};
+function base() { return {t: 0, image: false}; }
+function centreAt() { return null; }
+""" + functions + r"""
+var S = {x: mx(""" + json.dumps(centre) + r"""), y: my(0), z: 3, w: 1000, h: 600, scrub: 0, selected: null, pin: null,
+         show: {towns: false, outlook: false, places: false}, enso: {boxes: true, regions: false},
+         layer: "geocolor", compare: false};
+console.log(JSON.stringify(""" + json.dumps(views) + r""".map(function (v) {
+  S.w = v[0]; S.z = v[1];
+  var o = origin();
+  drawMarks();
+  return (marksG.innerHTML.match(/<text [^>]*class="dl2">[^<]*/g) || []).map(function (t) {
+    var text = t.split(">")[1], x = +t.match(/ x="([-0-9.]+)"/)[1];
+    var b = D.enso.boxes.filter(function (b) { return text.indexOf(b.label + " ") === 0; })[0];
+    var own = copies(mx((b.lon0 + b.lon1) / 2), 200).some(function (k) {
+      function at(lon) { return (mx(lon) + k) * o.W + o.left; }
+      var edges = [Math.max(at(b.lon0), 0)].concat(b.key === "nino12" ? [at(b.lon1)] : []);
+      return edges.some(function (edge) { return Math.abs(edge + 5 - x) < 0.6; });
+    });
+    return [text, t.match(/text-anchor="(\w+)"/)[1], own];
+  });
+})));
+""")
+
+    def test_nino_3_4_is_named_first_and_every_name_on_its_own_box(self):
+        # The index's own box went unnamed: Nino 4's name took the room above
+        # it, and Nino 3's and Nino 1+2's, with no room to their right, were
+        # written leftward over their neighbours' boxes, in hundredths of
+        # data CPC gives in tenths. Nino 3.4's is placed first now, ahead of
+        # any lesser name, and each name starts inside its own box, or beside
+        # the small Nino 1+2 to its east, or is left out.
+        views = self._nino_names([[1000, 3], [1000, 2], [1000, 1.5], [390, 1]])
+        for (width, zoom), names in zip([[1000, 3], [1000, 2], [1000, 1.5], [390, 1]], views):
+            with self.subTest(width=width, zoom=zoom):
+                self.assertIn("Ni\u00f1o 3.4 +2.2 \u00b0C", [n[0] for n in names])
+                self.assertEqual({n[1] for n in names}, {"start"})
+                self.assertTrue(all(n[2] for n in names), names)
+        self.assertEqual(sorted(n[0] for n in views[0]),
+                         ["Ni\u00f1o 1+2 +3.9 \u00b0C", "Ni\u00f1o 3 +2.9 \u00b0C",
+                          "Ni\u00f1o 3.4 +2.2 \u00b0C", "Ni\u00f1o 4 +0.1 \u00b0C"])
+
     def test_a_nino_name_with_no_room_above_its_box_goes_below_it(self):
         # Each name goes above its box's northwest corner where there is room,
         # and under its box where there is not, before it is left out. At
         # zoom 3 all four fit above: sized as a storm's 12.5 px name, Nino
         # 3.4's had seemed to fill the 20 degrees to Nino 3's corner, and
-        # Nino 3's went under. At zoom 2 Nino 4's name covers Nino 3.4's
-        # corner, 30 degrees east, and Nino 3.4's goes under.
+        # Nino 3's went under. At zoom 2 Nino 3.4's name, placed first,
+        # covers Nino 4's and Nino 3's room above, and both go under.
         js = stormdesk.script()
         functions = "\n".join(_js_function(js, n) for n in (
             "world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
@@ -6952,7 +7321,107 @@ var out = [];
 console.log(JSON.stringify(out));
 """)
         self.assertEqual(got, [[["Niño 4", "above"], ["Niño 3.4", "above"], ["Niño 3", "above"], ["Niño 1+2", "above"]],
-                               [["Niño 4", "above"], ["Niño 3.4", "below"], ["Niño 3", "above"], ["Niño 1+2", "above"]]])
+                               [["Niño 4", "below"], ["Niño 3.4", "above"], ["Niño 3", "below"], ["Niño 1+2", "above"]]])
+
+    def test_a_box_whose_west_edge_is_off_the_screen_is_named_from_the_screen_s(self):
+        # Zoomed in on the east Pacific, a phone at zoom 3 over 120 W has
+        # Nino 3.4's west edge, 170 W, off its screen, and the name went with
+        # it though most of the box is in view. A box wholly out of view, as
+        # Nino 4 is from 60 W, is not named at the screen's edge.
+        phone = self._nino_names([[390, 3]], centre=-120)[0]
+        self.assertIn("Ni\u00f1o 3.4 +2.2 \u00b0C", [n[0] for n in phone])
+        self.assertTrue(all(n[2] for n in phone), phone)
+        wide = self._nino_names([[1000, 3]], centre=-60)[0]
+        self.assertIn("Ni\u00f1o 3.4 +2.2 \u00b0C", [n[0] for n in wide])
+        self.assertNotIn("Ni\u00f1o 4 +0.1 \u00b0C", [n[0] for n in wide])
+        self.assertTrue(all(n[2] for n in wide), wide)
+
+    def test_a_nino_name_is_never_written_over_a_storm(self):
+        # Storms are placed first, and their names win the room. Where two
+        # took the room above and under Nino 3.4's box, its name was written
+        # over the first storm's anyway. It goes inside the box's top edge
+        # now, and where a third storm takes that too, it is left out.
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in (
+            "world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
+            "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels", "signedText",
+            "categoryOf", "shortAt"))
+        boxes = [dict(b, anomaly=a) for b, a in zip(worldmap._boxes(None), (0.1, 2.2, 2.9, 3.9))]
+        got = _node_json(self, r"""
+var TILE = 256, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
+var LAYERS = {}, PLACES = [], BYPOP = null, STORMS = [], BYID = {}, marksG = {innerHTML: ""};
+var D = {outlook: [], invests: [], style: {outlook: {}}, enso: {boxes: """ + json.dumps(boxes) + r"""}};
+function base() { return {t: 0, image: false}; }
+function centreAt(st) { return st.c; }
+""" + functions + r"""
+var S = {x: mx(-150), y: my(0), z: 3, w: 1000, h: 600, scrub: 0, selected: null, pin: null,
+         show: {towns: false, outlook: false, places: false}, enso: {boxes: true, regions: false},
+         layer: "geocolor", compare: false};
+function storm(name, lon, lat) {
+  return {id: name, hue: "#f00", x0: mx(lon), c: {lon: lon, lat: lat, category: 0, wind: 40},
+          d: {title: name, stage: "TS", formed: true, wind: 40, forecast: [], view: null, advisory_fix: null}};
+}
+// Each <text>'s words and the room it takes, as label() reckons it.
+function texts() {
+  return (marksG.innerHTML.match(/<text [^>]*>[^<]*/g) || []).map(function (t) {
+    var words = t.split(">")[1], x = +t.match(/ x="([-0-9.]+)"/)[1], y = +t.match(/ y="([-0-9.]+)"/)[1];
+    var w = words.length * (/class="dl"/.test(t) ? 7.2 : 6.2), end = /text-anchor="end"/.test(t);
+    return {words: words, x0: end ? x - w : x, x1: end ? x : x + w, y0: y - 13, y1: y + 1};
+  });
+}
+function meet(a, b) { return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1; }
+var out = [];
+[[["Polo", -171, 8.5], ["Rosa", -171, -6.5]],
+ [["Polo", -171, 8.5], ["Rosa", -171, -6.5], ["Sam", -171, 2.5]]].forEach(function (set) {
+  STORMS = set.map(function (s) { return storm(s[0], s[1], s[2]); });
+  drawMarks();
+  var o = origin(), all = texts(), nino = all.filter(function (t) { return t.words.indexOf("Ni\u00f1o 3.4 ") === 0; })[0];
+  var named = all.filter(function (t) { return t.words.indexOf("Ni\u00f1o") !== 0; });
+  var top = my(5) * o.W + o.top, bottom = my(-5) * o.W + o.top;
+  out.push(nino ? [nino.y1 - 1 < top ? "above" : nino.y1 - 1 > bottom ? "below" : "inside",
+                   named.some(function (t) { return meet(t, nino); })] : null);
+});
+console.log(JSON.stringify(out));
+""")
+        self.assertEqual(got, [["inside", False], None])
+
+    def test_a_nino_name_takes_its_room_ahead_of_an_outlook_area_s(self):
+        # Three outlook areas just west of Nino 3.4's box, their names over
+        # the room above it, inside it and under it: placed before the boxes'
+        # names, they had it all, and Nino 3.4's was written over the first.
+        # The boxes' names are placed first now, and the areas' give way.
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in (
+            "world", "origin", "near", "copies", "clamp", "mx", "my", "rad", "esc", "pct",
+            "labelled", "labelledBase", "namedAt", "townsWhy", "drawMarks", "ensoLabels", "signedText",
+            "categoryOf", "shortAt"))
+        boxes = [dict(b, anomaly=a) for b, a in zip(worldmap._boxes(None), (0.1, 2.2, 2.9, 3.9))]
+        areas = [{"key": k, "label": k, "lon": -171, "lat": lat, "level": "low", "centre": "CPHC",
+                  "chance_2day": 10, "chance_7day": 20} for k, lat in (("A", 8.5), ("B", 2.5), ("C", -6.5))]
+        got = _node_json(self, r"""
+var TILE = 256, HOUR = 3600000, NM = 1.852, CIRCUMFERENCE = 40075.017;
+var LAYERS = {}, PLACES = [], BYPOP = null, STORMS = [], BYID = {}, marksG = {innerHTML: ""};
+var D = {outlook: """ + json.dumps(areas) + r""", invests: [], style: {outlook: {}},
+         enso: {boxes: """ + json.dumps(boxes) + r"""}};
+function base() { return {t: 0, image: false}; }
+function centreAt() { return null; }
+""" + functions + r"""
+var S = {x: mx(-150), y: my(0), z: 3, w: 1000, h: 600, scrub: 0, selected: null, pin: null,
+         show: {towns: false, outlook: true, places: false}, enso: {boxes: true, regions: false},
+         layer: "geocolor", compare: false};
+drawMarks();
+var all = (marksG.innerHTML.match(/<text [^>]*>[^<]*/g) || []).map(function (t) {
+  var words = t.split(">")[1], x = +t.match(/ x="([-0-9.]+)"/)[1], y = +t.match(/ y="([-0-9.]+)"/)[1];
+  var w = words.length * (/class="dl"/.test(t) ? 7.2 : 6.2), end = /text-anchor="end"/.test(t);
+  return {words: words, x0: end ? x - w : x, x1: end ? x : x + w, y0: y - 13, y1: y + 1};
+});
+function meet(a, b) { return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1; }
+var nino = all.filter(function (t) { return t.words.indexOf("Ni\u00f1o 3.4 ") === 0; })[0];
+console.log(JSON.stringify([!!nino, all.some(function (a, i) {
+  return all.some(function (b, j) { return i < j && meet(a, b); });
+})]));
+""")
+        self.assertEqual(got, [True, False])
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
 class TestEsriCoverageRuns(unittest.TestCase):
@@ -7250,6 +7719,18 @@ class TestAlertNews(unittest.TestCase):
         self.assertEqual([alerts.reconcile(self.conn, [], run).cleared for run in self.RUNS],
                          [["wwv_record"], ["wwv_record"], ["wwv_record"], []])
 
+    def test_the_dashboard_names_a_cleared_alert_by_its_title(self):
+        # The page said "Cleared in the last day: feeds_cached,
+        # tc_formation_93s, ...", codes it shows nowhere else.
+        alerts.reconcile(self.conn, [alerts.Alert(
+            code="tc_formation_93s", level=alerts.WATCH, title="Invest 93S, high chance of forming",
+            detail="d")], "2026-10-15T13:20:00+00:00")
+        alert_set = alerts.reconcile(self.conn, [], self.RUNS[0])
+        self.assertEqual(alert_set.cleared, ["tc_formation_93s"])
+        feed = panels.alert_feed(SimpleNamespace(alert_set=alert_set))
+        self.assertIn("Cleared in the last day: Invest 93S, high chance of forming", feed)
+        self.assertNotIn("tc_formation_93s", feed)
+
     def test_an_alert_raised_again_is_news_again_and_no_longer_cleared(self):
         alerts.reconcile(self.conn, [self.alert()], "2026-10-15T09:00:00+00:00")
         alerts.reconcile(self.conn, [], "2026-10-16T09:00:00+00:00")
@@ -7298,7 +7779,17 @@ class TestAlertNews(unittest.TestCase):
         lines = report._section_alerts(SimpleNamespace(alert_set=alerts.AlertSet(cleared=codes)))
         self.assertTrue(all(len(line) <= report.WIDTH for line in lines), lines)
         said = " ".join(" ".join(lines).split()).split("Cleared in the last day: ", 1)[1]
-        self.assertEqual(said.split(", "), codes)
+        self.assertEqual(said.split("; "), codes)
+
+    def test_a_cleared_alert_s_title_is_printed_as_the_open_ones_are(self):
+        # The open alerts' titles are made plain for a legacy console; a
+        # cleared one's was printed as written, its degree sign and all.
+        state = SimpleNamespace(alert_set=alerts.AlertSet(
+            cleared=["oni_ge_1.5"],
+            cleared_titles={"oni_ge_1.5": "RONI \u2265 +1.5 \u00b0C \u2014 El Ni\u00f1o holds"}))
+        said = "\n".join(report._section_alerts(state))
+        self.assertIn("Cleared in the last day: RONI >= +1.5 degC - El Nino holds", said)
+        self.assertTrue(said.isascii(), said)
 
     def test_a_rise_is_said_while_the_alert_stays_above_where_it_rose_from(self):
         alerts.reconcile(self.conn, [self.alert(level=alerts.WATCH)], "2026-10-13T00:00:00+00:00")
@@ -7445,14 +7936,14 @@ class TestAlertNews(unittest.TestCase):
         self.assertIn("oni_ge_1.5 holds  NEW\n", text)
         self.assertIn("        raised 15 Oct 2026 13:20 UTC\n", text)
         self.assertIn("        standing since 14 Oct 2026 09:10 UTC\n", text)
-        self.assertTrue(text.endswith("\n  Cleared in the last day: wwv_record"), text)
+        self.assertTrue(text.endswith("\n  Cleared in the last day: wwv_record holds"), text)
 
     def test_the_page_says_when_each_was_raised_and_what_cleared_in_the_day(self):
         feed = panels.alert_feed(self.news())
         self.assertIn('<span class="alert-since">raised 15 Oct 2026 13:20 UTC</span>', feed)
         self.assertIn('<span class="alert-since">standing since 14 Oct 2026 09:10 UTC</span>', feed)
         self.assertEqual(feed.count('<span class="chip chip-new">new</span>'), 1)
-        self.assertIn('<p class="note">Cleared in the last day: wwv_record</p>', feed)
+        self.assertIn('<p class="note">Cleared in the last day: wwv_record holds</p>', feed)
         caption = " ".join(re.search(r'<p class="caption">(.*?)</p>', feed, re.S).group(1).split())
         self.assertIn("what was raised, raised a level or cleared is marked so for a day", caption)
 
@@ -7709,6 +8200,24 @@ class TestGridReading(unittest.TestCase):
         self.assertEqual(grids.lat_name(0.0), "EQ")
         self.assertEqual(grids.lat_name(5.0), "5N")
         self.assertEqual(grids.lat_name(-5.0), "5S")
+
+    def test_a_name_is_rounded_before_it_is_given_a_hemisphere(self):
+        # In an El Nino the warm pool's edge sits at the date line, where the
+        # map said "28 °C edge 180E" at 179.6 and "180W" at 180.4, and the SST
+        # map's hover read "180E-180W" over the cells either side of it.
+        for lon in (179.6, 180.4, -179.6, 540.0):
+            with self.subTest(lon=lon):
+                self.assertEqual(grids.lon_name(lon), "180")
+        for lon in (0.4, 359.6, -0.4, 360.0):
+            with self.subTest(lon=lon):
+                self.assertEqual(grids.lon_name(lon), "0")
+        self.assertEqual(grids.lon_name(178.6), "179E")
+        self.assertEqual(grids.lon_name(181.4), "179W")
+        for lat in (0.5, -0.5, 0.2):
+            with self.subTest(lat=lat):
+                self.assertEqual(grids.lat_name(lat), "EQ")
+        self.assertEqual(grids.lat_name(0.6), "1N")
+        self.assertEqual(grids.lat_name(-0.6), "1S")
 
 
 class TestMooringSection(unittest.TestCase):
@@ -8352,6 +8861,27 @@ class TestThreeDimensions(unittest.TestCase):
         self.assertAlmostEqual(at[(0.0, 165.0)]["a"], 15.0)
         # ...while 8S is outside the array and stays empty.
         self.assertIsNone(at[(-8.0, 165.0)])
+
+    def test_the_3d_thermocline_says_how_far_behind_its_array_is(self):
+        # The daily array's copy sat 23 days old under "as of 2026-09-27", its
+        # tilt "currently 25 m", with nothing to say it was behind.
+        nodes = tuple(grids.MeshNode(lat, lon, 180.0 - 0.4 * (lon - 160.0), 5.0)
+                      for lat in space3d.MESH_LATS for lon in (165.0, 190.0, 220.0, 250.0, 265.0))
+        mesh = grids.Mesh(nodes=nodes, label="iso", units="m", as_of="2026-09-27")
+        behind = " ".join(space3d.thermocline(mesh, age=23).split())
+        self.assertIn('as of 2026-09-27 <span class="chip chip-warning">23 days behind</span>.', behind)
+        self.assertIn("The east-west tilt along the equator is <strong>", behind)
+        self.assertNotIn("currently", behind)
+        for age in (None, 1, space3d.BEHIND_DAYS):
+            self.assertNotIn("days behind", space3d.thermocline(mesh, age=age))
+
+    def test_one_chip_says_how_far_behind_any_panel_is(self):
+        # The 3-D thermocline wrote its own copy of the maps' chip, and of
+        # their four days, so the two could come apart.
+        package = Path(fields.__file__).parent
+        sources = [path.read_text(encoding="utf-8") for path in package.glob("*.py")]
+        self.assertEqual(sum(s.count("days behind</span>") for s in sources), 1)
+        self.assertEqual(sum(s.count("\nBEHIND_DAYS = ") for s in sources), 1)
 
     def test_mesh_interpolation_drops_longitudes_off_the_pacific(self):
         mesh = grids.Mesh(
@@ -10131,6 +10661,15 @@ class TestCycloneQuantities(unittest.TestCase):
             self.assertEqual(cyclones.bearing_name(degrees), name)
         self.assertEqual(cyclones.bearing_name(None), "stationary")
 
+    def test_the_desk_names_a_bearing_as_its_map_and_the_storm_tier_do(self):
+        # The desk's own words rounded half to even, and its map and the storm
+        # tier half up: at 11.25 degrees the panel said N and the map NNE.
+        for degrees in (11.25, 56.25, 101.25, 348.75, 0.0, 359.9):
+            motion = {"kt": 10, "toward": degrees, "source": "advisory"}
+            with self.subTest(degrees=degrees):
+                self.assertEqual(stormdesk._motion_words(motion, short=True),
+                                 f"{cyclones.bearing_name(degrees)} 10 kt")
+
     def test_the_gazetteer_finds_the_coast_a_storm_is_off(self):
         gap, place = cyclones.nearest_place(-101.5, 15.2)
         self.assertEqual(place.country, "Mexico")
@@ -10700,6 +11239,10 @@ AL012019,          NEITHER,     2,
         self.assertAlmostEqual(season.ace_ratio, 1.0)
         self.assertAlmostEqual(season.elapsed, 0.5)
 
+    def test_a_season_is_dated_as_the_site_dates_a_day(self):
+        # "Normal by 5 October", as every other date on the site is written.
+        self.assertEqual(cyclones.build({}, today=date(2026, 10, 5)).through, "5 October")
+
     def test_the_index_page_is_scraped_rather_than_the_name_assumed(self):
         """The file is renamed every spring; hard-coding it freezes the
         climatology at whatever year the code was written."""
@@ -10795,6 +11338,17 @@ class TestElNinoVerdict(unittest.TestCase):
         atlantic = cyclones.elnino_composite("AL", seasons, warm)
         self.assertEqual((atlantic["ace"], atlantic["years"]), (120.0, 3))
         self.assertEqual(cyclones.RELIABLE_FROM, {"AL": 1966, "EP": 1971})
+
+    def test_the_season_card_gives_the_normal_its_alerts_give(self):
+        # The card's normal was rounded to tenths and then to units, so
+        # 109.46 became 109.5 and then 110, beside alerts that said 109.
+        season = cyclones.BasinSeason(basin="AL", normal={"ace_todate": 109.46, "ace": 122.4},
+                                      elnino={}, through="20 October")
+        state = SimpleNamespace(
+            cyclones=cyclones.CycloneState(basins={"AL": season}),
+            assessment=SimpleNamespace(index_name="RONI", index_latest=SimpleNamespace(value=1.69),
+                                       scale=SimpleNamespace(flavour_index=-0.4)))
+        self.assertIn("0 ACE against 109 normal by 20 October", storms.season_card(state))
 
 
 class TestCyclonesOnTheGlobe(unittest.TestCase):
@@ -11206,6 +11760,18 @@ class TestFuryAssembly(unittest.TestCase):
         # the relocation scores, the swing distribution, and the record.
         self.assertGreaterEqual(html.count("Table view"), 4)
 
+    def test_the_card_gives_each_fix_time_as_a_time(self):
+        # The hovers and tables gave the decks' own stamps: "Trudy,
+        # 2026101618". They are this season's decks, so the day and the
+        # hour, as the track map's hovers give them.
+        html = storms.fury_card(SimpleNamespace(stormfury=stormfury.evaluate(self.state(True))))
+        self.assertIsNone(re.search(r'data-label="[^"]*\b\d{10}\b|<td[^>]*>\d{10}</td>', html))
+        self.assertRegex(html, r'data-label="[^"]*, [1-9]\d? (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|'
+                               r'Oct|Nov|Dec) \d\dZ"')
+        # The day as the desk and every other time on the site give it.
+        self.assertEqual(storms._clock("2026100506"), "5 Oct 06Z")
+        self.assertEqual(storms._clock("2026101618"), "16 Oct 18Z")
+
     def test_a_claim_with_no_numbers_under_it_is_left_off_the_page(self):
         """Both measurement blocks argue from this season's decks. With no
         decks behind them they would be a conclusion above an empty table."""
@@ -11225,6 +11791,41 @@ class TestFuryAssembly(unittest.TestCase):
         state = SimpleNamespace(
             stormfury=stormfury.evaluate(cyclones.CycloneState()))
         self.assertEqual(storms.fury_card(state), "")
+
+
+class TestMonthTicks(unittest.TestCase):
+    """A month's tick says its year in full: "Sep 26" under the weekly
+    Nino-3.4 chart read as 26 September, and "Mar 13" under the heat-content
+    chart as 13 March."""
+
+    @staticmethod
+    def ticks(svg: str) -> list[str]:
+        return re.findall(r'text-anchor="middle" class="tick">([^<]*)</text>', svg)
+
+    def assert_month_and_year(self, ticks: list[str]) -> None:
+        self.assertTrue(ticks)
+        for tick in ticks:
+            with self.subTest(tick=tick):
+                self.assertRegex(tick, r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) 20\d\d$")
+
+    def test_the_weekly_chart_s_months_give_their_year(self):
+        start = date(2024, 10, 2)
+        weeks = [parsers.WeekObservation(date.fromordinal(start.toordinal() + 7 * k),
+                                         24.0, 1.0, 26.0, 1.2, 27.5, 1.0 + k / 100, 28.9, 0.5)
+                 for k in range(104)]
+        ticks = self.ticks(dashboard.chart_weekly(weeks))
+        self.assert_month_and_year(ticks)
+        self.assertEqual(ticks[0], "Dec 2024")
+
+    def test_the_heat_content_chart_s_months_give_their_year(self):
+        track = [SimpleNamespace(when=date(2011 + (k + 8) // 12, (k + 8) % 12 + 1, 1),
+                                 heat=math.sin(k / 9), sst=math.sin(k / 9 - 0.6))
+                 for k in range(180)]
+        state = SimpleNamespace(subsurface=SimpleNamespace(
+            trajectory=track, lead_months=6, lead_correlation=0.71))
+        ticks = self.ticks(panels.chart_heat(state))
+        self.assert_month_and_year(ticks)
+        self.assertEqual(ticks[0], "Sep 2011")
 
 
 @unittest.skipUnless((CACHE / "oni.cache").exists(),
@@ -11348,11 +11949,14 @@ class TestEndToEnd(unittest.TestCase):
     def test_the_dashboard_names_its_run_and_is_dated_by_it(self):
         html = dashboard.render(self.state)
         self.assertEqual(_named_run(html), self.state.run_at)
-        shown = (datetime.fromisoformat(self.state.run_at).astimezone(timezone.utc)
-                 .strftime("%d %b %Y %H:%M UTC"))
+        moment = datetime.fromisoformat(self.state.run_at).astimezone(timezone.utc)
+        shown = f"{moment.day} {moment:%b %Y %H:%M} UTC"
         stamp = re.search(r"Generated (<time [^>]*>[^<]*</time>)", html)
         self.assertEqual(stamp and stamp.group(1),
                          f'<time datetime="{self.state.run_at}" data-age="{shown}">{shown}</time>')
+        # Its day as every other date on the site gives one: 5 Oct, not 05 Oct.
+        early = dashboard.render(dataclasses.replace(self.state, run_at="2026-10-05T06:12:00+00:00"))
+        self.assertIn('data-age="5 Oct 2026 06:12 UTC">5 Oct 2026 06:12 UTC</time>', early)
 
     def test_the_dashboard_holds_a_reader_by_the_part_they_are_reading(self):
         # The run's own words above the part being read, its "Generated ...
@@ -11827,6 +12431,56 @@ class TestEndToEnd(unittest.TestCase):
         for chart in charts:
             self.assertEqual(re.findall(r'class="hit[^"]*"', chart), ['class="hit hitgrid"'])
         self.assertIn("function gridHit(", _with_assets(html))
+
+    def test_every_table_scrolls_in_its_own_box(self):
+        # On a phone, opening the globe's table of 28 regions made the whole
+        # page 700 px wide against a 375 px screen: it was the one table not
+        # inside a tablewrap, and the one summary with a colon for a dash.
+        html = re.sub(r"<script\b.*?</script>", "", dashboard.render(self.state), flags=re.S)
+        tables = re.findall(r"(.{0,40})<table\b", html, re.S)
+        self.assertGreater(len(tables), 10)
+        for before in tables:
+            with self.subTest(before=before):
+                self.assertTrue(before.endswith('<div class="tablewrap">'), before)
+        for summary in re.findall(r'<details class="tableview"[^>]*><summary>(.*?)</summary>', html):
+            with self.subTest(summary=summary):
+                self.assertTrue(summary.startswith("Table view &mdash; "), summary)
+
+    def test_every_tile_in_degrees_says_so(self):
+        # The legacy ONI, the weekly Nino tiles and the projected peak gave
+        # a bare "+2.16" between the hero's "+1.69 °C" and tiles in sigma and
+        # 10^14 m^3.
+        html = dashboard.render(self.state)
+        tiles = re.findall(r'<div class="tile"><div class="t-label">(.*?)</div>'
+                           r'<div class="t-value">(.*?)</div><div class="t-note">(.*?)</div>', html)
+        degrees = [t for t in tiles
+                   if re.match(r"Legacy ONI|Ni(n|\u00f1)o.(3\.4|1\+2) weekly|Projected", t[0])]
+        self.assertGreaterEqual(len(degrees), 3)
+        for label, value, note in degrees:
+            # CPC's weeks to a tenth, as CPC gives them; the seasons to a hundredth.
+            places = r"\d" if "weekly" in label else r"\d\d"
+            with self.subTest(label=label):
+                self.assertRegex(value, r'^[+\u2212-]\d+\.%s<span class="t-unit"> °C</span>$' % places)
+                if "range" in note or "traditional" in note:
+                    self.assertTrue(note.endswith(" °C"), note)
+
+    def test_cpc_s_weekly_values_are_given_to_a_tenth_as_cpc_gives_them(self):
+        # CPC writes its weekly anomalies to a tenth, and the map gives them
+        # so; the dashboard gave CPC's 2.0 as "+2.00" in its regions' and its
+        # weekly cards, their bars, end labels, hovers and tables.
+        html = dashboard.render(self.state)
+
+        def card(name):
+            start = html.index('<section class="card" id="%s">' % name)
+            return html[start:html.index("</section>", start)]
+        signed = re.compile(r"[+\u2212-]\d+\.\d+")
+        for name in ("regions", "weekly"):
+            said = [value for value in signed.findall(card(name)) if not value.startswith("-1991")]
+            with self.subTest(name):
+                self.assertGreater(len(said), 10)
+                self.assertEqual([v for v in said if not re.fullmatch(r"[+\u2212-]\d+\.\d", v)], [])
+        # The flavour index is two of CPC's weekly values, one less the other.
+        self.assertRegex(report.render(self.state), r"\(index [+-]\d+\.\d, ")
 
     def test_no_card_is_only_a_caption_and_a_folded_table(self):
         # A table behind a disclosure is the twin of a chart. "Momentum and
@@ -14313,7 +14967,8 @@ class TestHazardWatchList(unittest.TestCase):
         # margin of 1.8 - 1.0 - 0.75 = +0.05, "possible", so it is on watch and
         # needs 1.0 + 0.75 + 0.4 = +2.15 to reach "probable". India is
         # contested and can never get there.
-        return impacts.assess(1.8, -1.5, current_index=1.36, months_to_peak=3)
+        return impacts.assess(1.8, -1.5, current_index=1.36, peak_season=("NDJ", 2026),
+                              today=date(2026, 10, 20))
 
     def test_the_threshold_quoted_includes_the_flavour_penalty(self):
         a = self.assessment()

@@ -405,7 +405,7 @@ def nino_card(days, weeks, revision=None) -> str:
     shown = [week for week in weeks if dates[0] <= week.week_ending <= dates[-1]]
     plot = _plot(values, NINO, frozenset(day for day, item in by_day.items() if item.preliminary),
                  dots=tuple((week.week_ending, week.nino34_anom) for week in shown),
-                 notes={week.week_ending: [f"CPC week {week.nino34_anom:+.2f}"]
+                 notes={week.week_ending: [f"CPC week {week.nino34_anom:+.1f}"]
                         for week in shown})
 
     prelims = any(item.preliminary for item in days)

@@ -133,7 +133,7 @@ SCRIPT = r"""var elninoLive = (function () {
   function when(run) {
     var d = new Date(Date.parse(run));
     if (isNaN(d.getTime())) return run;
-    return pad(d.getUTCDate()) + " " + MONTHS[d.getUTCMonth()] + " " + d.getUTCFullYear() + " " +
+    return d.getUTCDate() + " " + MONTHS[d.getUTCMonth()] + " " + d.getUTCFullYear() + " " +
            pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + " UTC";
   }
 

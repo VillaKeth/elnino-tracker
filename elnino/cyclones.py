@@ -134,7 +134,6 @@ GUIDANCE = {
 ENSEMBLE = re.compile(r"^(AP|AC|EP|EE|EC)\d\d$")
 
 KT_TO_KMH = 1.852
-NM_PER_DEG = 60.0
 EARTH_KM = 6371.0
 
 
@@ -1830,7 +1829,7 @@ def build(fetched: dict, index=None, fetcher=None, today=None) -> CycloneState:
     text = {key: item.text for key, item in fetched.items() if item.ok}
     today = today or date.today()
     cutoff = (today.month, today.day)
-    state.through = today.strftime("%d %B")
+    state.through = f"{today.day} {today:%B}"
 
     def attempt(label: str, function, *args, **kwargs):
         try:

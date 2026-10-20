@@ -38,9 +38,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # winds reads its feed with this module's reader
     from .winds import Winds
 
-# The TAO/TRITON Pacific moorings, west to east. RAMA (Indian) and PIRATA
-# (Atlantic) share the same feed and are filtered out by longitude.
-PACIFIC_LON = (165.0, 180.0, 190.0, 205.0, 220.0, 235.0, 250.0, 265.0)
+# The TAO/TRITON array's span, degrees east. RAMA (Indian) and PIRATA
+# (Atlantic) share the same feed and are left out by longitude.
+PACIFIC_EAST = (140.0, 290.0)
 
 # Target lattice for the interpolated depth section.
 SECTION_DEPTHS = tuple(float(d) for d in range(0, 301, 10))
@@ -414,7 +414,7 @@ def _tao_rows(text: str, value_key: str) -> list[tuple[str, float, float, float]
         lon, value = row[lon_i], row[val_i]
         if lon is None or value is None or not isinstance(row[time_i], str):
             continue
-        if not 140.0 <= lon <= 290.0:  # RAMA and PIRATA share the feed
+        if not PACIFIC_EAST[0] <= lon <= PACIFIC_EAST[1]:
             continue
         depth = row[depth_i] if depth_i is not None else 0.0
         if depth is None:
@@ -601,7 +601,7 @@ def thermocline_mesh(text: str, iso_text: str | None = None) -> Mesh:
         lat, lon, value = row[lat_i], row[lon_i], row[val_i]
         if lat is None or lon is None or value is None:
             continue
-        if not 140.0 <= lon <= 290.0:
+        if not PACIFIC_EAST[0] <= lon <= PACIFIC_EAST[1]:
             continue
         bucket.setdefault((lat, lon), []).append(value)
         if isinstance(row[time_i], str):
@@ -629,19 +629,21 @@ def thermocline_mesh(text: str, iso_text: str | None = None) -> Mesh:
 
 # --- labels -----------------------------------------------------------------
 def _lon_name(lon: float) -> str:
-    """Longitude in the form a meteorologist reads: 165E, 180, 110W."""
-    value = lon % 360.0
-    if value == 0 or value == 180:
-        return f"{value:.0f}"
+    """Longitude in the form a meteorologist reads: 165E, 180, 110W. The
+    degree is rounded first, so 179.6 is the date line and not 180E."""
+    value = round(lon % 360.0) % 360
+    if value in (0, 180):
+        return f"{value}"
     if value < 180:
-        return f"{value:.0f}E"
-    return f"{360.0 - value:.0f}W"
+        return f"{value}E"
+    return f"{360 - value}W"
 
 
 def _lat_name(lat: float) -> str:
-    if abs(lat) < 0.5:
+    value = round(lat)
+    if value == 0:
         return "EQ"
-    return f"{abs(lat):.0f}{'N' if lat > 0 else 'S'}"
+    return f"{abs(value)}{'N' if value > 0 else 'S'}"
 
 
 lon_name = _lon_name

@@ -11,6 +11,7 @@ analysis at all.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from datetime import date, datetime
 from pathlib import Path
 
 from . import (
@@ -322,6 +323,23 @@ def nino34_monthly(series: dict, index_name: str = "RONI") -> list[parsers.Month
     return (series.get("monthly") or {}).get("nino34") or []
 
 
+def outlook(assessment: classify.Assessment, peak: forecast.Projection | None,
+            today: date) -> impacts.ImpactAssessment:
+    """The hazard outlook for the event the assessment reads: the catalogue's
+    thresholds against the higher of today's index and the forecast's peak,
+    and each effect's season dated by the season the event peaks in, seen or
+    forecast, and set against ``today``."""
+    current = assessment.index_latest.value
+    return impacts.assess(
+        max(current, peak.mean if peak else current),
+        assessment.scale.flavour_index if assessment.scale else 0.0,
+        current_index=current,
+        peak_season=impacts.event_peak(assessment.episode, peak),
+        today=today,
+        index_name=assessment.index_name,
+    )
+
+
 def run(
     raw_dir: Path,
     db_path: Path,
@@ -461,20 +479,11 @@ def run(
         index_name=index_name,
     )
 
-    peak_projection = forecast_result.peak
-    current = assessment.index_latest.value
-    projected_peak = max(current, peak_projection.mean if peak_projection else current)
-    months_to_peak = peak_projection.lead if peak_projection else None
-    impact_assessment = impacts.assess(
-        projected_peak,
-        assessment.scale.flavour_index if assessment.scale else 0.0,
-        current_index=current,
-        months_to_peak=months_to_peak,
-        index_name=index_name,
-    )
+    run_at = storage.now()
+    impact_assessment = outlook(assessment, forecast_result.peak,
+                                datetime.fromisoformat(run_at).date())
 
     # Persist, then evaluate alerts, what changed against the state a day before.
-    run_at = storage.now()
     conn = storage.connect(db_path)
     try:
         baseline = storage.baseline(conn, run_at)

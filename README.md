@@ -1492,10 +1492,15 @@ layers are hidden, and the key says why in numbers: at 13 an MUR pixel would be
 
 **The Niño regions** — CPC's four boxes — carry this week's anomaly: relative to
 the tropical mean when CPC's relative weekly file has the week, as CPC now
-quotes it, else the traditional anomaly, else no number. Each is named above its
-northwest corner, or under the box where a neighbour's name has the room above,
-as Niño 3.4's has Niño 3's at zoom 3; they are on for the map and off for the
-storm desk. **The impact regions** are the 28 documented teleconnections'
+quotes it, else the traditional anomaly, else no number. Each in view is named
+in tenths, as CPC gives them, from inside its own box's west edge, or the
+screen's where that edge is off it, and never leftward over a neighbour's: above
+the box where there is room, else under it, else (the small Niño 1+2) beside it
+to the east, else inside its top edge, else not at all. Niño 3.4, the index's own
+box, is named first, and the boxes' names take their room after everything a
+storm brings and the pin, ahead of the outlook areas' and the invests', so no
+name is written over another. The layer's line says which anomaly the boxes
+carry. They are on for the map and off for the storm desk. **The impact regions** are the 28 documented teleconnections'
 footprints, dashed, and solid where this event's hazard outlook puts the effect
 in play. They wait to be ticked, on the map and the desk alike: twenty-odd grey
 boxes over the composite read as more big pixels. Show, beside an effect with a
@@ -1505,9 +1510,11 @@ away. An effect true of everywhere, such as the global mean temperature, has no
 Show.
 
 **El Niño now**, in the side panel: the index and its tier, with the legacy ONI
-beside RONI; CPC's status; this week's Niño 3.4; the forecast peak and its 10 to
-90% range; the effects this event puts in play and the watch list, each with a
-place to show with a Show button that flies to its footprint and draws it, and
+beside RONI; CPC's status; this week's Niño 3.4; the forecast peak, how far off
+it is from today, and its 10 to 90% range; the effects this event puts in play
+and the watch list, each dated by the season it falls in against today
+(Dec 2026–Mar 2027, ahead; Jun–Sep 2026, past), the past ones last, and each
+with a place to show with a Show button that flies to its footprint and draws it, and
 pressed again puts it away; and what every layer is and where it comes from. A piece that did not arrive this run is one sentence saying so.
 
 ### What a tap gives
@@ -2129,7 +2136,8 @@ altimetry a day or two behind and the moorings' monthly means weeks, and the
 altimetry falls back on the West Coast node's experimental product, weeks
 behind, when CoastWatch's own ERDDAP fails, so each spatial view carries the
 age of its own data rather than the run date, and anything over 45 days behind
-is labelled stale in both the dashboard and the report. And the mooring array has
+is labelled stale in both the dashboard and the report; the 3-D surface, from the
+daily array, says how many days behind it is past four. And the mooring array has
 moved over its lifetime: 143E, 156E and 152W reported for years and are gone.
 Their columns are not gaps, they are longitudes that no longer exist, so a
 longitude present in under half the window is dropped rather than drawn as an
@@ -2393,7 +2401,7 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them and stands in for Pages when it lags
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1967 tests over parsers, numerics, grids, renderers, a full run
+tests/                   2007 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -2754,15 +2762,17 @@ run every hour, or as often as `--watch` asks, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1967 tests, no network required. They cover:
+2007 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
   (`22.2-1.3`), `-999.9` and `+999.9` fill, PMEL's Fortran floats with no leading
   zero (`-.4883405E+14`), the MJO file's `*****` fill, stacked multi-section
   grids, files with no header at all, a file written a month a line (the
-  central-Pacific OLR's, a row whose month is no month left out), and the two
-  *different* column orders in the weekly and monthly relative-SST files;
+  central-Pacific OLR's, a row whose month is no month left out), CPC's synopsis
+  taken from its label whatever its first word, the period of JTWC's Indian
+  Ocean advisory (ABIO10) wrapped across two lines, and the two *different*
+  column orders in the weekly and monthly relative-SST files;
 - **the numerics**: the recharge fit recovers a planted oscillation, a diverged
   integration is dropped, holding a year out really removes it, per-calendar-month
   standardization removes an annual cycle, and the measured WWV lead recovers a
@@ -2775,12 +2785,19 @@ python -m unittest discover -s tests -v
   inverse of its own error, and the member tracks drawn are the ones in the band;
 - **the numbers as CPC prints them**: one decimal, ties away from zero, taken
   through the decimal representation so that 0.15 prints 0.2 as CPC's does and
-  not 0.1 as a binary `round` would;
+  not 0.1 as a binary `round` would, and CPC's weekly values given to the tenth
+  CPC gives them on every page, card and report;
 - **the words on the page**: every unit written as its sign (°C, σ, × 10¹⁴ m³)
   and on the quantity it measures (the terminal report's QBO: its wind in m/s,
   its phase the wind's, its score in sigma, all of the newest month that has
   its wind),
-  no count printed with a lazy "(s)" plural, no signed zero on an axis, words
+  no count printed with a lazy "(s)" plural, no signed zero on an axis, month
+  ticks giving the year in full, every tile in degrees saying °C, a longitude
+  or latitude rounded before it is given a hemisphere (180, not 180E), fix and
+  issue times written as times (16 Oct 18Z, 25 Sep 2026 11:40 UTC), JTWC's
+  watches' as NHC's are, and one given in Z read as UTC on Python 3.10 too, every day
+  of the month written as 5 Oct, never 05 Oct, every dashboard table in a box
+  of its own that scrolls on a phone, words
   aligned left and numbers right in every table with sentences wrapped, and
   chart labels placed clear of each other and of the lines they annotate;
 - **the level tables**, because a mismatch between a lowercase level constant and
@@ -2829,7 +2846,8 @@ python -m unittest discover -s tests -v
   costing only itself, and what the final changed on the days both carry; the
   Hovmöller's record ending on the final's latest day and carried on its weekly
   beat from the nearest day within three, a missed week a blank row, then the
-  latest day; each map and the daily card saying how far behind past four days;
+  latest day; each map, the daily card and the 3-D card saying how far behind
+  past four days, in one chip;
   the daily card's lines broken at a missing day, the preliminary shaded and
   named, CPC's traditional weeks as hollow dots set against their seven days,
   the end labels apart; CPC's weeks named by the Wednesday they are centred on;
@@ -2914,7 +2932,8 @@ python -m unittest discover -s tests -v
 - **storage**: snapshot round-trips; an alert keeping its first-seen time
   across runs and clearing when it stops firing; its news kept a day, raised,
   raised a level while it stays above, both, or cleared unless raised again, in a
-  record made before the news columns too, and said to the minute; a ladder's
+  record made before the news columns too, and said to the minute, a cleared
+  one by its title as it last stood, printed as plainly as an open one's; a ladder's
   rung stepped up to new and the one left not cleared, and stepped down to
   standing since the ladder was raised and the one left cleared; the change
   rules against the state a day before, or the earliest, never the run itself,
@@ -2923,8 +2942,12 @@ python -m unittest discover -s tests -v
 - **the geography**: every teleconnection has a footprint and every footprint a
   teleconnection, longitudes wrap into a single half-open range, a region
   straddling the antimeridian is found from both sides, the most specific claim
-  is listed first, and a place with no catalogued relationship returns nothing
-  rather than something vague;
+  is listed first, a place with no catalogued relationship returns nothing
+  rather than something vague, and each effect's season is dated by the event
+  it belongs to (Dec-Mar runs into the next year, Feb-May falls in it), by the
+  season the event peaks in, seen or forecast, so that one past its peak keeps
+  that peak's year, and said to be past, under way or ahead of the run's day, as
+  the peak is said to be so many months away;
 - **the globe**: four thousand points survive the trip through the inverse
   projection, the far side is culled, a click that misses the disc is not a
   location, the quantised field is exactly one character per cell, the
@@ -3053,7 +3076,10 @@ python -m unittest discover -s tests -v
 - **the storm desk**: nothing in it or the map is a credential, and every
   address either can reach, the page and the assets it names, is on a list of
   twenty-eight known public ones, the warning centres of every basin among
-  them, all of them https; its data survive a JSON round trip; each storm's
+  them, all of them https, and a feed's link is written only when it is a web
+  address that can be read, an http one, in either case, as https, and as words
+  otherwise; its data survive a JSON round trip, and the footer's advisory time is
+  the newest advisory drawn, NHC's or JTWC's, or none; each storm's
   longitudes stay within 180° of its centre across the date line; every imagery
   layer is named as GIBS's capabilities list it, and every reference overlay
   waits to be asked for; the search box is labelled and lists what it finds; the
@@ -3075,7 +3101,8 @@ python -m unittest discover -s tests -v
   with the satellite loop, the one started last running; an address followed
   stops it; a name every object answers to ("constructor") picks no storm, and
   a run with no storm left picks none; a storm forecast to strengthen says its
-  peak in its row and its Now tab; and the dashboard links to the desk;
+  peak in its row and its Now tab; its heading is named as the map and the
+  storm tier name it; and the dashboard links to the desk;
 - **the map**: every street map is a keyless https tile address, to zoom 19,
   with a credit, and OpenStreetMap's is offered only to a served page; only
   Esri's grey placeholder is set aside for a coarser
@@ -3108,17 +3135,25 @@ python -m unittest discover -s tests -v
   layer is drawn on its own side of the divider only, the satellite map's roads
   and names with it, and the status line says what the compared side shows; the
   credit line names the source of each layer drawn and of nothing else; a tap on
-  any copy of the world flies the short way; a Niño box's name with no room
-  above goes under the box; NASA's tiles have a strength of their own; the
+  any copy of the world flies the short way; Niño 3.4 is named first, every
+  box's name sits on its own box, from the screen's edge where the box's own is
+  off it, in tenths, under it where there is no room above and inside it where
+  there is none under, and none is written over a storm's or an outlook area's;
+  NASA's tiles have a strength of their own; the
   composite's field runs across the date line and Greenwich unbroken, fading
   out at the coast and where its cells stop passing the *t* test, and the cell
   on the date line reads as one cell from either side; the outline of the cell
   under the pin is drawn only while the cell fits the view, across and down;
   the impact regions wait to be ticked, Show draws its region alone and says
   so, pressed again puts it away, and is not offered for an effect true of
-  everywhere; zoomed out, every copy of
+  everywhere; the *El Niño here* card gives each effect's season once, the
+  event's dates where the outlook dates it and the catalogue's months, with a
+  dash, where it does not, and says which seasons have passed; the panel says
+  how the Niño boxes' anomalies are taken in one wording, on Niño 3.4's line and
+  the layer's alike, and names Niño 3.4's week only where it has one; zoomed out, every copy of
   the world in view carries the geometry and the marks, as markup the page's
-  stylesheet reaches, never as a copy made by an SVG `use` element; and both
+  stylesheet reaches, never as a copy made by an SVG `use` element; the side
+  panel's headings nest, an h3 under each h2; and both
   pages build with the index, the weeks, the forecast or the impacts missing;
 - **then and now**: the season words for runs of every kind; the events for
   past, current and absent episodes; GIBS's times read, snapped and stepped

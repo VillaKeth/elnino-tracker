@@ -721,11 +721,18 @@ def _analysis(grid: Field) -> tuple[str, str]:
     return f"for {esc(grid.as_of)}, NOAA&rsquo;s {which}", _behind(grid.as_of)
 
 
+def days_behind(age: int | None, threshold: int = BEHIND_DAYS) -> str:
+    """The chip a panel carries when what it shows is more than ``threshold``
+    days old, saying how many."""
+    if age is None or age <= threshold:
+        return ""
+    return f'<span class="chip chip-warning">{age} days behind</span>'
+
+
 def _behind(day: str) -> str:
     """A chip saying how far behind a day is, once it is more than BEHIND_DAYS old."""
-    age = grids.age_days(day)
-    return (f' <span class="chip chip-warning">{age} days behind</span>'
-            if age is not None and age > BEHIND_DAYS else "")
+    chip = days_behind(grids.age_days(day))
+    return f" {chip}" if chip else ""
 
 
 def sst_map(grid: Field, box_means: dict[str, float],
@@ -963,12 +970,7 @@ def section(grid: Field, absolute: Field | None, title: str) -> str:
 
 def _stale_chip(state, name: str, threshold: int) -> str:
     """Say so on the panel when a feed is behind, rather than implying currency."""
-    age = state.stale.get(name)
-    if age is None or age <= threshold:
-        return ""
-    return (
-        f'<span class="chip chip-warning">{age} days behind</span>'
-    )
+    return days_behind(state.stale.get(name), threshold)
 
 
 def hov_card(state) -> str:

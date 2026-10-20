@@ -150,9 +150,10 @@ def _section_alerts(state) -> list[str]:
             said = "raised" if alert.is_new else "standing since"
             lines.append(f"        {said} {alerts.utc_time(alert.first_seen)}")
     if alert_set.cleared:
-        # A day of them can outrun the page; each code wraps whole.
+        # A day of them can outrun the page, and wraps inside it.
         lines.append("")
-        lines.extend(textwrap.wrap(f"Cleared in the last day: {', '.join(alert_set.cleared)}",
+        named = "; ".join(_ascii(title) for title in alert_set.cleared_named)
+        lines.extend(textwrap.wrap(f"Cleared in the last day: {named}",
                                    width=WIDTH, initial_indent="  ", subsequent_indent="  ",
                                    break_on_hyphens=False))
     return lines
@@ -312,7 +313,7 @@ def _section_intensity(state) -> list[str]:
             lines.extend(_table(rows, (39, -6, -6, 21)))
         lines.append("")
         lines.append(
-            f"  Flavour: {_ascii(a.scale.flavour)}  (index {a.scale.flavour_index:+.2f}, "
+            f"  Flavour: {_ascii(a.scale.flavour)}  (index {a.scale.flavour_index:+.1f}, "
             f"{a.scale.basis} anomalies)"
         )
         lines.extend(_wrap(
@@ -836,7 +837,7 @@ def _section_impacts(state) -> list[str]:
             link = impact.link
             lines.append(f"    [{impact.likelihood:<8s}] {_ascii(link.region)}")
             lines.extend(_wrap(
-                f"{link.effect} ({link.window})", indent="               "
+                f"{link.effect} ({_ascii(impact.timing)})", indent="               "
             ))
             lines.extend(_wrap(link.detail, indent="        "))
             if link.exposure:

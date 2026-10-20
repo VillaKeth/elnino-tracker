@@ -258,7 +258,7 @@ def chart_heat(state) -> str:
         point = track[index]
         plot.add(
             f'<text x="{plot.sx(index):.1f}" y="{plot.h - 12}" text-anchor="middle" '
-            f'class="tick">{point.when.strftime("%b %y")}</text>'
+            f'class="tick">{point.when.strftime("%b %Y")}</text>'
         )
     for index, point in enumerate(track):
         plot.add(_hit(heat_pts[index][0], heat_pts[index][1],
@@ -778,7 +778,7 @@ def alert_feed(state) -> str:
             f'<p>{prose(alert.detail)}</p>{since}</div></li>'
         )
     cleared = (
-        f'<p class="note">Cleared in the last day: {prose(", ".join(alert_set.cleared))}</p>'
+        f'<p class="note">Cleared in the last day: {prose("; ".join(alert_set.cleared_named))}</p>'
         if alert_set.cleared else ""
     )
     rows = [[a.level, a.title, a.kind, ", ".join(_marks(a)) or "standing",
@@ -822,7 +822,7 @@ def impact_panel(state) -> str:
                 f'<div class="impact-head"><span class="chip chip-{status}">'
                 f'{esc(impact.likelihood.strip())}</span>'
                 f'<strong>{esc(link.region)}</strong>'
-                f'<span class="impact-window">{esc(link.window)}</span></div>'
+                f'<span class="impact-window">{esc(impact.timing)}</span></div>'
                 f'<div class="impact-effect">{esc(link.effect)}</div>'
                 f'<p>{esc(link.detail)}</p>'
                 f'<p class="impact-exposure"><span>Exposure</span> {esc(link.exposure)}</p>'
@@ -849,7 +849,7 @@ def impact_panel(state) -> str:
                  f'bar at this peak</h3><ul>{entries}</ul></div>')
 
     rows = [
-        [i.link.area, i.link.region, i.link.effect, i.link.window,
+        [i.link.area, i.link.region, i.link.effect, i.timing,
          i.likelihood.strip(), i.link.confidence, f"{i.link.min_intensity:+.1f}",
          i.link.flavour]
         for i in assessment.active

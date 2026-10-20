@@ -183,13 +183,13 @@ def chart_regions(assessment: Assessment) -> str:
         anchor = "start" if warm else "end"
         plot.add(
             f'<text x="{tip_x:.1f}" y="{centre + 4:.1f}" text-anchor="{anchor}" '
-            f'class="barvalue">{region.anomaly:+.2f} °C</text>'
+            f'class="barvalue">{region.anomaly:+.1f} °C</text>'
         )
         plot.add(
             f'<rect class="hit" x="{plot.left:.1f}" y="{centre - band / 2:.1f}" '
             f'width="{plot.plot_w:.1f}" height="{band:.1f}" fill="transparent" tabindex="0" '
             f'data-label="{esc(region.label)}" '
-            f'data-value="anomaly {region.anomaly:+.2f} °C" '
+            f'data-value="anomaly {region.anomaly:+.1f} °C" '
             f'data-extra="SST {region.sst:.1f} °C"></rect>'
         )
 
@@ -241,7 +241,7 @@ def chart_weekly(weeks: list[WeekObservation], count: int = 104) -> str:
 
     seen: set[str] = set()
     for index, week in enumerate(recent):
-        stamp = f"{week.week_ending:%b %y}"
+        stamp = f"{week.week_ending:%b %Y}"
         if week.week_ending.month % 3 == 0 and stamp not in seen:
             seen.add(stamp)
             plot.add(
@@ -251,7 +251,7 @@ def chart_weekly(weeks: list[WeekObservation], count: int = 104) -> str:
         plot.add(
             _hit(
                 plot.sx(index), plot.sy(week.nino34_anom), f"Week centred on {week.label}",
-                f"Nino-3.4 {week.nino34_anom:+.2f} °C", f"SST {week.nino34_sst:.1f} °C",
+                f"Nino-3.4 {week.nino34_anom:+.1f} °C", f"SST {week.nino34_sst:.1f} °C",
             )
         )
 
@@ -262,7 +262,7 @@ def chart_weekly(weeks: list[WeekObservation], count: int = 104) -> str:
     )
     plot.add(
         f'<text x="{ex + 10:.1f}" y="{ey + 4:.1f}" class="endlabel">'
-        f'{recent[-1].nino34_anom:+.2f} °C</text>'
+        f'{recent[-1].nino34_anom:+.1f} °C</text>'
     )
     return plot.svg(
         "Weekly Nino-3.4 anomaly",
@@ -442,6 +442,7 @@ h1 {{ font-size: 1.35rem; margin: 0; letter-spacing: -0.01em; }}
   border-radius: 12px; padding: 14px 16px; }}
 .tile .t-label {{ color: var(--ink2); font-size: 0.76rem; }}
 .tile .t-value {{ font-size: 1.5rem; font-weight: 620; letter-spacing: -0.01em; margin-top: 2px; }}
+.tile .t-unit {{ font-size: 0.95rem; color: var(--ink2); font-weight: 500; }}
 .tile .t-note {{ color: var(--muted); font-size: 0.75rem; margin-top: 2px; }}
 .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
   padding: 20px 22px 16px; margin-bottom: 20px; }}
@@ -1023,8 +1024,7 @@ def render(state) -> str:
     discussion = state.discussion or {}
     fetches = state.fetched
     # Dated by its run, as the storm desk is, not by when the page was drawn.
-    run_time = (datetime.fromisoformat(state.run_at.replace("Z", "+00:00"))
-                .astimezone(timezone.utc).strftime("%d %b %Y %H:%M UTC"))
+    run_time = alerts.utc_time(state.run_at)
     legacy_map = {(s.season, s.year): s.value for s in legacy}
 
     # --- hero + tiles --------------------------------------------------------
@@ -1050,11 +1050,12 @@ def render(state) -> str:
   {power_meter(a)}
 </section>"""
 
+    degrees = '<span class="t-unit"> °C</span>'
     tiles: list[str] = []
     if a.index_name == "RONI" and a.oni_latest:
         tiles.append(
             f'<div class="tile"><div class="t-label">Legacy ONI ({esc(a.oni_latest.label)})</div>'
-            f'<div class="t-value">{a.oni_latest.value:+.2f}</div>'
+            f'<div class="t-value">{a.oni_latest.value:+.2f}{degrees}</div>'
             f'<div class="t-note">pre-2026 index &middot; {esc(a.oni_tier)}</div></div>'
         )
     elif a.index_name == "RONI":
@@ -1074,10 +1075,10 @@ def render(state) -> str:
             if region is None:
                 continue
             if relative and region.traditional is not None:
-                note += f" &middot; relative; traditional {region.traditional:+.2f}"
+                note += f" &middot; relative; traditional {region.traditional:+.1f} °C"
             tiles.append(
                 f'<div class="tile"><div class="t-label">{label}</div>'
-                f'<div class="t-value">{region.anomaly:+.2f}</div>'
+                f'<div class="t-value">{region.anomaly:+.1f}{degrees}</div>'
                 f'<div class="t-note">{note}</div></div>'
             )
     if a.coupling.soi is not None:
@@ -1113,9 +1114,9 @@ def render(state) -> str:
     if peak:
         tiles.append(
             f'<div class="tile"><div class="t-label">Projected {esc(a.index_name)} peak</div>'
-            f'<div class="t-value">{peak.mean:+.2f}</div>'
+            f'<div class="t-value">{peak.mean:+.2f}{degrees}</div>'
             f'<div class="t-note">{esc(peak.label)} &middot; 80% range '
-            f'{peak.low:+.2f} to {peak.high:+.2f}</div></div>'
+            f'{peak.low:+.2f} to {peak.high:+.2f} °C</div></div>'
         )
 
     # --- cards ---------------------------------------------------------------
@@ -1167,7 +1168,7 @@ def render(state) -> str:
     cards.append(daily.nino_card(sp.nino_daily, weeks, sp.nino_revision))
     cards.append(daily.dipole_card(sp.iod_daily, sp.iod_revision))
     if sp.mesh is not None:
-        cards.append(space3d.thermocline(sp.mesh))
+        cards.append(space3d.thermocline(sp.mesh, age=sp.stale.get("mesh")))
     cards.append(fields.section_card(sp))
     cards.append(fields.hov_card(sp))
     cards.append(fields.ssh_card(sp))
@@ -1208,7 +1209,7 @@ def render(state) -> str:
   <h2>Scale &mdash; spatial extent across the Nino regions</h2>
   <p class="caption">Week centred on {esc(a.latest_week.label)} &middot;
     {a.scale.active_regions} of 4 regions at or above +0.5 °C &middot; {esc(a.scale.flavour)}
-    (Nino-1+2 minus Nino-4 = {a.scale.flavour_index:+.2f} °C) &middot;
+    (Nino-1+2 minus Nino-4 = {a.scale.flavour_index:+.1f} °C) &middot;
     {"relative anomalies, tropical mean removed, as CPC now quotes them"
      if a.scale.basis == "relative" else "traditional anomalies"}</p>
   {chart_regions(a)}
@@ -1216,8 +1217,8 @@ def render(state) -> str:
   {table("Nino-region weekly values",
          ["Region", f"{a.scale.basis.capitalize()} anomaly °C", "Traditional anomaly °C",
           "SST °C", "At threshold"],
-         [[r.label, f"{r.anomaly:+.2f}",
-           "n/a" if r.traditional is None else f"{r.traditional:+.2f}",
+         [[r.label, f"{r.anomaly:+.1f}",
+           "n/a" if r.traditional is None else f"{r.traditional:+.1f}",
            f"{r.sst:.1f}", "yes" if r.active else "no"]
           for r in a.scale.regions])}
 </section>"""
@@ -1232,7 +1233,7 @@ def render(state) -> str:
 
         def relative_cell(week) -> str:
             value = relative_by_week.get(week.week_ending)
-            return "n/a" if value is None else f"{value:+.2f}"
+            return "n/a" if value is None else f"{value:+.1f}"
 
         cards.append(
             f"""<section class="card" id="weekly">
@@ -1244,8 +1245,8 @@ def render(state) -> str:
   {table("Weekly Nino-3.4 (most recent 16 weeks)",
          ["Week centred on", "Relative anomaly °C", "Traditional anomaly °C", "SST °C",
           "Nino-1+2 traditional °C"],
-         [[w.label, relative_cell(w), f"{w.nino34_anom:+.2f}", f"{w.nino34_sst:.1f}",
-           f"{w.nino12_anom:+.2f}"]
+         [[w.label, relative_cell(w), f"{w.nino34_anom:+.1f}", f"{w.nino34_sst:.1f}",
+           f"{w.nino12_anom:+.1f}"]
           for w in reversed(shown[-16:])])}
 </section>"""
         )

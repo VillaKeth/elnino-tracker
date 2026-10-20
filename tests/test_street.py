@@ -144,7 +144,7 @@ class TestStreetOnThePage(_DeskFixtures, unittest.TestCase):
         card = show.index('html.push(\'<div class="streetcard" id="street-card">\' + '
                           'streetCardHtml(streetState(S.here.lon, S.here.lat)) + "</div>");')
         self.assertLess(show.index('data-here="clear">Clear</button>'), card)
-        self.assertLess(card, show.index('html.push("<h4>Live storms</h4>");'))
+        self.assertLess(card, show.index('html.push(\'<h3 class="subhead">Live storms</h3>\');'))
         self.assertIn("if (streetAsked(S.here.lon, S.here.lat)) streetCard(S.here.lon, S.here.lat, true);", show)
 
     def test_here_offers_street_view_of_the_point_it_shows(self):

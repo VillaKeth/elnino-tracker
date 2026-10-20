@@ -21,6 +21,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 from . import (alerts, assets, coastline, cyclones, exposure, fields, live, outlook, sitenav,
                street, streetstorms, thennow, worldmap)
@@ -671,10 +672,13 @@ def payload(state) -> dict:
     entries = [e for e in (storm_entry(s) for s in live) if e is not None]
     invests = [e for e in (_invest(s) for s in getattr(storms, "invests", ()) or ())
                if e is not None]
+    # The newest advisory drawn, NHC's or JTWC's: NHC's current storms alone
+    # leave a desk of JTWC's storms with no time at all.
+    issued = [t for e in entries for t in (e["issued"], (e["advisory_fix"] or {}).get("t")) if t]
     return {
         "schema": SCHEMA,
         "built": _iso_time(getattr(state, "run_at", "")) or getattr(state, "run_at", None),
-        "as_of": getattr(storms, "as_of", None) or None,
+        "as_of": max(issued, default=None) or _iso_time(getattr(storms, "as_of", None)),
         "storms": entries,
         "invests": invests,
         "outlook": [_area(a) for a in (getattr(storms, "outlook", None) or [])],
@@ -740,10 +744,6 @@ LEAD_TIME = (
     "out of its way."
 )
 
-_COMPASS = ("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-            "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")
-
-
 def _when(iso) -> str:
     """``2026-09-25T15:00:00Z`` as ``25 Sep 15:00 UTC``."""
     try:
@@ -792,23 +792,30 @@ def _pos(lon: float, lat: float) -> str:
             f"{abs(lon):.1f}°{'W' if lon < 0 else 'E'}")
 
 
-def _compass(degrees: float) -> str:
-    return _COMPASS[round((degrees % 360.0) / 22.5) % 16]
-
-
 def _cap(text) -> str:
     text = str(text or "")
     return text[:1].upper() + text[1:]
 
 
 def _https(url) -> str:
-    """Every centre linked serves HTTPS; an index that says http is upgraded."""
+    """Every centre linked serves HTTPS; an index that says http, in either
+    case, is upgraded."""
     url = str(url or "")
-    return "https://" + url[7:] if url.startswith("http://") else url
+    return "https://" + url[7:] if url[:7].lower() == "http://" else url
 
 
 def _link(url, words: str) -> str:
-    return f'<a href="{esc(_https(url))}" target="_blank" rel="noopener">{esc(words)}</a>'
+    """A link to a web address, or the words alone: a URL from a feed that is
+    anything else (javascript:, data:, none at all, none urlsplit can read)
+    is not written into href."""
+    url = _https(url)
+    try:
+        scheme = urlsplit(url).scheme.lower()
+    except ValueError:  # "https://[x" names no host it can read
+        scheme = ""
+    if scheme not in ("http", "https"):
+        return esc(words)
+    return f'<a href="{esc(url)}" target="_blank" rel="noopener">{esc(words)}</a>'
 
 
 def _pct(value) -> str:
@@ -852,10 +859,10 @@ def _motion_words(motion, short: bool = False) -> str:
     if not motion.get("kt"):
         return "stationary"
     if short:
-        return f"{_compass(motion['toward'])} {motion['kt']} kt"
+        return f"{cyclones.bearing_name(motion['toward'])} {motion['kt']} kt"
     source = ("the advisory" if motion["source"] == "advisory"
               else "the last two best-track fixes (derived)")
-    return (f"toward the {_compass(motion['toward'])} ({motion['toward']:.0f}°) at "
+    return (f"toward the {cyclones.bearing_name(motion['toward'])} ({motion['toward']:.0f}°) at "
             f"{motion['kt']} kt, from {source}")
 
 
@@ -943,7 +950,7 @@ def _now_pane(entry) -> str:
         rows.append(("Satellite", esc(
             f'{view["satellite"]} ({operator} {imager}), viewing zenith '
             f'{view["zenith"]}°. Cloud tops {view["height_km"]:.0f} km up appear '
-            f'{view["offset_km"]} km to the {_compass(view["toward"])} of the surface '
+            f'{view["offset_km"]} km to the {cyclones.bearing_name(view["toward"])} of the surface '
             "centre (derived); the dashed ring on the map is where the eye appears.")))
     else:
         rows.append(("Satellite", "No geostationary imager in NASA GIBS sees this "
@@ -1243,8 +1250,8 @@ def _about(data) -> str:
             f'<p>{esc(RESPONSIBILITY)}</p>' + _facts(methods)
             + f'<p class="note">{esc(GIBS_ENDPOINTS["latency"])} '
               f'{esc(GIBS_ENDPOINTS["credit"])}</p>'
-            + f'<p class="note">Built {_time(data["built"])}; storm advisories as of '
-              f'{_time(as_of) if as_of else "unknown"}.</p>'
+            + f'<p class="note">Built {_time(data["built"])}'
+              + (f"; storm advisories as of {_time(as_of)}" if as_of else "") + ".</p>"
             + (f'<ul class="notes">{notes}</ul>' if notes else "") + "</section>")
 
 
@@ -2887,6 +2894,10 @@ _JS = r"""
         });
       });
     }
+    // The Nino regions with this week's anomalies, the regions in play while
+    // they are ticked, and the one Show asked for: after everything a storm
+    // brings and the pin, ahead of the outlook areas' and the invests' names.
+    if (live) ensoLabels(sx, sy, off, label).forEach(function (words) { out.push(words); });
     if (live && S.show.outlook) D.outlook.forEach(function (a) {
       var colour = D.style.outlook[a.level] || "var(--ink2)";
       var words = a.centre === "JTWC" ? (a.level || "unrated") + " potential in 24 h"
@@ -2908,9 +2919,6 @@ _JS = r"""
                  label(x, y, 6, [[v.name + (v.wind != null ? ", " + v.wind + " kt" : ""), "dl2"]]));
       });
     });
-    // The Nino regions with this week's anomalies, the regions in play while
-    // they are ticked, and the one Show asked for.
-    if (live) ensoLabels(sx, sy, off, label).forEach(function (words) { out.push(words); });
     // The gazetteer's towns, the most populous first and more as the view
     // closes in, wherever a name fits; capitals from the first level shown.
     // A map carries its own names, so over one the gazetteer's stand aside,
@@ -3927,14 +3935,14 @@ _JS = r"""
     html.push('<div class="streetcard" id="street-card">' + streetCardHtml(streetState(S.here.lon, S.here.lat)) + "</div>");
     var near = h.storms.filter(nearHere);
     var far = h.storms.filter(function (r) { return near.indexOf(r) < 0; });
-    html.push("<h4>Live storms</h4>");
+    html.push('<h3 class="subhead">Live storms</h3>');
     if (!h.storms.length) html.push("<p>No live tropical cyclones.</p>");
     if (near.length) html.push('<ul class="herestorms">' + near.map(stormHere).join("") + "</ul>");
     else if (h.storms.length) html.push("<p>No live storm\u2019s official forecast comes within 1,500 km of here.</p>");
     if (far.length) html.push("<p>Further away, closest on their forecasts: " + far.map(function (r) {
       return esc(r.title) + " " + (r.closest_km == null ? "no forecast" : kms(r.closest_km));
     }).join(", ") + ".</p>");
-    html.push("<h4>Formation outlook</h4>");
+    html.push('<h3 class="subhead">Formation outlook</h3>');
     if (!h.areas.length) html.push("<p>No area the warning centres are watching for formation is near here.</p>");
     h.areas.forEach(function (a) {
       var chance = a.centre === "JTWC" ? (a.potential || "unrated") + " potential in 24 h" + (a.alert ? ", " + alertHtml(a.until) : "")
@@ -3942,7 +3950,7 @@ _JS = r"""
       html.push("<p>" + (a.inside ? "Inside " : kms(a.km) + " from ") + esc(a.centre) + "\u2019s " +
                 (a.centre !== "JTWC" ? "formation area " : a.polygon ? "formation alert area " : "") + "\u201c" + esc(a.label) + "\u201d: " + chance + ".</p>");
     });
-    html.push("<h4>Who warns here</h4>");
+    html.push('<h3 class="subhead">Who warns here</h3>');
     html.push("<p>" + (place && place.km <= 400 && place.country
       ? "Warnings for " + esc(place.country) + "\u2019s coast come from its national meteorological service. "
       : "Out at sea, far from any named place. ") +

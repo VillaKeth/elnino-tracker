@@ -240,8 +240,10 @@ _MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN",
 
 
 def advisory_time(text: str) -> str:
-    """When an advisory's validity starts, ``210600Z-220600ZSEP2026``, as ISO."""
-    found = _PERIOD.search(" ".join(text.split()))
+    """When an advisory's validity starts, ``210600Z-220600ZSEP2026``, as ISO.
+    The period holds no space, and a line can break anywhere in it, as the
+    Indian Ocean's does after the dash: it is read with every space taken out."""
+    found = _PERIOD.search("".join(text.split()))
     if not found or found.group(5) not in _MONTHS:
         return ""
     day, hour, minute, end_day = (int(found.group(i)) for i in range(1, 5))

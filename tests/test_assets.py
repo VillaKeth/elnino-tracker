@@ -637,13 +637,27 @@ class TestPagesNameTheirAssets(_DeskFixtures, unittest.TestCase):
         self.assertIn(assets.tags(named) + "\n</head>", html)
         self.assertNotIn("var RELIEF", html)
         self.assertNotIn(atlasview._JS, html)
-        data = json.loads(re.search(r"<script>var ATLAS=(.*?);</script>", html, re.S).group(1).replace("<\\/", "</"))
+        data = json.loads(re.search(r"<script>var ATLAS=(.*?);</script>", html, re.S).group(1))
         for key in ("grids", "places", "coast", "borders", "rivers", "lakes"):
             self.assertNotIn(key, data)
         self.assertEqual(data["storms"], [])
         self.assertEqual(data["wide"], atlasview.WIDE)
         self.assertIn("  var D = ATLAS;\n  D.grids = ELNINO.grids; D.places = ELNINO.places;\n", atlasview._JS)
         self.assertIn("  var RELIEF = ELNINO.relief;\n", atlasview._JS)
+
+    def test_the_atlas_data_holds_no_markup_whatever_a_storm_is_named(self):
+        # Only "</" was escaped: a storm named "<!--<Script>" left the page's
+        # own closing tag unable to end the element, so ATLAS was never set
+        # and the atlas's map never started. Every "<" is its escape now.
+        fix = SimpleNamespace(lon=-60.0, lat=20.0, wind=100, tau=0)
+        storm = SimpleNamespace(active=True, latest=fix, title="<!--<Script>", basin="AL",
+                                track=(fix,), forecast=())
+        html = atlasview.page(SimpleNamespace(
+            atlas=atlas.evaluate(), cyclones=SimpleNamespace(storms=(storm,), available=True),
+            generated=date(2026, 9, 23), run_at=RUN))
+        data = re.search(r"<script>var ATLAS=(.*?);</script>", html, re.S).group(1)
+        self.assertNotIn("<", data)
+        self.assertEqual(json.loads(data)["storms"][0]["name"], "<!--<Script>")
 
 
 if __name__ == "__main__":
