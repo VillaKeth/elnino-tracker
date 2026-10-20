@@ -1005,7 +1005,7 @@ class TestOnThePage(unittest.TestCase):
 
     def test_the_json_gives_the_events_since_schema_12_and_null_without_the_feed(self):
         data = json.loads(json.dumps(dashboard.payload(self.state)))
-        self.assertEqual(data["schema"], 13)
+        self.assertEqual(data["schema"], 14)
         events = data["spatial"]["wind_events"]["events"]
         self.assertEqual([(event["region"], event["under_way"]) for event in events],
                          [("C", True)])

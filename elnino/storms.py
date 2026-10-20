@@ -618,8 +618,8 @@ def _degrees(fix) -> str:
     tenth, have no hemisphere."""
     lon = round((fix.lon + 180.0) % 360.0 - 180.0, 1) + 0.0
     east = "" if abs(lon) in (0.0, 180.0) else "W" if lon < 0 else "E"
-    return (f"{abs(fix.lat):.1f}&#176;{'N' if fix.lat >= 0 else 'S'} "
-            f"{abs(lon):.1f}&#176;{east}")
+    return (f"{abs(fix.lat):.1f}°{'N' if fix.lat >= 0 else 'S'} "
+            f"{abs(lon):.1f}°{east}")
 
 
 # --------------------------------------------------------------------------
@@ -866,7 +866,7 @@ def tracks_card(state) -> str:
         facts = [
             f"{now.wind or 0} kt sustained"
             + (f", {now.pressure} mb" if now.pressure else ""),
-            _degrees(now).replace("&#176;", "°"),
+            _degrees(now),
             motion,
         ]
         if land:
@@ -995,8 +995,9 @@ def season_card(state) -> str:
   <h2>Season verification &mdash; what this El Nino did to the basins</h2>
   <p class="caption">Accumulated cyclone energy through {esc(storms.through)}
     &middot; climatology 1991&ndash;2020
-    &middot; El Nino composite from {len(storms.elnino_years)} seasons with
-    ASO {esc(index_name)} printed at or above +0.5&nbsp;&#176;C</p>
+    &middot; El Nino composites of the satellite era (the Atlantic from
+    {cyclones.RELIABLE_FROM["AL"]}, the east Pacific from {cyclones.RELIABLE_FROM["EP"]}),
+    seasons with ASO {esc(index_name)} printed at or above +0.5&nbsp;&#176;C</p>
   {chart}
   {_legend(list(SERIES))}
   <div class="tcgrid">{"".join(verdicts)}</div>

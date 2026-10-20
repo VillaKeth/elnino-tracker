@@ -69,7 +69,7 @@ WALKER_WEIGHTS: dict[str, float] = {
 PRESTANDARDIZED = {"eqsoi"}
 
 # A feed more than this many months behind the newest one is reported as stale
-# rather than current. cpolr in particular can sit months behind the rest.
+# rather than current.
 STALE_AFTER = 2
 
 COUPLED_THRESHOLD = 1.0  # Walker index at or above this = a coupled event
@@ -394,22 +394,26 @@ def analyse(
         if (history[-1].year * 12 + history[-1].month) - (burst.when.year * 12 + burst.when.month) < 12
     ) if history else len(bursts)
 
+    # The QBO's speed and phase are the wind's at 30 hPa, in m/s: an easterly
+    # wind is the easterly phase whatever its anomaly. A standard score alone
+    # gives neither, and makes no reading.
     qbo_indicator = None
-    if qbo:
-        standardized = qbo.get("standardized") or standardize(
-            qbo.get("anomaly") or qbo.get("data") or []
-        )
-        if standardized:
-            latest = standardized[-1]
+    winds = (qbo.get("original") or qbo.get("data") or []) if qbo else []
+    if winds:
+        wind = {(v.year, v.month): v.value for v in winds}
+        standardized = qbo.get("standardized") or standardize(qbo.get("anomaly") or winds)
+        latest = next((v for v in reversed(standardized) if (v.year, v.month) in wind), None)
+        if latest:
+            raw = wind[(latest.year, latest.month)]
             qbo_indicator = Indicator(
                 key="qbo30",
                 name="QBO, 30 hPa zonal wind",
                 latest=latest,
-                raw=latest.value,
+                raw=raw,
                 score=latest.value,
                 meaning=(
                     "Westerly phase aloft, which tends to suppress MJO amplitude."
-                    if latest.value > 0
+                    if raw > 0
                     else "Easterly phase aloft, which tends to favour a stronger MJO."
                 ),
                 standardized_by_source=bool(qbo.get("standardized")),

@@ -763,7 +763,13 @@ count.
 **The season is scored against date-matched climatology.** Comparing a season's
 ACE in September against a full-season normal is meaningless, so the normal is
 recomputed from HURDAT2 through the same calendar date, 1991-2020 base period,
-alongside an El Niño-year composite over the same window. The panel then states
+alongside an El Niño-year composite over the same window. The composite is of
+each basin's satellite era, the Atlantic's from 1966 and the east Pacific's from
+1971 (where NHC's own climatology begins), so that every season in it was counted
+the same way: before satellites a storm far from ships and land went uncounted.
+In the east Pacific, whose storms mostly stay out at sea, that shows: over whole
+seasons its El Niño seasons from 1950 average 132 ACE, under its normal of 142,
+against 163 from 1971. The panel then states
 what this event's official index and flavour predict for each basin — Atlantic suppressed,
 east and central Pacific enhanced, the two most reliable seasonal signals ENSO
 has — and prints whether that is verifying.
@@ -2387,14 +2393,14 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them and stands in for Pages when it lags
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   1954 tests over parsers, numerics, grids, renderers, a full run
+tests/                   1967 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
                          storms.json, run.json, sw.js, and assets/ beside them
 ```
 
-`output/latest.json` (schema 13) is the machine-readable snapshot: classification,
+`output/latest.json` (schema 14) is the machine-readable snapshot: classification,
 every diagnostic behind it, the spatial block (each field's stamp, age and
 coverage; the map-derived box means; the warm-pool edge; the isotherm profile),
 the forecast with its verified error bars, open alerts, active impacts, and the
@@ -2467,6 +2473,10 @@ when a file's server answered 304 Not Modified. An alert's `is_new` and
 `escalated_from`, and `alerts_cleared`, now say the day before the run, not the
 run alone; a rung of a ladder stepped down to keeps the ladder's `first_seen`,
 and one stepped up from is not in `alerts_cleared`.
+Schema 14 adds each basin's `elnino_composite_from` in `cyclones.seasons`, the
+first season its El Niño composite averages (1966 in the Atlantic, 1971 in the
+east Pacific, each one's satellite era); `cyclones.elnino_seasons` lists every
+El Niño season since 1950.
 `output/run.json`, written after every other file of a run, names that run and
 nothing else: an open page asks for it to learn whether the site has a newer one
 (*The live site*).
@@ -2608,6 +2618,10 @@ publishes the run (`.github/workflows/live.yml`):
   ours to be on, and runs none of the repository's code and no action: the
   token that dispatches may work the repository's Actions and nothing else,
   and the one that tells of a failure may only open an issue.
+- **The runner.** Every job names Ubuntu 24.04 rather than `ubuntu-latest`,
+  which GitHub moves to Ubuntu 26.04 from 19 October 2026: 26.04's coreutils
+  are not GNU's, and the relay's times are GNU `date`'s arithmetic, proved on
+  24.04 and not yet on 26.04.
 - **The state.** `data/elnino.db` and the cached downloads are carried from one
   run to the next in the Actions cache, so the alerts are reconciled against
   their record, a file is asked whether it changed since its copy, and a failed
@@ -2740,14 +2754,15 @@ run every hour, or as often as `--watch` asks, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-1954 tests, no network required. They cover:
+1967 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
   (`22.2-1.3`), `-999.9` and `+999.9` fill, PMEL's Fortran floats with no leading
   zero (`-.4883405E+14`), the MJO file's `*****` fill, stacked multi-section
-  grids, files with no header at all, and the two *different* column orders in
-  the weekly and monthly relative-SST files;
+  grids, files with no header at all, a file written a month a line (the
+  central-Pacific OLR's, a row whose month is no month left out), and the two
+  *different* column orders in the weekly and monthly relative-SST files;
 - **the numerics**: the recharge fit recovers a planted oscillation, a diverged
   integration is dropped, holding a year out really removes it, per-calendar-month
   standardization removes an annual cycle, and the measured WWV lead recovers a
@@ -2761,7 +2776,10 @@ python -m unittest discover -s tests -v
 - **the numbers as CPC prints them**: one decimal, ties away from zero, taken
   through the decimal representation so that 0.15 prints 0.2 as CPC's does and
   not 0.1 as a binary `round` would;
-- **the words on the page**: every unit written as its sign (°C, σ, × 10¹⁴ m³),
+- **the words on the page**: every unit written as its sign (°C, σ, × 10¹⁴ m³)
+  and on the quantity it measures (the terminal report's QBO: its wind in m/s,
+  its phase the wind's, its score in sigma, all of the newest month that has
+  its wind),
   no count printed with a lazy "(s)" plural, no signed zero on an axis, words
   aligned left and numbers right in every table with sentences wrapped, and
   chart labels placed clear of each other and of the lines they annotate;
@@ -2885,7 +2903,9 @@ python -m unittest discover -s tests -v
   node through a screen transform scaled differently across and down, finding
   each block's words under the pointer and nothing off the grid or over an
   empty block, where the tooltip hides rather than leave the last block's words
-  showing, the page's other hover areas as they were;
+  showing, the page's other hover areas as they were, and markup in any of
+  their words shown as text, never handed to the page's parser, a storm's
+  degrees written as the sign and not as the code for it;
 - **the projection**: it is orthographic, with no perspective divide, so two
   equal anomalies measure the same wherever they sit; the fit keeps the whole
   cloud inside the frame at every tested angle while still filling it; and the
@@ -2927,7 +2947,8 @@ python -m unittest discover -s tests -v
   strongest point, and a storm crossing 140W under two ids is one storm;
 - **the season verdict**: climatology is cut at the same calendar date rather
   than compared against a full-season normal, a year with no storms is a zero
-  and not a gap, and the El Niño composite excludes the year being scored;
+  and not a gap, and the El Niño composite excludes the year being scored and
+  starts at each basin's satellite era, which `latest.json` names;
 - **the storm overlay**: tracks project onto the globe and cull with it, a
   forecast track is drawn dashed and distinctly from the observed one, and a
   chip's status colour never travels without its label;
@@ -3207,7 +3228,7 @@ python -m unittest discover -s tests -v
   leaving alone a workflow disabled by hand; and the state a run
   started from let go of, run under bash against a gh that lists or fails,
   only after a good run on `main` and once the run's own is listed by its
-  whole key; and `--watch` running no
+  whole key; every job on Ubuntu 24.04, named; and `--watch` running no
   more often than every ten minutes, and hourly without a number;
 - **the street**: the card's composite matching the atlas tool's own on a full
   record, the event under way and the months still under way left out, a season

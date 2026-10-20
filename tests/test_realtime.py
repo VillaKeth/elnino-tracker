@@ -2426,7 +2426,7 @@ class TestRealTimeRun(unittest.TestCase):
 
     def test_each_feed_in_the_json_says_whether_it_rested(self):
         feeds = self.data["feeds"]
-        self.assertEqual(self.data["schema"], 13)
+        self.assertEqual(self.data["schema"], 14)
         self.assertEqual((feeds["tao_temperature"]["rested"], feeds["tao_temperature"]["unchanged"]),
                          (True, False))
         self.assertEqual((feeds["sst_global"]["rested"], feeds["sst_global"]["unchanged"]), (False, True))
@@ -2434,7 +2434,7 @@ class TestRealTimeRun(unittest.TestCase):
 
     def test_the_json_carries_the_days_and_which_analysis_each_field_is(self):
         spatial = self.data["spatial"]
-        self.assertEqual(self.data["schema"], 13)
+        self.assertEqual(self.data["schema"], 14)
         self.assertEqual(spatial["fields"]["sst_map"]["preliminary"],
                          self.state.spatial.sst_map.as_of)
         self.assertEqual(spatial["fields"]["sst_hov"]["preliminary"],

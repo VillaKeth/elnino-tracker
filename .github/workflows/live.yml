@@ -49,7 +49,7 @@ jobs:
   # on. The ten minutes it was decided in, by the same reading of the clock,
   # are the booking's (the book job).
   due:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read  # to read when the site was published
@@ -80,7 +80,7 @@ jobs:
   run:
     needs: due
     if: ${{ !cancelled() && needs.due.outputs.skip != 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -178,7 +178,7 @@ jobs:
   book:
     needs: due
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       actions: write  # to dispatch the relay
@@ -216,7 +216,7 @@ jobs:
   tell:
     needs: [due, run, book]
     if: ${{ failure() && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       issues: write  # to open the issue

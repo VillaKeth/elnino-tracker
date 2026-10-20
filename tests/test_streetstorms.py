@@ -126,6 +126,24 @@ class TestTracksInTheRun(unittest.TestCase):
         self.assertEqual(state.track_files, {"AL": "hurdat2-1851-2025-091226.txt",
                                              "EP": "hurdat2-nepac-1949-2025-091426.txt"})
 
+    def test_each_basin_s_el_nino_composite_starts_at_its_satellite_era(self):
+        # A hurricane a season in El Nino seasons either side of each basin's
+        # first, 1966 in the Atlantic and 1971 in the east Pacific: the run's
+        # Atlantic composite holds 1966 and 1972, its east Pacific one 1972.
+        years = (1957, 1965, 1966, 1972)
+
+        def season(basin, year, lon):
+            return _hurdat(f"{basin}01{year},            UNNAMED,      4,",
+                           *((f"{year}0901{hour:02d}", "HU", 15.0, lon, 100) for hour in (0, 6, 12, 18)))
+        texts = {key: "".join(season(basin, year, lon) for year in years)
+                 for key, basin, lon in (("hurdat_al", "AL", -50.0), ("hurdat_ep", "EP", -110.0))}
+        state = cyclones.build(self.fetched(hurdat_index=self.INDEX, **texts),
+                               index=[parsers.SeasonValue("ASO", year, 1.2) for year in years],
+                               today=datetime(2026, 10, 14).date())
+        self.assertEqual({basin: (season.elnino["years"], season.elnino["ace"])
+                          for basin, season in state.basins.items()},
+                         {"AL": (2, 4.0), "EP": (1, 4.0)})
+
     def test_a_basin_whose_file_cannot_be_read_has_no_tracks_and_the_run_goes_on(self):
         state = cyclones.build(self.fetched(hurdat_index=self.INDEX, hurdat_al=ATLANTIC),
                                today=datetime(2026, 10, 14).date())

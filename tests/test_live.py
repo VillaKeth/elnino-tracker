@@ -2535,6 +2535,21 @@ class TestTheLiveRun(unittest.TestCase):
         self.assertTrue(path.exists(), "the relay's workflow, relay.yml")
         return path.read_text(encoding="utf-8")
 
+    def test_every_job_runs_on_the_ubuntu_it_was_proved_on(self):
+        # ubuntu-latest moves to Ubuntu 26.04 from 19 October 2026, whose
+        # coreutils are not GNU's, and the relay's times are GNU date's
+        # arithmetic: each job names the Ubuntu its steps were proved on.
+        workflows = sorted(path for path in (ROOT / ".github" / "workflows").iterdir()
+                           if path.suffix in (".yml", ".yaml"))
+        self.assertEqual([path.name for path in workflows], ["live.yml", "relay.yml", "tests.yml"])
+        for path in workflows:
+            text = path.read_text(encoding="utf-8")
+            jobs = re.findall(r"^  [\w-]+:[ \t]*$", text.split("\njobs:\n", 1)[1], re.M)
+            runners = re.findall(r"^    runs-on:(.*)$", text, re.M)
+            self.assertTrue(jobs, path.name)
+            self.assertEqual(len(runners), len(jobs), path.name)
+            self.assertEqual({runner.strip() for runner in runners}, {"ubuntu-24.04"}, path.name)
+
     def _script(self, workflow: str, step: str) -> str:
         """The run script of the step so named, as its shell is handed it."""
         self.assertIn(f"      - name: {step}\n", workflow)
@@ -2924,7 +2939,7 @@ class TestTheLiveRun(unittest.TestCase):
         job = relay.split("\n  relay:\n", 1)[1].split("\n  tell:\n", 1)[0]
         self.assertIn("    environment:\n      name: relay\n      deployment: false\n", job)
         self.assertIn("gh api --method PUT repos/OWNER/REPO/environments/relay -F wait_timer=8\n", job)
-        self.assertIn("    runs-on: ubuntu-latest\n    timeout-minutes: 30\n", job)
+        self.assertIn("    runs-on: ubuntu-24.04\n    timeout-minutes: 30\n", job)
         self.assertIn("          GH_TOKEN: ${{ github.token }}\n          AT: ${{ inputs.at }}\n", job)
 
     @unittest.skipIf(sys.platform == "win32", "the live run is Linux")

@@ -433,6 +433,8 @@ GRID_FILL = 900.0  # |value| >= this is a fill, whatever its sign
 GRID_SECTION_RE = re.compile(r"\b(ORIGINAL|ANOMALY|STANDARDIZED|CLIMATOLOGY)\b", re.I)
 GRID_HEADER_RE = re.compile(r"^\s*YEAR\s+JAN\s+FEB", re.I)
 GRID_YEAR_RE = re.compile(r"^\s*(\d{4})(?=[-\s\d])")
+# A month a line, year, month and value, as cpolr.mth.91-20.ascii is written.
+GRID_MONTH_ROW_RE = re.compile(r"^\s*(\d{4})\s+(\d{1,2})\s+([-+]?\d+(?:\.\d+)?)\s*$")
 
 
 def _grid_valid(value: float) -> bool:
@@ -441,6 +443,9 @@ def _grid_valid(value: float) -> bool:
 
 def parse_cpc_grid(text: str) -> dict[str, list[MonthValue]]:
     """Split a stacked CPC monthly grid into its named sections.
+
+    A grid is a year a line, its twelve months across; a file written a month
+    a line instead (year, month, value) is read month by month.
 
     Returns an insertion-ordered mapping of section name (lowercased, e.g.
     ``"original"`` / ``"anomaly"`` / ``"standardized"``) to month values. Files
@@ -469,6 +474,12 @@ def parse_cpc_grid(text: str) -> dict[str, list[MonthValue]]:
                 continue
             if current is None:
                 current = sections.setdefault("data", [])
+            row = GRID_MONTH_ROW_RE.match(line)
+            if row:
+                month, value = int(row.group(2)), float(row.group(3))
+                if 1 <= month <= 12 and _grid_valid(value):
+                    current.append(MonthValue(year, month, value))
+                continue
             values = FLOAT_RE.findall(line[year_match.end():])
             for index, token in enumerate(values[:12]):
                 value = float(token)

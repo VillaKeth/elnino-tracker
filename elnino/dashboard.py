@@ -794,14 +794,27 @@ def _js() -> str:
   }
   function words(el, x, y) {
     if (el.hasAttribute('data-hits')) { return gridHit(el, x, y); }
-    var extra = el.getAttribute('data-extra');
-    return { label: el.getAttribute('data-label'),
-             value: el.getAttribute('data-value') + (extra ? '<br>' + extra : '') };
+    return { label: el.getAttribute('data-label'), value: el.getAttribute('data-value'),
+             extra: el.getAttribute('data-extra') };
+  }
+  // The tip is made of text, never of markup: its words come from the feeds
+  // (storm names), and whatever they hold is shown as written.
+  function textOf(tag, text) {
+    var el = document.createElement(tag);
+    el.textContent = text;
+    return el;
   }
   function show(el, x, y) {
     var said = words(el, x, y);
     if (!said) { hide(); return; }
-    tip.innerHTML = '<b>' + said.label + '</b><span>' + said.value + '</span>';
+    var value = textOf('span', said.value);
+    if (said.extra) {
+      value.appendChild(document.createElement('br'));
+      value.appendChild(document.createTextNode(said.extra));
+    }
+    tip.textContent = '';
+    tip.appendChild(textOf('b', said.label));
+    tip.appendChild(value);
     tip.style.opacity = '1';
     var box = tip.getBoundingClientRect();
     var left = Math.min(Math.max(8, x + 14), window.innerWidth - box.width - 8);
@@ -1436,6 +1449,29 @@ def _winds_json(winds) -> dict | None:
     }
 
 
+def _season_json(basin: str, season, verdict: str) -> dict:
+    """A basin's season to date, beside its normal and its El Nino composite,
+    with the first season that composite averages: cyclones.elnino_seasons
+    lists every El Nino season, the composite those of the satellite era."""
+    def tenths(value):
+        return None if value is None else round(value, 1)
+    return {
+        "name": season.name,
+        "ace": round(season.ace, 1),
+        "named": season.named,
+        "hurricanes": season.hurricanes,
+        "major": season.major,
+        "normal_ace_to_date": tenths(season.normal_ace),
+        "normal_ace_full_season": tenths(season.full_normal_ace),
+        "elnino_ace_to_date": tenths(season.elnino_ace),
+        "elnino_composite_from": cyclones.RELIABLE_FROM.get(basin),
+        "ratio_vs_normal": None if season.ace_ratio is None else round(season.ace_ratio, 3),
+        "season_elapsed_fraction": None if season.elapsed is None else round(season.elapsed, 3),
+        "storms": len(season.storms),
+        "verdict": verdict,
+    }
+
+
 def payload(state) -> dict:
     """Machine-readable snapshot, so the tracker can feed other tools.
 
@@ -1454,7 +1490,7 @@ def payload(state) -> dict:
     return {
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_at": state.run_at,
-        "schema": 13,
+        "schema": 14,
         "headline": a.headline,
         "cpc_status": a.status or None,
         "degraded": state.degraded,
@@ -1692,37 +1728,9 @@ def payload(state) -> dict:
                 for storm in state.cyclones.active
             ],
             "seasons": {
-                basin: {
-                    "name": season.name,
-                    "ace": round(season.ace, 1),
-                    "named": season.named,
-                    "hurricanes": season.hurricanes,
-                    "major": season.major,
-                    "normal_ace_to_date": (
-                        None if season.normal_ace is None
-                        else round(season.normal_ace, 1)
-                    ),
-                    "normal_ace_full_season": (
-                        None if season.full_normal_ace is None
-                        else round(season.full_normal_ace, 1)
-                    ),
-                    "elnino_ace_to_date": (
-                        None if season.elnino_ace is None
-                        else round(season.elnino_ace, 1)
-                    ),
-                    "ratio_vs_normal": (
-                        None if season.ace_ratio is None
-                        else round(season.ace_ratio, 3)
-                    ),
-                    "season_elapsed_fraction": (
-                        None if season.elapsed is None else round(season.elapsed, 3)
-                    ),
-                    "storms": len(season.storms),
-                    "verdict": cyclones.verdict(
-                        season, a.index_latest.value,
-                        impacts.flavour_of(a.scale.flavour_index if a.scale else 0.0),
-                    ),
-                }
+                basin: _season_json(basin, season, cyclones.verdict(
+                    season, a.index_latest.value,
+                    impacts.flavour_of(a.scale.flavour_index if a.scale else 0.0)))
                 for basin, season in state.cyclones.basins.items()
             },
             "notes": list(state.cyclones.notes),

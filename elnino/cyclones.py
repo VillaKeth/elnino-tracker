@@ -1618,6 +1618,23 @@ def composite(seasons: dict, years) -> dict:
     return _mean([seasons[y] for y in years if y in seasons], period="El Nino")
 
 
+# The first season of each basin's satellite era, where its El Nino composite
+# starts, so that every season in it was counted the same way. Before it a
+# storm far from ships and land went uncounted, and in the east Pacific, whose
+# storms mostly stay out at sea, that shows: over whole seasons its El Nino
+# seasons from 1950 average 132 ACE, under its 1991-2020 normal of 142, and
+# from 1971 163, over it. 1971 is where NHC's own east Pacific climatology
+# begins; 1966 is the Atlantic's first season with routine satellite pictures
+# (there the busy 1950s lift the longer composite instead, 77 against 69).
+RELIABLE_FROM = {"AL": 1966, "EP": 1971}
+
+
+def elnino_composite(basin: str, seasons: dict, years) -> dict:
+    """``composite`` of the El Nino seasons in a basin's satellite era."""
+    first = RELIABLE_FROM.get(basin, 0)
+    return composite({y: v for y, v in seasons.items() if y >= first}, years)
+
+
 def _mean(window: list, period: str) -> dict:
     if not window:
         return {}
@@ -1882,7 +1899,7 @@ def build(fetched: dict, index=None, fetcher=None, today=None) -> CycloneState:
             basin=basin,
             storms=tuple(sorted(storms, key=lambda s: (s.basin, s.number))),
             normal=normals(table) if table else {},
-            elnino=composite(table, warm) if table and warm else {},
+            elnino=elnino_composite(basin, table, warm) if table and warm else {},
             through=state.through,
         )
 

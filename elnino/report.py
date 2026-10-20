@@ -484,7 +484,8 @@ def _section_atmosphere(state) -> list[str]:
         lines.append("")
         phase = "easterly" if at.qbo.raw < 0 else "westerly"
         lines.append(
-            f"  QBO (30 hPa, {at.qbo.label}): {at.qbo.raw:+.1f} m/s, {phase} phase."
+            f"  QBO (30 hPa, {at.qbo.label}): {at.qbo.raw:+.1f} m/s, {phase} phase, "
+            f"{at.qbo.score:+.1f} sigma."
         )
         lines.extend(_wrap(
             "The quasi-biennial oscillation is not an ENSO index. It is here "

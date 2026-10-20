@@ -36,7 +36,7 @@ jobs:
     # two before the run is due, and the step waits out the rest.
     # Without the timer the step waits it all. It is set with:
     # gh api --method PUT repos/OWNER/REPO/environments/relay -F wait_timer=8
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment:
       name: relay
@@ -104,7 +104,7 @@ jobs:
   tell:
     needs: relay
     if: ${{ failure() && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       issues: write  # to open the issue

@@ -395,6 +395,30 @@ class TestGridParsers(unittest.TestCase):
         self.assertEqual(list(sections), ["data"])
         self.assertEqual(sections["data"][-1].month, 7)
 
+    def test_a_file_written_a_month_a_line_keeps_each_value_in_its_month(self):
+        """CPC's central-Pacific OLR index (cpolr.mth.91-20.ascii) is written a
+        month a line, year, month and value, not a year's twelve months across:
+        its months were once all read as January."""
+        text = " YR   MON   CPOLR\n2026   7   -28.09\n2026   8   -37.00\n2026   9   -36.19\n"
+        self.assertEqual(parsers.parse_cpc_grid(text), {"data": [
+            MonthValue(2026, 7, -28.09), MonthValue(2026, 8, -37.0), MonthValue(2026, 9, -36.19)]})
+
+    def test_a_month_a_line_row_with_no_month_in_it_is_left_out(self):
+        text = " YR   MON   CPOLR\n2025  12   -21.40\n2025  13   -20.00\n2026   1   -24.80\n"
+        self.assertEqual(parsers.parse_cpc_grid(text), {"data": [
+            MonthValue(2025, 12, -21.4), MonthValue(2026, 1, -24.8)]})
+
+    def test_the_central_pacific_olr_indicator_is_read_to_its_latest_month(self):
+        rows = [(year, month) for year in range(1991, 2027) for month in range(1, 13)
+                if (year, month) <= (2026, 9)]
+        text = " YR   MON   CPOLR\n" + "".join(
+            f"{year}  {month:>2}  {10 * math.sin(year * 12 + month):8.2f}\n" for year, month in rows)
+        sections = parsers.parse_cpc_grid(text)
+        self.assertEqual([(v.year, v.month) for v in sections["data"]], rows)
+        indicator = atmosphere.build_indicator("olr_central", sections)
+        self.assertEqual((indicator.latest.year, indicator.latest.month), (2026, 9))
+        self.assertAlmostEqual(indicator.raw, round(10 * math.sin(2026 * 12 + 9), 2))
+
     def test_grid_section_prefers_then_falls_back(self):
         sections = parsers.parse_cpc_grid(fixture("cpc_grid.for"))
         chosen = parsers.grid_section(sections, "standardized")
@@ -649,6 +673,41 @@ class TestAtmosphere(unittest.TestCase):
     def test_unknown_indicator_key_is_declined_not_guessed(self):
         sections = parsers.parse_cpc_grid(fixture("cpc_grid.for"))
         self.assertIsNone(atmosphere.build_indicator("not_a_feed", sections))
+
+    @staticmethod
+    def qbo(original, anomaly, standardized):
+        """qbo.u30.index's three tables for July and August 2026."""
+        return {name: [MonthValue(2026, 7 + i, v) for i, v in enumerate(values)]
+                for name, values in (("original", original), ("anomaly", anomaly),
+                                     ("standardized", standardized))}
+
+    def test_the_qbo_is_the_wind_at_30_hpa_and_its_phase_the_wind_s(self):
+        """CPC's qbo.u30.index holds the wind at 30 hPa, its anomaly and its
+        standard score. The QBO's speed is the wind's, in m/s, and so is its
+        phase: an easterly wind is the easterly phase, whatever its anomaly."""
+        westerly = atmosphere.analyse({}, qbo=self.qbo((8.52, 11.27), (15.25, 17.97), (1.24, 1.46))).qbo
+        self.assertEqual((westerly.raw, westerly.score), (11.27, 1.46))
+        self.assertTrue(westerly.meaning.startswith("Westerly phase"))
+        easterly = atmosphere.analyse({}, qbo=self.qbo((-3.0, -1.0), (0.5, 2.0), (0.1, 0.3))).qbo
+        self.assertEqual((easterly.raw, easterly.score), (-1.0, 0.3))
+        self.assertTrue(easterly.meaning.startswith("Easterly phase"))
+
+    def test_the_qbo_reading_is_the_newest_month_that_has_its_wind(self):
+        """CPC's standard score can run a month ahead of the wind it scores:
+        the reading is the newest month that has both."""
+        reading = atmosphere.analyse({}, qbo=self.qbo((8.52,), (15.25, 17.97), (1.24, 1.46))).qbo
+        self.assertEqual((reading.latest.month, reading.raw, reading.score), (7, 8.52, 1.24))
+
+    def test_without_the_wind_itself_there_is_no_qbo_reading(self):
+        """A standard score alone gives neither the wind nor its phase."""
+        scores = {"standardized": [MonthValue(2026, 8, 1.46)]}
+        self.assertIsNone(atmosphere.analyse({}, qbo=scores).qbo)
+
+    def test_the_report_gives_the_qbo_s_wind_in_m_s_and_its_score_in_sigma(self):
+        at = atmosphere.analyse({"olr": parsers.parse_cpc_grid(fixture("cpc_grid.for"))},
+                                qbo=self.qbo((8.52, 11.27), (15.25, 17.97), (1.24, 1.46)))
+        lines = report._section_atmosphere(SimpleNamespace(atmosphere=at, spatial=None, series={}))
+        self.assertIn("  QBO (30 hPa, Aug 2026): +11.3 m/s, westerly phase, +1.5 sigma.", lines)
 
     def test_westerly_bursts_are_found_in_the_recent_window_only(self):
         quiet = [0.0] * 200
@@ -8146,28 +8205,57 @@ console.log(JSON.stringify(CASES.map(function (c) {
 """
         self.assertEqual(_node_json(self, script.replace("__CASES__", json.dumps(cases))), want)
 
-    def test_the_tooltip_says_nothing_where_the_grid_says_nothing(self):
-        js = dashboard._js()
-        tooltip = js[js.index("  var tip = document.getElementById('tip');\n"):
-                     js.index("  document.addEventListener('focusout', hide);\n")]
-        raw, _hits, (said, empty) = next(self.charts())
-        (centre, words), hole = said[0], empty[0]
-        script = self.harness() + r"""
+    # A page's worth of DOM for the tooltip: elements made of text and
+    # children, written out as markup again to compare, and any markup the
+    # script hands the page's parser kept apart, marked PARSED.
+    DOM = r"""
 var LISTEN = {}, window = {innerWidth: 400};
-var TIP = {style: {}, innerHTML: "", getBoundingClientRect: function () { return {width: 120, height: 40}; }};
+function Node(tag) { this.tag = tag; this.kids = []; this.style = {}; }
+Node.prototype.appendChild = function (kid) { this.kids.push(kid); return kid; };
+Object.defineProperty(Node.prototype, "textContent", {
+  set: function (text) { this.kids = text === "" ? [] : [{text: String(text)}]; }
+});
+Object.defineProperty(Node.prototype, "innerHTML", {
+  set: function (html) { this.kids = [{parsed: String(html)}]; }
+});
+function markup(node) {
+  return node.kids.map(function (kid) {
+    if (kid.parsed !== undefined) { return "PARSED " + kid.parsed; }
+    if (kid.text !== undefined) {
+      return kid.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    return kid.tag === "br" ? "<br>" : "<" + kid.tag + ">" + markup(kid) + "</" + kid.tag + ">";
+  }).join("");
+}
+var TIP = new Node("div");
+TIP.getBoundingClientRect = function () { return {width: 120, height: 40}; };
 var document = {getElementById: function (id) { return id === "tip" ? TIP : null; },
-                addEventListener: function (type, fn) { LISTEN[type] = fn; }};
-""" + tooltip + r"""
-var GRID = grid(__TEXT__), DATA = __DATA__, HOLE = __HOLE__;
-var ELSEWHERE = {closest: function () { return null; }};
-var STORM = {hasAttribute: function () { return false; }, closest: function () { return this; },
-             getAttribute: function (name) {
-               return {"data-label": "Polo", "data-value": "130 kt", "data-extra": "Category 4"}[name];
-             }};
+                addEventListener: function (type, fn) { LISTEN[type] = fn; },
+                createElement: function (tag) { return new Node(tag); },
+                createTextNode: function (text) { return {text: String(text)}; }};
 function on(type, target, at) {
   LISTEN[type]({target: target, clientX: at[0], clientY: at[1]});
-  return [TIP.style.opacity, TIP.innerHTML];
+  return [TIP.style.opacity, markup(TIP)];
 }
+function hoverArea(attrs) {
+  return {hasAttribute: function () { return false; }, closest: function () { return this; },
+          getAttribute: function (name) { return attrs[name]; }};
+}
+"""
+
+    def tooltip(self):
+        """The dashboard's tooltip script, from its tip to its last listener."""
+        js = dashboard._js()
+        return js[js.index("  var tip = document.getElementById('tip');\n"):
+                  js.index("  document.addEventListener('focusout', hide);\n")]
+
+    def test_the_tooltip_says_nothing_where_the_grid_says_nothing(self):
+        raw, _hits, (said, empty) = next(self.charts())
+        (centre, words), hole = said[0], empty[0]
+        script = self.harness() + self.DOM + self.tooltip() + r"""
+var GRID = grid(__TEXT__), DATA = __DATA__, HOLE = __HOLE__;
+var ELSEWHERE = {closest: function () { return null; }};
+var STORM = hoverArea({"data-label": "Polo", "data-value": "130 kt", "data-extra": "Category 4"});
 console.log(JSON.stringify([
   on("mouseover", GRID, DATA), on("mousemove", GRID, HOLE), on("mousemove", GRID, DATA),
   on("mousemove", ELSEWHERE, DATA), on("mouseover", GRID, HOLE), on("mousemove", STORM, DATA),
@@ -8176,13 +8264,26 @@ console.log(JSON.stringify([
         got = _node_json(self, script.replace("__TEXT__", json.dumps(raw))
                          .replace("__DATA__", json.dumps(self.on_screen(*centre)))
                          .replace("__HOLE__", json.dumps(self.on_screen(*hole))))
-        block = f"<b>{words['label']}</b><span>{words['value']}</span>"
+        block = (f"<b>{escape(words['label'], quote=False)}</b>"
+                 f"<span>{escape(words['value'], quote=False)}</span>")
         storm = "<b>Polo</b><span>130 kt<br>Category 4</span>"
         # Shown over a block with something in it; gone over one with nothing,
         # off the grid, and not brought back by arriving at nothing; and the
         # page's other hover areas as they were.
         self.assertEqual(got, [["1", block], ["0", block], ["1", block], ["0", block],
                                ["0", block], ["1", storm], ["0", storm]])
+
+    def test_the_tooltip_shows_markup_in_its_words_as_written(self):
+        """Its words come from the feeds (storm names, alert titles): markup in
+        them is shown as text, never handed to the page's parser."""
+        script = self.harness() + self.DOM + self.tooltip() + r"""
+var STORM = hoverArea({"data-label": "<img src=x onerror=alert(1)>", "data-value": "130 kt",
+                       "data-extra": "Cat <b>4</b> & rising"});
+console.log(JSON.stringify(on("mouseover", STORM, [10, 10])));
+"""
+        self.assertEqual(_node_json(self, script), [
+            "1", "<b>&lt;img src=x onerror=alert(1)&gt;</b>"
+                 "<span>130 kt<br>Cat &lt;b&gt;4&lt;/b&gt; &amp; rising</span>"])
 
 
 class TestThreeDimensions(unittest.TestCase):
@@ -10287,15 +10388,25 @@ class TestStormAssembly(unittest.TestCase):
                               forecast=(fix(178.0, 12), fix(176.5, 24)),
                               advisory={"advisory": "20"})
         drawn = storms.track_map([nolo])
-        where = [unescape(unescape(extra)).split(",")[0]
+        where = [unescape(extra).split(",")[0]
                  for extra in re.findall(r'data-extra="([^"]*)"', drawn)]
         for point in ("20.0°N 179.0°W", "20.0°N 178.0°E", "20.0°N 176.5°E"):
             self.assertIn(point, where)
         self.assertEqual([w for w in where if re.search(r"1[89]\d\.\d°", w)], [], where)
         # The date line and the meridian have no hemisphere, however near.
         for lon, words in ((-180.0, "180.0°"), (179.96, "180.0°"), (-0.02, "0.0°")):
-            self.assertEqual(unescape(storms._degrees(SimpleNamespace(lat=20.0, lon=lon))),
+            self.assertEqual(storms._degrees(SimpleNamespace(lat=20.0, lon=lon)),
                              f"20.0°N {words}")
+
+    def test_a_hover_holds_no_markup_once_the_page_has_read_it(self):
+        # getAttribute decodes an attribute once, and the tooltip shows what
+        # it gets as text: the "&#176;" a position's words carried printed as
+        # written on every bead of every track.
+        drawn = storms.track_map([self.storm()])
+        said = [unescape(v) for v in re.findall(r'data-(?:label|value|extra)="([^"]*)"', drawn)]
+        self.assertTrue(said)
+        self.assertEqual([s for s in said if re.search(r"&#?\w+;|<", s)], [])
+        self.assertTrue(any("15.2°N 101.5°W" in s for s in said), said)
 
     def test_a_town_under_a_forecast_eye_still_gets_a_clear_name(self):
         # The 12-hour point sits on the town itself, a category 4 eye 9.5
@@ -10662,6 +10773,28 @@ class TestElNinoVerdict(unittest.TestCase):
                    SeasonValue(year=2015, season="DJF", value=2.5),
                    SeasonValue(year=2023, season="ASO", value=1.3)]
         self.assertEqual(cyclones.elnino_years(seasons), (2015, 2023))
+
+    def test_latest_json_says_where_each_basin_s_el_nino_composite_starts(self):
+        # cyclones.elnino_seasons lists every El Nino season since 1950; each
+        # basin's composite averages those of its satellite era alone.
+        for basin, first in (("AL", 1966), ("EP", 1971)):
+            season = cyclones.BasinSeason(basin=basin, storms=(), normal={}, elnino={},
+                                          through="14 October")
+            self.assertEqual(dashboard._season_json(basin, season, "quiet")["elnino_composite_from"],
+                             first)
+
+    def test_a_basin_s_el_nino_composite_is_of_its_satellite_era(self):
+        """Before satellites a storm far from ships and land went uncounted:
+        the east Pacific's El Nino seasons from 1950 averaged 132 ACE, under
+        the 1991-2020 normal of 142, and from 1971 163, over it."""
+        seasons = {1957: {"ace": 10.0}, 1965: {"ace": 20.0}, 1966: {"ace": 60.0},
+                   1972: {"ace": 100.0}, 1997: {"ace": 200.0}}
+        warm = (1957, 1965, 1966, 1972, 1997)
+        east = cyclones.elnino_composite("EP", seasons, warm)
+        self.assertEqual((east["ace"], east["years"]), (150.0, 2))
+        atlantic = cyclones.elnino_composite("AL", seasons, warm)
+        self.assertEqual((atlantic["ace"], atlantic["years"]), (120.0, 3))
+        self.assertEqual(cyclones.RELIABLE_FROM, {"AL": 1966, "EP": 1971})
 
 
 class TestCyclonesOnTheGlobe(unittest.TestCase):
@@ -11361,7 +11494,7 @@ class TestEndToEnd(unittest.TestCase):
     def test_payload_is_json_serialisable_and_keyed_as_documented(self):
         payload = dashboard.payload(self.state)
         restored = json.loads(json.dumps(payload))
-        self.assertEqual(restored["schema"], 13)
+        self.assertEqual(restored["schema"], 14)
         for key in ("index", "oni", "power_index", "subsurface", "atmosphere", "forecast",
                     "skill", "alerts", "impacts", "feeds", "footprints",
                     "cyclones", "stormfury", "atlas", "outlook", "storm_desk"):
