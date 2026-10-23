@@ -19,7 +19,7 @@ from datetime import date, timedelta
 
 from . import windclim
 from .fields import EVERY_MONTH, OISST_BASE, _behind, field_table, hovmoller
-from .svg import Plot, _legend, esc, nice_ticks, table
+from .svg import Plot, _legend, esc, nice_ticks, signed, table
 from .winds import EQUATORIAL, HV97_EVENTS, HV97_LONGEST, REGIONS_BY_KEY, THRESHOLD, Event, Winds
 
 
@@ -62,7 +62,7 @@ class Chart:
     ticks: str = "{:+.1f}"
 
     def fmt(self, value: float) -> str:
-        return f"{value:+.{self.digits}f}"
+        return signed(value, self.digits)
 
 
 # Each box's line, in the legend's order: Nino-3.4 first, the index the
@@ -99,7 +99,7 @@ SOI = Chart(
 WINDS = Chart(
     lines=(Line("W", "West", "var(--s1)"), Line("C", "Central", "var(--s2)"),
            Line("E", "East", "var(--s3)")),
-    marks=(Mark(THRESHOLD, f"event threshold {THRESHOLD:+g} m/s", "var(--warm)"),),
+    marks=(Mark(THRESHOLD, f"event threshold {signed(THRESHOLD, 0)} m/s", "var(--warm)"),),
     unit=" m/s", digits=1, floor=3.0, missing="not smoothed", ticks="{:+.0f}",
 )
 # The SOI card's span, in days back from the file's latest: four months, long
@@ -405,7 +405,7 @@ def nino_card(days, weeks, revision=None) -> str:
     shown = [week for week in weeks if dates[0] <= week.week_ending <= dates[-1]]
     plot = _plot(values, NINO, frozenset(day for day, item in by_day.items() if item.preliminary),
                  dots=tuple((week.week_ending, week.nino34_anom) for week in shown),
-                 notes={week.week_ending: [f"CPC week {week.nino34_anom:+.1f}"]
+                 notes={week.week_ending: [f"CPC week {signed(week.nino34_anom, 1)}"]
                         for week in shown})
 
     prelims = any(item.preliminary for item in days)
@@ -580,15 +580,15 @@ def _under_way_words(event: Event) -> str:
     before = event.from_start
     sustained = " (longer than any in Harrison and Vecchi&rsquo;s list)" if event.sustained else ""
     return (f"{_region_words(event.region)}: <strong>{'at least ' if before else ''}"
-            f"{_days_words(event.days)}</strong> above {THRESHOLD:+g} m/s since "
+            f"{_days_words(event.days)}</strong> above {signed(THRESHOLD, 0)} m/s since "
             f"{'before ' if before else ''}{_day_label(event.first.date())}, peaking at "
-            f"{event.peak:+.1f} m/s on {_day_label(event.centre.date())}{sustained}")
+            f"{signed(event.peak, 1)} m/s on {_day_label(event.centre.date())}{sustained}")
 
 
 def _wind_now(winds: Winds) -> str:
     """What is under way, or else the latest event, or that there is none; and
     the runs still building."""
-    above = f"above {THRESHOLD:+g} m/s"
+    above = f"above {signed(THRESHOLD, 0)} m/s"
     if winds.under_way:
         each = [_under_way_words(event) for event in winds.under_way]
         words = (" A westerly wind event is under way in " if len(each) == 1
@@ -601,13 +601,13 @@ def _wind_now(winds: Winds) -> str:
         latest = max(winds.events, key=lambda event: event.last)
         words = (f" No event is under way. The latest, in {_region_words(latest.region)}, ran "
                  f"{_days_words(latest.days)} from {_day_label(latest.first.date())} to "
-                 f"{_day_label(latest.last.date())}, peaking at {latest.peak:+.1f} m/s.")
+                 f"{_day_label(latest.last.date())}, peaking at {signed(latest.peak, 1)} m/s.")
     else:
         words = f" No westerly wind event in these {len(winds.daily)} days."
     if winds.building:
         words += " Building, not yet three days: " + "; ".join(
             f"{_region_words(run.region)}, {_days_words(run.days)} {above}, "
-            f"latest {run.latest:+.1f} m/s" for run in winds.building) + "."
+            f"latest {signed(run.latest, 1)} m/s" for run in winds.building) + "."
     return words
 
 
@@ -641,7 +641,7 @@ def _wind_rows(winds: Winds) -> list[list[str]]:
             # A table's cells are escaped: the dash itself, not its entity.
             event.region, f"{region.name}, {region.span.replace('-', '–')}",
             f"{event.first:%Y-%m-%d %HZ}", f"{event.last:%Y-%m-%d %HZ}", f"{event.days:g}",
-            f"{event.centre:%Y-%m-%d %HZ}", f"{event.peak:+.1f}", f"{event.point_peak:+.1f}",
+            f"{event.centre:%Y-%m-%d %HZ}", f"{signed(event.peak, 1)}", f"{signed(event.point_peak, 1)}",
             f"{abs(lat):.1f}{'N' if lat >= 0 else 'S'} {_lon_words(lon)}",
             f"{event.measure / 1e6:.2f}", counts_as(event), note or "—",
         ])
@@ -693,13 +693,13 @@ def wind_card(winds: Winds | None) -> str:
     product = (
         "Remote Sensing Systems&rsquo; Cross-Calibrated Multi-Platform (CCMP) 10 m winds, "
         "version 2.1 near real time, from NOAA PIFSC&rsquo;s OceanWatch: an analysis of "
-        "satellite radiometer and scatterometer winds over NCEP&rsquo;s GFS, here twice a day "
+        "satellite radiometer and scatterometer winds over NCEP&rsquo;s GFS, here at 06Z and 18Z "
         f"on cells 2.25 degrees apart, {winds.first} to {winds.last}.")
     definition = (
         " An event, as Harrison and Vecchi (1997) define one, is three days or more in which "
         "the 10 m zonal wind anomaly over one of their eight regions, cosine-weighted and "
         "smoothed by a three-point triangle filter on analyses 12 hours apart (half power at "
-        f"2.75 days), stays above {THRESHOLD:+g} m/s; an analysis is smoothed when the next "
+        f"2.75 days), stays above {signed(THRESHOLD, 0)} m/s; an analysis is smoothed when the next "
         "one comes. Its centre is its largest smoothed value, its peak that value, its point "
         "peak the strongest cell in the region then, and its wind measure the time integral "
         "of its smoothed anomaly. Events in bordering regions centred within three days "

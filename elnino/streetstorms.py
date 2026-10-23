@@ -227,7 +227,7 @@ def css() -> str:
     """The line's and the panel's rules, over the page's tokens."""
     return """
 /* The storm line atop the stage's chip, each storm with its hue; the panel in
-   the chip's place, as the El Nino replay is (street.css). */
+   the chip's place, as the El Niño replay is (street.css). */
 .streettcline { margin: 0 0 4px; padding: 3px 8px; border-left: 3px solid var(--warning);
   border-radius: 0 6px 6px 0; background: color-mix(in srgb, var(--warning) 9%, var(--surface)); }
 .streettcline p { margin: 0; }

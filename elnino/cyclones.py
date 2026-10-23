@@ -48,7 +48,8 @@ import json
 import math
 import re
 from dataclasses import dataclass, field as dc_field, replace
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 
 from .coastline import COASTLINE
 
@@ -258,7 +259,7 @@ def parse_atcf(text: str, techs=None) -> list[Fix]:
         stamp, tech = parts[2], parts[4]
         if techs is not None and tech not in techs:
             continue
-        if not stamp.isdigit() or len(stamp) != 10:
+        if not real_stamp(stamp):
             continue
         try:
             tau = int(parts[5])
@@ -282,6 +283,21 @@ def parse_atcf(text: str, techs=None) -> list[Fix]:
            if key in radii else fix for key, fix in first.items()]
     out.sort(key=lambda f: (f.stamp, f.tau))
     return out
+
+
+@lru_cache(maxsize=4096)
+def real_stamp(stamp: str) -> bool:
+    """Whether ``stamp`` is a time, YYYYMMDDHH. Ten digits are not always one,
+    and a row whose time is none is dropped where it is read: let in, it
+    raised wherever the time was next worked with, outside any guard, and
+    stopped the run until the deck changed."""
+    if len(stamp) != 10 or not stamp.isdigit():
+        return False
+    try:
+        datetime.strptime(stamp, "%Y%m%d%H")
+    except ValueError:
+        return False
+    return True
 
 
 def _quadrants(parts: list[str]) -> tuple[int, tuple] | None:
@@ -533,19 +549,29 @@ def recent_change(fixes, window: int = 24) -> tuple[float, str]:
     What "in the last 24 hours" means, and what an intensification alert has
     to be about: this used to quote the largest change of the storm's whole
     life, so a hurricane that had jumped 85 kt two days earlier and was now
-    weakening read as intensifying rapidly. Returns ``(0.0, "")`` when there is
-    no analysis exactly ``window`` hours before the latest one.
+    weakening read as intensifying rapidly. The latest analysis may be off
+    the synoptic hours, a landfall fix at 21Z: the wind ``window`` hours
+    before it is then read between the two analyses either side of that time,
+    six hours apart at most. Returns ``(0.0, "")`` when the track gives no
+    reading there.
     """
     track = [f for f in fixes if f.tau == 0 and f.wind is not None]
     if not track:
         return 0.0, ""
     latest = track[-1]
+    after = None
     for earlier in reversed(track[:-1]):
         gap = _hours_between(earlier.stamp, latest.stamp)
         if gap == window:
             return float(latest.wind - earlier.wind), latest.stamp
-        if gap > window:
+        if gap < window:
+            after = (gap, earlier.wind)
+            continue
+        if after is None or gap - after[0] > 6:
             break
+        # The wind ``window`` hours back, on the line between the two.
+        then = earlier.wind + (after[1] - earlier.wind) * (gap - window) / (gap - after[0])
+        return float(latest.wind - then), latest.stamp
     return 0.0, ""
 
 
@@ -925,11 +951,19 @@ class Storm:
 
     @property
     def title(self) -> str:
-        return self.name or f"{self.basin_name} {self.number:02d}"
+        return self.name or f"{BASIN_NAMES.get(self.basin, self.basin)} {self.number:02d}"
+
+    @property
+    def waters(self) -> str:
+        """The ocean the storm is in, as a basin code: its id's, but for an
+        east or central Pacific storm JTWC warns on, which has crossed the
+        date line into the west Pacific."""
+        return "WP" if self.centre == "JTWC" and self.basin in ("EP", "CP") else self.basin
 
     @property
     def basin_name(self) -> str:
-        return BASIN_NAMES.get(self.basin, self.basin)
+        """The name of the ocean the storm is in."""
+        return BASIN_NAMES.get(self.waters, self.waters)
 
     @property
     def latest(self) -> Fix | None:
@@ -1283,18 +1317,22 @@ class CycloneState:
     def available(self) -> bool:
         return bool(self.basins)
 
+    def _seasons(self) -> tuple[Storm, ...]:
+        return tuple(s for season in self.basins.values() for s in season.storms)
+
     @property
     def storms(self) -> tuple[Storm, ...]:
-        out: list[Storm] = []
-        for season in self.basins.values():
-            out.extend(season.storms)
-        out.extend(self.others)
-        return tuple(out)
+        """Every storm once: the seasons', then JTWC's. A storm that crossed
+        the date line is its season's, on NHC's track; JTWC's warnings on it
+        are what is live (``active``)."""
+        seasons = self._seasons()
+        kept = {s.key for s in seasons}
+        return seasons + tuple(s for s in self.others if s.key not in kept)
 
     @property
     def active(self) -> tuple[Storm, ...]:
         """Live storms, strongest first, because that is the reading order."""
-        live = [s for s in self.storms if s.active]
+        live = [s for s in self._seasons() + tuple(self.others) if s.active]
         live.sort(key=lambda s: -((s.latest.wind or 0) if s.latest else 0))
         return tuple(live)
 
@@ -1333,6 +1371,12 @@ def expectation(link) -> str:
     return "unclear"
 
 
+# A season with less than this share of a normal season's ACE fallen by its
+# date settles nothing: in January an empty season against a normal of a few
+# hundredths reads "below normal". The Atlantic passes it in late June.
+MIN_ELAPSED = 0.02
+
+
 def verdict(season: BasinSeason, index: float, flavour) -> dict | None:
     """Score a basin against what the teleconnection catalogue predicted.
 
@@ -1357,7 +1401,9 @@ def verdict(season: BasinSeason, index: float, flavour) -> dict | None:
     ratio = season.ace_ratio
 
     observed, agrees = "no reading", None
-    if ratio is not None:
+    if ratio is not None and season.elapsed is not None and season.elapsed < MIN_ELAPSED:
+        observed = "too early to read"
+    elif ratio is not None:
         if ratio >= 1.15:
             observed = "above normal"
         elif ratio <= 0.85:
@@ -1419,6 +1465,10 @@ def hurdat_seasons(text: str, through: tuple | None = None) -> dict:
     Half of an Atlantic season's ACE typically falls after 10 September, so
     scoring 23 September against a full-season mean makes every season in
     progress look suppressed, including the ones that are about to be records.
+
+    Each observation is read as the tracks read it (``_fix``), the position by
+    its own pattern: split at commas, a line missing the one between latitude
+    and longitude read its pressure as its wind.
     """
     seasons: dict[int, dict] = {}
     year = 0
@@ -1448,19 +1498,11 @@ def hurdat_seasons(text: str, through: tuple | None = None) -> dict:
             named = named_todate = False
             _blank(seasons, year)
             continue
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) < 7 or not year:
+        fix = _fix(line) if year else None
+        if fix is None or fix.wind is None:
             continue
-        stamp, hour, stage = parts[0], parts[1], parts[3].upper()
-        if not stamp.isdigit() or len(stamp) != 8 or len(hour) != 4:
-            continue
-        try:
-            wind = int(parts[6])
-        except ValueError:
-            continue
-        if wind < 0:
-            continue
-        early = through is None or (int(stamp[4:6]), int(stamp[6:8])) <= through
+        wind, stage, when = fix.wind, fix.status, fix.when
+        early = through is None or (when.month, when.day) <= through
         if wind >= 34 and stage in NAMED_STAGES:
             named = True
             named_todate = named_todate or early
@@ -1468,7 +1510,7 @@ def hurdat_seasons(text: str, through: tuple | None = None) -> dict:
             peak = max(peak, wind)
             if early:
                 peak_todate = max(peak_todate, wind)
-        if (int(hour[:2]) in SYNOPTIC and hour[2:] == "00"
+        if (when.hour in SYNOPTIC and when.minute == 0
                 and stage in ACE_STAGES and wind >= 34):
             seasons[year]["ace"] += wind ** 2 * 1e-4
             if early:
@@ -1814,7 +1856,8 @@ def elnino_years(series, floor: float = EVENT_FLOOR) -> tuple[int, ...]:
     ))
 
 
-def build(fetched: dict, index=None, fetcher=None, today=None) -> CycloneState:
+def build(fetched: dict, index=None, fetcher=None, today=None,
+          now: str | None = None) -> CycloneState:
     """Assemble the cyclone tier from what came back, tolerating gaps.
 
     Additive, like the spatial tier: nothing here feeds the ENSO
@@ -1822,14 +1865,13 @@ def build(fetched: dict, index=None, fetcher=None, today=None) -> CycloneState:
     and a failure costs a panel rather than the run. The one ordering
     constraint is real - the live-storm index has to be read before the decks,
     because the decks are named after storms that only that index knows exist.
+    ``now`` is the run's time, ISO 8601, which the invests are aged against.
     """
-    from datetime import date
+    from datetime import timezone
 
     state = CycloneState()
     text = {key: item.text for key, item in fetched.items() if item.ok}
-    today = today or date.today()
-    cutoff = (today.month, today.day)
-    state.through = f"{today.day} {today:%B}"
+    today = today or (datetime.fromisoformat(now) if now else datetime.now(timezone.utc)).date()
 
     def attempt(label: str, function, *args, **kwargs):
         try:
@@ -1839,10 +1881,20 @@ def build(fetched: dict, index=None, fetcher=None, today=None) -> CycloneState:
             return None
 
     current = attempt("active storms", parse_current, text.get("nhc_current", "")) or {}
+    # The run's time, and when the index of live storms was downloaded, which
+    # their decks' copies are measured against.
+    clock = _when(now) or datetime.now(timezone.utc)
+    listed = _when(getattr(fetched.get("nhc_current"), "fetched_at", "")) or clock
     if "nhc_current" not in text:
         state.notes.append("No active-storm index: live storms cannot be listed.")
     state.as_of = max((m["last_update"] for m in current.values()), default="")
-    state.year = _season_year(current, today)
+    state.year = season_year(text.get("atcf_index", ""), current, today)
+    # The season under way is counted to today's date; a season past, which
+    # stands until the new year's first storm, is counted whole.
+    if state.year == today.year:
+        cutoff, state.through = (today.month, today.day), f"{today.day} {today:%B}"
+    else:
+        cutoff, state.through = (12, 31), "31 December"
     warm = elnino_years(index or [])
     state.elnino_years = warm
 
@@ -1888,7 +1940,7 @@ def build(fetched: dict, index=None, fetcher=None, today=None) -> CycloneState:
     for key in sorted(roster):
         basin, number, storm_year = split_id(key)
         storm = attempt(f"{key} decks", _storm, key, basin, number, storm_year,
-                        current.get(key, {}), fetcher, state, key in live)
+                        current.get(key, {}), fetcher, state, key in live, clock, listed)
         if storm is not None:
             by_season.setdefault(season_of(basin), []).append(storm)
 
@@ -1902,14 +1954,15 @@ def build(fetched: dict, index=None, fetcher=None, today=None) -> CycloneState:
             through=state.through,
         )
 
-    attempt("JTWC", _jtwc, text, fetcher, state)
+    attempt("JTWC", _jtwc, text, fetcher, state, live)
     attempt("outlooks", _outlooks, text, state)
-    attempt("invests", _invests, text, fetcher, state, today)
+    attempt("invests", _invests, text, fetcher, state, today, now)
     return state
 
 
-def _jtwc(text: dict, fetcher, state: CycloneState) -> None:
-    """JTWC's live storms: the west Pacific, Indian Ocean and south."""
+def _jtwc(text: dict, fetcher, state: CycloneState, nhc_live=frozenset()) -> None:
+    """JTWC's live storms: the west Pacific, Indian Ocean and south, and an
+    east or central Pacific storm JTWC took on across the date line."""
     from . import jtwc, sources
 
     if "jtwc_rss" not in text:
@@ -1920,6 +1973,12 @@ def _jtwc(text: dict, fetcher, state: CycloneState) -> None:
         return
     found, ends, undated = [], [], []
     for filename in jtwc.warning_files(text["jtwc_rss"]):
+        crossing = jtwc.nhc_id(filename)
+        # NHC is the authority on its storms while it warns on them, and on its
+        # invests, which are its outlook's: JTWC's copies are left unread.
+        if crossing is not None and (crossing in nhc_live
+                                     or int(crossing[2:4]) >= FIRST_INVEST):
+            continue
         source = sources.jtwc_source(filename)
         got = fetcher(source)
         if not got.ok:
@@ -1935,6 +1994,10 @@ def _jtwc(text: dict, fetcher, state: CycloneState) -> None:
         storm = jtwc.parse_tcw(got.text, source.url)
         if storm is None:
             state.notes.append(f"JTWC {filename}: not a warning this reader knows")
+            continue
+        # JTWC's copy of NHC's last warning on a storm still east of the date
+        # line: NHC has finished with it.
+        if crossing is not None and (storm.latest is None or storm.latest.lon <= 0):
             continue
         found.append(storm)
         end = jtwc.superseding(got.text, storm)
@@ -1994,19 +2057,21 @@ INVEST_STALE_HOURS = 24
 INVEST_SAME_KM = 150
 
 
-def _invests(text: dict, fetcher, state: CycloneState, today) -> None:
+def _invests(text: dict, fetcher, state: CycloneState, today, now=None) -> None:
     """The invests still being tracked, from their best-track decks.
 
     The directory keeps an invest's deck after the system is dropped, and
     reuses the number for the next one, so a deck counts only while its
-    latest fix is within a day of the newest advisory.
+    latest fix is within a day of the run's time, ``now``. Without one it is
+    the newest advisory's, else 00Z of ``today``.
     """
     from . import outlook, sources
 
     candidates = outlook.invest_candidates(text.get("atcf_index", ""))
     if not candidates or fetcher is None:
         return
-    reference = (state.as_of[:13].replace("-", "").replace("T", "")
+    reference = (datetime.fromisoformat(now).strftime("%Y%m%d%H") if now
+                 else state.as_of[:13].replace("-", "").replace("T", "")
                  if len(state.as_of) >= 13 else today.strftime("%Y%m%d") + "00")
     found = []
     for key in candidates:
@@ -2038,18 +2103,18 @@ def _became(fix: Fix, storms) -> Storm | None:
     return min(near)[2] if near else None
 
 
-def _season_year(current: dict, today) -> int:
-    """The season these storms belong to.
+def season_year(listing: str, current: dict, today) -> int:
+    """The season the storms belong to: the newest year with a storm, in the
+    best-track listing or live, and no later than today's.
 
-    Read from an advisory stamp when there is one, because a storm that forms
-    on 31 December in one hemisphere is still numbered in the year it formed,
-    and falling back on the calendar would file it under the next one.
+    A storm keeps the year it was numbered in, so one still going on 2
+    January is last season's; and last season stands until the new year's
+    first storm, rather than an empty season being scored from 1 January.
     """
-    for meta in current.values():
-        stamp = str(meta.get("last_update", ""))
-        if len(stamp) >= 4 and stamp[:4].isdigit():
-            return int(stamp[:4])
-    return today.year
+    years = {int(match.group(3)) for match in BTK_FILE.finditer(listing)
+             if int(match.group(2)) < FIRST_INVEST}
+    years |= {split_id(key)[2] for key in active_ids(current)}
+    return max((year for year in years if year <= today.year), default=today.year)
 
 
 def issuing_centre(storm) -> str:
@@ -2075,12 +2140,20 @@ def issuing_centre(storm) -> str:
 
 
 def _storm(key: str, basin: str, number: int, year: int, meta: dict,
-           fetcher, state: CycloneState, live: bool = True) -> Storm | None:
+           fetcher, state: CycloneState, live: bool = True,
+           clock: datetime | None = None, listed: datetime | None = None) -> Storm | None:
     """Build one storm from its decks. Only the b-deck is required.
 
     A finished storm gets its best track and nothing else. Its forecast decks
     still exist, and fetching them would add a megabyte apiece to describe
     where a dissipated system was once expected to go.
+
+    A live storm's deck served from its copy says so on the storm, with the
+    copy's download time and its age at the run's time, ``clock``. A forecast
+    or guidance deck whose copy is more than ``DECK_COPY_HOURS`` older than
+    the index the storm was listed from, downloaded at ``listed``, is left out
+    (``_current_deck``); the best track stands on its copy, however old, which
+    is still the storm's track to then.
     """
     from . import sources
 
@@ -2101,20 +2174,24 @@ def _storm(key: str, basin: str, number: int, year: int, meta: dict,
     if not live:
         return storm
 
+    clock = clock or datetime.now(timezone.utc)
+    listed = listed or clock
+    if best.from_cache:
+        storm.notes.append(f"Best track {_from_copy(best, clock)}")
     storm.products = _products(key, storm.name, meta, fetcher)
 
-    official = fetcher(sources.deck_source("f", key, storm.name))
-    if official.ok:
-        storm.forecast = tuple(f for f in parse_atcf(official.text)
+    official = _current_deck(fetcher(sources.deck_source("f", key, storm.name)),
+                             "official forecast", storm, clock, listed)
+    if official is not None:
+        storm.forecast = tuple(f for f in parse_atcf(official)
                                if f.tech in {OFFICIAL, "OFCI", "CARQ"} and f.tau > 0)
-    else:
-        storm.notes.append(f"no official forecast deck ({official.error})")
 
-    guidance = fetcher(sources.deck_source("a", key, storm.name))
-    if guidance.ok:
-        members = ensemble_techs(guidance.text)
+    guidance = _current_deck(fetcher(sources.deck_source("a", key, storm.name)),
+                             "guidance", storm, clock, listed)
+    if guidance is not None:
+        members = ensemble_techs(guidance)
         keep = wanted_techs() | members
-        fixes = parse_atcf(guidance.text, techs=keep)
+        fixes = parse_atcf(guidance, techs=keep)
         tracks = latest_guidance(fixes)
         storm.guidance = {t: f for t, f in tracks.items() if t not in members}
         storm.ensemble = {t: f for t, f in tracks.items() if t in members}
@@ -2123,8 +2200,6 @@ def _storm(key: str, basin: str, number: int, year: int, meta: dict,
         # with no forecast at all.
         if not storm.forecast and OFFICIAL in storm.guidance:
             storm.forecast = storm.guidance[OFFICIAL]
-    else:
-        storm.notes.append(f"no guidance deck ({guidance.error})")
 
     # Every lead from here on is hours after the latest analysis.
     now = storm.latest
@@ -2133,6 +2208,76 @@ def _storm(key: str, basin: str, number: int, year: int, meta: dict,
         storm.guidance = _rebased(storm.guidance, now.stamp)
         storm.ensemble = _rebased(storm.ensemble, now.stamp)
     return storm
+
+
+# A live storm's forecast and guidance decks served from copies downloaded
+# more than this before the index of live storms are an advisory or more
+# behind the cone and warnings it links, and are left out rather than drawn
+# under them. One 45 s silence from NHC's ftp server made every later deck of
+# a run a copy. A replay of the cache, its index a copy of the same hour,
+# keeps them.
+DECK_COPY_HOURS = 6.0
+
+
+def _when(stamp) -> datetime | None:
+    """An ISO 8601 time as UTC, a naive one taken as UTC; None for one that
+    is not a time."""
+    try:
+        then = datetime.fromisoformat(str(stamp or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (then if then.tzinfo else then.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+
+
+def _aged(span: timedelta) -> str:
+    """A copy's age: "18 min", "7 h", "21 days"."""
+    hours = span.total_seconds() / 3600.0
+    if hours < 1:
+        return f"{round(hours * 60)} min"
+    return f"{hours:.0f} h" if hours < 48 else f"{hours / 24:.0f} days"
+
+
+def _known(got) -> datetime | None:
+    """When a copy was last known to be the file: told unchanged by its server
+    at ``checked_at``, else downloaded at ``fetched_at``."""
+    return _when(getattr(got, "checked_at", "") or got.fetched_at)
+
+
+def _from_copy(got, clock: datetime) -> str:
+    """What a storm says of a deck served from its copy: "from its copy of
+    15:12Z 25 Sep, 18 min old: live fetch failed (...).", with "current at"
+    the time its server last called it unchanged when that came after."""
+    then, known = _when(got.fetched_at), _known(got)
+    if then is None:
+        when = ", of unknown age"
+    else:
+        current = f", current at {known:%H:%MZ %d %b}" if known != then else ""
+        when = f" of {then:%H:%MZ %d %b}{current}, {_aged(clock - known)} old"
+    return f"from its copy{when}: {got.warnings[0] if got.warnings else 'live fetch failed'}."
+
+
+def _current_deck(got, described: str, storm: Storm, clock: datetime,
+                  listed: datetime) -> str | None:
+    """A live storm's forecast or guidance deck, as text, or None with a note
+    on the storm: unfetched, or served from a copy of no known time or last
+    known current (downloaded, or told unchanged by its server) more than
+    ``DECK_COPY_HOURS`` before the index of live storms was, at ``listed``.
+    A younger copy serves, and the storm says so."""
+    if not got.ok:
+        storm.notes.append(f"no {described} deck ({got.error})")
+        return None
+    if got.from_cache:
+        then = _known(got)
+        if then is None:
+            storm.notes.append(f"no {described} deck (its copy is of unknown age)")
+            return None
+        if listed - then > timedelta(hours=DECK_COPY_HOURS):
+            storm.notes.append(f"no {described} deck (its copy of {then:%H:%MZ %d %b} is "
+                               f"{_aged(listed - then)} older than the active-storm index, "
+                               "an advisory or more behind the cone and warnings it links)")
+            return None
+        storm.notes.append(f"{described[0].upper()}{described[1:]} {_from_copy(got, clock)}")
+    return got.text
 
 
 # Each protective product: the index's name for it, what to call it, and

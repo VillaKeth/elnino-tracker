@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 
 from .parsers import MonthValue, SeasonValue, WeekObservation
+from .svg import signed
 
 EVENT_THRESHOLD = 0.5
 MIN_SEASONS_FOR_EPISODE = 5
@@ -591,9 +592,9 @@ def assess(
 
     legacy = ""
     if index_name == "RONI" and oni_latest and oni_latest.label == latest.label:
-        legacy = f"; legacy ONI {oni_latest.value:+.2f}"
+        legacy = f"; legacy ONI {signed(oni_latest.value, 2)}"
     headline = (
-        f"{tier} -- {index_name} {latest.value:+.2f} degC ({latest.label}{legacy}), "
+        f"{tier} -- {index_name} {signed(latest.value, 2)} degC ({latest.label}{legacy}), "
         f"power index {power.value:.0f}/100 ({power.band}), {momentum.direction}."
     )
 

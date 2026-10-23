@@ -325,7 +325,7 @@ class TestThenMarkup(_DeskFixtures, unittest.TestCase):
         self.assertIn(thennow.css(), self.page())
 
     def test_the_bar_s_link_is_a_44_px_target(self):
-        self.assertIn(".thenlinks a { color: var(--s1); min-height: 44px; display: inline-flex;",
+        self.assertIn(".thenlinks a { color: var(--s1-ink); min-height: 44px; display: inline-flex;",
                       thennow.css())
 
     def test_the_hint_takes_the_pill_s_place_while_the_map_waits_for_a_tap(self):

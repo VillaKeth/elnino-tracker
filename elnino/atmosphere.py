@@ -64,6 +64,11 @@ WALKER_WEIGHTS: dict[str, float] = {
     "zwnd200": 0.04,
 }
 
+# The composite's months are those in which feeds holding at least this
+# share of the weight reported. The SOI is posted days into a month, before
+# the other feeds, and a month of it alone is not the circulation's reading.
+WALKER_MIN_WEIGHT = 0.6
+
 # reqsoi.for is published as a standard score already; re-standardising it
 # against its own history inflates the reading by roughly half a sigma.
 PRESTANDARDIZED = {"eqsoi"}
@@ -120,6 +125,11 @@ class WindBurst:
         return f"{self.when:%b %Y}"
 
 
+# CPC's pentad file is updated about monthly. Past ten days the active phase
+# has moved on, at five or so degrees of longitude a day, from where it says.
+MJO_STALE_DAYS = 10
+
+
 @dataclass
 class MjoState:
     when: date
@@ -129,6 +139,13 @@ class MjoState:
     amplitude: float
     constructive: bool
     note: str
+    age_days: int | None = None  # against the run's day; None when not dated
+
+    @property
+    def stale(self) -> bool:
+        """Too old to say where the active phase is now: more than
+        MJO_STALE_DAYS before the run. Its note says so, and nothing places it."""
+        return self.age_days is not None and self.age_days > MJO_STALE_DAYS
 
 
 @dataclass
@@ -240,7 +257,8 @@ def walker_series(indicators: list[Indicator], months: int = 120) -> list[MonthV
 
     Different feeds stop at different months, so the weights are rescaled to
     the indicators actually present for each month rather than letting a
-    missing feed drag the composite toward zero.
+    missing feed drag the composite toward zero; a month with less than
+    WALKER_MIN_WEIGHT of the weight in is not yet the composite's.
     """
     buckets: dict[tuple[int, int], list[tuple[float, float]]] = {}
     for indicator in indicators:
@@ -250,10 +268,11 @@ def walker_series(indicators: list[Indicator], months: int = 120) -> list[MonthV
         for value in indicator.history:
             buckets.setdefault((value.year, value.month), []).append((weight, value.value))
 
+    least = WALKER_MIN_WEIGHT * sum(WALKER_WEIGHTS.values())
     out: list[MonthValue] = []
     for (year, month), pairs in sorted(buckets.items()):
         total_weight = sum(weight for weight, _ in pairs)
-        if total_weight <= 0.0:
+        if total_weight < least:
             continue
         composite = sum(weight * value for weight, value in pairs) / total_weight
         out.append(MonthValue(year, month, composite))
@@ -277,13 +296,15 @@ def detect_bursts(
     return bursts
 
 
-def read_mjo(series: dict[str, list[tuple[date, float]]]) -> MjoState | None:
+def read_mjo(series: dict[str, list[tuple[date, float]]],
+             today: date | None = None) -> MjoState | None:
     """Locate enhanced convection in the CPC 200 hPa velocity potential index.
 
     CPC's convention: a NEGATIVE standardized value is anomalous upper-level
     divergence, which means enhanced convection at that longitude. The band
     that matters for ENSO is 160E to 120W - an MJO pulse there reinforces
-    westerly anomalies and can trigger a Kelvin wave.
+    westerly anomalies and can trigger a Kelvin wave. A pentad more than
+    MJO_STALE_DAYS before ``today`` places nothing.
     """
     if not series:
         return None
@@ -299,17 +320,26 @@ def read_mjo(series: dict[str, list[tuple[date, float]]]) -> MjoState | None:
 
     enhanced_longitude = min(snapshot, key=lambda key: snapshot[key])
     enhanced_value = snapshot[enhanced_longitude]
-    pacific = [snapshot.get(band) for band in ("160E", "120W")]
-    pacific_values = [value for value in pacific if value is not None]
-    pacific_value = min(pacific_values) if pacific_values else None
+    pacific = [band for band in ("160E", "120W") if band in snapshot]
+    pacific_band = min(pacific, key=lambda band: snapshot[band]) if pacific else None
+    pacific_value = snapshot[pacific_band] if pacific_band else None
     amplitude = max(abs(value) for value in snapshot.values())
+    age = (today - latest_date).days if today else None
 
-    constructive = pacific_value is not None and pacific_value <= -0.5
-    if constructive:
+    stale = age is not None and age > MJO_STALE_DAYS
+    constructive = not stale and pacific_value is not None and pacific_value <= -0.5
+    if stale:
         note = (
-            f"Enhanced convection sits over the Pacific ({enhanced_longitude}), "
-            "which reinforces westerly anomalies and can launch a downwelling "
-            "Kelvin wave."
+            f"CPC's newest pentad is {age} days old ({latest_date.day} {latest_date:%b}), "
+            "too old to say where the active phase is now."
+        )
+    elif constructive:
+        where = (f"sits over the Pacific ({pacific_band})" if pacific_band == enhanced_longitude
+                 else f"reaches the Pacific ({pacific_band}), with the active phase centred "
+                      f"over {enhanced_longitude}")
+        note = (
+            f"Enhanced convection {where}, which reinforces westerly anomalies and "
+            "can launch a downwelling Kelvin wave."
         )
     elif enhanced_value <= -1.0:
         note = (
@@ -327,6 +357,7 @@ def read_mjo(series: dict[str, list[tuple[date, float]]]) -> MjoState | None:
         amplitude=amplitude,
         constructive=constructive,
         note=note,
+        age_days=age,
     )
 
 
@@ -334,8 +365,10 @@ def analyse(
     grids: dict[str, dict[str, list[MonthValue]]],
     mjo_series: dict[str, list[tuple[date, float]]] | None = None,
     qbo: dict[str, list[MonthValue]] | None = None,
+    today: date | None = None,
 ) -> AtmosphereState:
-    """Assemble the atmospheric state from every feed that parsed."""
+    """Assemble the atmospheric state from every feed that parsed; the MJO is
+    dated against ``today``, the run's day."""
     indicators: list[Indicator] = []
     for key in CONVENTIONS:
         sections = grids.get(key)
@@ -429,7 +462,7 @@ def analyse(
         dissenters=dissenters,
         bursts=bursts,
         burst_count_12mo=burst_count_12mo,
-        mjo=read_mjo(mjo_series or {}),
+        mjo=read_mjo(mjo_series or {}, today),
         qbo=qbo_indicator,
         notes=notes,
     )

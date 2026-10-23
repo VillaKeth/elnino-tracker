@@ -37,6 +37,7 @@ import math
 from dataclasses import dataclass, field
 
 from .parsers import ONI_SEASONS, MonthValue, SeasonValue
+from .svg import signed
 
 MIN_FIT_SAMPLE = 20
 DEFAULT_LEADS = 9
@@ -771,7 +772,7 @@ def build(
         if gaps and min(gaps) > 0.1:
             notes.append(
                 f"This event is running warmer than every analog at the same point of its year, "
-                f"by {min(gaps):+.2f} to {max(gaps):+.2f} degC. The analog members "
+                f"by {signed(min(gaps), 2)} to {signed(max(gaps), 2)} degC. The analog members "
                 "are shifted by that gap; without the shift they would understate "
                 "the projection."
             )

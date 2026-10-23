@@ -150,7 +150,7 @@ class TestEveryPageOpensOnIt(_DeskFixtures, unittest.TestCase):
                               + '\n<header class="deskhead">', html)
                 # The menu names the pages, so the header keeps only the theme.
                 self.assertIn('<div class="headbtns"><button type="button" class="themebtn" '
-                              'id="theme">Dark</button></div>', html)
+                              'id="theme" aria-pressed="false">Dark</button></div>', html)
                 self.assertNotIn('<a class="themebtn"', html)
 
     def test_the_atlas_opens_on_it(self):

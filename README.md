@@ -189,7 +189,10 @@ whatever its native convention, and standardized against its own calendar month:
 These are combined into a weighted composite, reported with the **fraction of
 indicators that agree with it** and with each dissenter named. A composite of
 +1.5σ built on 55% agreement is a different animal from the same number on 90%
-agreement, and the dashboard says which one you are looking at.
+agreement, and the dashboard says which one you are looking at. The composite
+is the newest month in which feeds holding at least 60% of the weight have
+reported: the SOI is out days into a month, before the rest, and one early
+September SOI alone once moved the composite from +1.57σ to +0.20σ.
 
 Also tracked: **westerly wind bursts** month by month (sustained western-Pacific
 westerly anomalies at 850 hPa, the trigger for downwelling Kelvin waves; the
@@ -322,7 +325,7 @@ maps are shipped alongside the indices, in ten views:
 | **SST anomaly map** | the tropical Pacific, with the four Niño boxes drawn on it and the 28 °C warm-pool edge marked | OISST v2.1, daily: NOAA's preliminary analysis, a day or two behind |
 | **Niño boxes day by day** | the four boxes' area-weighted anomaly each day on the map's own cells, the preliminary days shaded with how far the final moved them on the days both carry, and CPC's traditional weekly Niño-3.4 beside them as hollow dots, with how far the days run from it | OISST v2.1, daily: the final's last 90 days, then the preliminary's |
 | **Indian Ocean Dipole day by day** | the Dipole Mode Index, the west pole's anomaly (50–70E, 10S–10N) less the east pole's (90–110E, 10S–0), and each pole each day on half-degree cells, the preliminary days shaded with how far the final moved them, against the Bureau of Meteorology's ±0.4 °C thresholds, on OISST's 1971–2000 base: a warming common to both poles cancels in their difference, but a difference in their warming does not, so the DMI can run apart from the Bureau's own; events typically develop from about May and peak from August to October | OISST v2.1, daily: the final's last 90 days, then the preliminary's |
-| **Thermocline surface (3-D)** | 20 °C isotherm depth over longitude *and* latitude, rotatable | TAO/TRITON daily array |
+| **Thermocline surface (3-D)** | 20 °C isotherm depth over longitude *and* latitude, rotatable, each mooring's anomaly against its own monthly normal | TAO/TRITON daily and monthly arrays |
 | **Depth section** | temperature against depth along the equator, 165E to 95W | TAO/TRITON monthly |
 | **Hovmöller** | longitude across, time downward — eastward propagation reads as a right-leaning band | OISST (the final, then the preliminary's latest weeks) and altimetry |
 | **Sea-level anomaly** | upper-ocean heat content, seen from orbit and independent of the moorings | NOAA CoastWatch's blended altimetry |
@@ -341,9 +344,13 @@ as well:
   In a neutral Pacific that sits near the dateline; every degree it travels east
   drags the deep convection with it, and that convection is what every
   teleconnection in the hazard outlook is anchored to.
-- **Thermocline tilt.** 20 °C isotherm depth at the western mooring minus the
-  eastern one. A neutral Pacific runs near 100 m of tilt; a mature El Niño
-  flattens it. The flattening *is* the event, not a symptom of it.
+- **Thermocline tilt.** 20 °C isotherm depth at the west end of the basin
+  (165°E and 180°) minus the east end (110°W and 95°W), each end the mean of
+  its two moorings or the one that reported. A neutral Pacific runs near 100 m
+  of tilt; a mature El Niño flattens it. The flattening *is* the event, not a
+  symptom of it. The ends are fixed: taken from whichever moorings reported
+  first and last, the tilt moved with the array, 41.5 m with all eight and
+  23.6 m with 95°W silent.
 
 The spatial tier is strictly additive. Nothing in it feeds the classification,
 the power index, the forecast or the alerts, so a spatial feed that fails costs a
@@ -685,6 +692,15 @@ active systems is known:
 | **f-deck** | the official NHC/CPHC forecast | every advisory |
 | **a-deck** | model guidance, including the ensemble members | every six hours |
 
+A deck that cannot be fetched serves from its copy, and the storm says so,
+with the copy's download time and age. A forecast or guidance deck whose copy
+was downloaded over six hours before the index of live storms is left out, an
+advisory or more behind the cone and warnings the index links: one 45 s
+silence from NHC's ftp server made every later deck of a run a copy, and a
+current cone sat over an old forecast. A replay of the cache, its index a copy
+of the same hour, keeps them. The best track stands on its copy, with its age,
+rather than the storm leaving the desk, its alerts and its season.
+
 Traps handled, because ATCF is a fixed-width format with a long history:
 
 - Latitude and longitude are **tenths with a hemisphere letter glued on**
@@ -695,8 +711,16 @@ Traps handled, because ATCF is a fixed-width format with a long history:
   filtering gives you forty overlaid tracks.
 - The b-deck contains **intermediate landfall fixes** at off-synoptic hours and
   **post-tropical** entries. Both are real and both must be excluded from ACE, or
-  the number comes out high.
+  the number comes out high. A 24-hour change ending on a landfall fix reads the
+  wind 24 hours before it between the analyses either side of that time.
 - The same storm can appear in **two basins** as it crosses 140W, under two ids.
+- HURDAT2's Atlantic line for 29 September 1969 06 UTC has **no comma between
+  latitude and longitude** (`63.3N    7.5E`). Its fixes are read by pattern,
+  the season counts with the same reader as the tracks: split at commas, a
+  line like it read its pressure as its wind.
+- A time is **ten digits that need not be a time** (31 September). Such a row is
+  dropped where it is read, as is a JTWC history line, and a JTWC warning whose
+  own time is none is not read; let in, one stopped the run.
 
 From those, per storm: current intensity and Saffir-Simpson category (64/83/96/
 113/137 kt), central pressure, the radius of maximum wind and the eye
@@ -767,6 +791,10 @@ alongside an El Niño-year composite over the same window. The composite is of
 each basin's satellite era, the Atlantic's from 1966 and the east Pacific's from
 1971 (where NHC's own climatology begins), so that every season in it was counted
 the same way: before satellites a storm far from ships and land went uncounted.
+The season is the newest year with a storm: one still going in January keeps
+the season it was numbered in, and that season stands, counted whole, until
+the new year's first storm; a season with under 2% of a normal season's ACE
+fallen by its date is too early to read and settles nothing.
 In the east Pacific, whose storms mostly stay out at sea, that shows: over whole
 seasons its El Niño seasons from 1950 average 132 ACE, under its normal of 142,
 against 163 from 1971. The panel then states
@@ -782,7 +810,12 @@ outcome in the same season, in public, rather than asserted.
 - **JTWC's warnings** for the west Pacific, the north Indian Ocean and the
   southern hemisphere, read from the `.tcw` files its RSS feed links into the
   same storm records the ATCF decks make. A storm both centres list is NHC's,
-  the authority on it. ATCF's longitudes run 180 W to 180 E, so a track or an
+  the authority on it, and JTWC's copies of NHC's storms are not read; a storm
+  that crosses the date line keeps its east or central Pacific id with JTWC,
+  as Genevieve (07C) did in 2014 and Dora (05E) in 2023, and is followed on
+  JTWC's warnings, in the West Pacific, a typhoon there, with JMA its regional
+  centre, while its season keeps it once, on NHC's track. ATCF's longitudes
+  run 180 W to 180 E, so a track or an
   ensemble member that crosses the date line jumps 360 degrees; every map takes
   each longitude the short way, beside the storm, or the map of the live tracks
   comes out wider than the world and a track is drawn the whole way round it.
@@ -2125,8 +2158,8 @@ of CCMP's winds. Every one of them is optional.
 | [`ncdcOisst21Agg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.html) — the Indian Ocean Dipole's poles, its last 90 days | the dipole day by day, on half-degree cells over 50–110E, 10S–10N, the rectangle holding both poles |
 | [`ncdcOisst21NrtAgg`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21NrtAgg.html) — the poles, its last 28 days | the days since the final ends |
 | [`pmelTaoMonT`](https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonT.html) | the equatorial depth section, full record so it can be an anomaly |
-| [`pmelTaoMonIso`](https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonIso.html) | 20 °C isotherm depth; Kelvin wave propagation |
-| [`pmelTaoDyIso`](https://www.pmel.noaa.gov/erddap/tabledap/pmelTaoDyIso.html) | the off-equatorial rows, for the 3-D thermocline surface |
+| [`pmelTaoMonIso`](https://coastwatch.pfeg.noaa.gov/erddap/tabledap/pmelTaoMonIso.html) | 20 °C isotherm depth of the whole array: Kelvin wave propagation on the equator, and each mooring's monthly normal for the 3-D surface |
+| [`pmelTaoDyIso`](https://www.pmel.noaa.gov/erddap/tabledap/pmelTaoDyIso.html) | the off-equatorial rows, for the 3-D thermocline surface, the last 60 days by ERDDAP's own clock |
 | [`noaacwBLENDEDsshDaily`](https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.html) — map, in whole circles of latitude | sea-level anomaly; heat content from orbit, a day or two behind, with the same subset of the West Coast node's [`nesdisSSH1day`](https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day.html) behind it |
 | [`noaacwBLENDEDsshDaily`](https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.html) — equator, in whole circles | Kelvin and Rossby waves, independent of the moorings: a row every seventh of the dataset's days back from the latest for sixteen months, `nesdisSSH1day` behind it |
 | [`ccmp-daily-v2-1-NRT`](https://oceanwatch.pifsc.noaa.gov/erddap/griddap/ccmp-daily-v2-1-NRT.html) — the tropical Pacific, its last 180 days | westerly wind events: CCMP version 2.1's near-real-time 10 m zonal wind every 12 hours on every ninth quarter-degree cell, 15S–15N and 120E–80W, a day or two behind |
@@ -2179,7 +2212,11 @@ or on the way to its subset, is asked there and serves as CoastWatch's
 would, and its copy, from whichever server, claims beside the answer: NCEI
 behind a copy CoastWatch made, or on its very day, does not overwrite it,
 CoastWatch's preliminary reaching further back and carrying what the final
-changed, and the feed says so. On 14 October CoastWatch's ERDDAP lost every
+changed, and the feed says so. On its very day NCEI says the copy is the
+latest there is, and the copy serves as current rather than as a fetch that
+failed, unless CoastWatch said a later day it could not deliver: 25 of 94
+runs had called it a failure, and the alert for feeds served from their
+copies opened and closed with them. On 14 October CoastWatch's ERDDAP lost every
 dataset the tracker asks of it for some hours. NCEI is not asked while
 CoastWatch answers: it is not the fresher (that evening its ERDDAP still
 ended on the 12th, hours after NCEI had made the 13th, which CoastWatch
@@ -2229,8 +2266,12 @@ outage is as far behind as it is, whatever its product usually is.
 **Winds from PIFSC's OceanWatch.** The westerly wind events' feed is NOAA
 PIFSC's copy of CCMP version 2.1 near real time
 ([`ccmp-daily-v2-1-NRT`](https://oceanwatch.pifsc.noaa.gov/erddap/griddap/ccmp-daily-v2-1-NRT.html)),
-an analysis every six hours, of which it asks every other one of the last 719:
-360, 12 hours apart, on Harrison and Vecchi's beat. It has no second server.
+an analysis every six hours, of which it asks all 720 of the last 180 days and
+reads the 360 at 06Z and 18Z, 12 hours apart, on Harrison and Vecchi's beat.
+Kept by their time, a missing analysis is a gap in the series: asked as every
+other one counted back from the latest, the series turned between 06Z/18Z and
+00Z/12Z with each new analysis, and across a missing one turned the rest of it,
+by an 18-hour step the filter cannot take. It has no second server.
 CoastWatch's West Coast node sends its `pifscCcmpDailyV21NRT` back to PIFSC,
 and the node's ±180 copy of it ended on 2 June 2026; the near-real-time blended
 winds on CoastWatch's central ERDDAP stopped in March 2023, and the West Coast
@@ -2293,7 +2334,9 @@ current 1991-2020 base period.
 behind, and the final about two weeks behind; CCMP's near-real-time winds every
 six hours, a day or two behind; the weekly SST file refreshes
 Monday; ONI, RONI and the monthly indices update early each month; WWV updates monthly; the MJO index is
-daily; the Diagnostic Discussion is issued on the second Thursday. For the ENSO
+CPC's pentad series, which CPC brings up to date about monthly, so a pentad more
+than ten days old is said to be too old to place the active phase; the
+Diagnostic Discussion is issued on the second Thursday. For the ENSO
 state alone, running more often than daily gains nothing. The tropical cyclone
 products change faster: advisories every six hours with intermediates between,
 outlooks four times a day, JTWC's warnings six-hourly. That is why the site runs
@@ -2332,6 +2375,10 @@ Every run is written to `data/elnino.db` (SQLite, stdlib):
   `cleared` meaningful for a day;
 - **fetches** — per-feed success, kept a week, so feed reliability is
   measurable.
+
+Every time the run keeps, and every day it ages a feed or a storm by, is
+UTC's, from the run's one clock: a run on a machine behind UTC once took
+yesterday's date for the hours after 00Z.
 
 ---
 
@@ -2401,7 +2448,7 @@ elnino/assets.py         the code and data that do not change from run to run, a
                          named for their contents, beside the pages, and the service
                          worker that keeps them and stands in for Pages when it lags
 elnino/png.py            indexed PNGs, with the standard library alone, for large fields
-tests/                   2007 tests over parsers, numerics, grids, renderers, a full run
+tests/                   2061 tests over parsers, numerics, grids, renderers, a full run
 data/raw/                cached downloads + dated archive
 data/elnino.db           run history, revisions, alert state
 output/                  dashboard.html, atlas.html, storms.html, map.html, latest.json,
@@ -2630,6 +2677,11 @@ publishes the run (`.github/workflows/live.yml`):
   which GitHub moves to Ubuntu 26.04 from 19 October 2026: 26.04's coreutils
   are not GNU's, and the relay's times are GNU `date`'s arithmetic, proved on
   24.04 and not yet on 26.04.
+- **The time.** A run has half an hour, and its publishing step 25 minutes of
+  it. A job that runs out its time is cancelled, and a cancelled run tells no
+  one; a step that runs out its own fails, and the failure opens an issue.
+  About 70 storm fetches one after another, each allowed 120 s, can outlast
+  the job.
 - **The state.** `data/elnino.db` and the cached downloads are carried from one
   run to the next in the Actions cache, so the alerts are reconciled against
   their record, a file is asked whether it changed since its copy, and a failed
@@ -2637,12 +2689,30 @@ publishes the run (`.github/workflows/live.yml`):
   left out: nothing reads it back. Once a good run on `main` has saved its own
   state and found it listed, it lets go of the one it started from: at 21 MB a
   run they came to 3 GB a day, against the repository's 10 GB, and only the
-  latest is ever restored. A run that failed keeps the state it started from,
-  and a run on another branch, whose own state `main` cannot restore, never
-  deletes `main`'s.
+  latest is ever restored. Only a run that published saves its state, so the
+  next run, which restores the newest saved, starts from the last good run's
+  rather than from one a failed run made, perhaps the reason it failed. A run
+  on another branch, whose own state `main` cannot restore,
+  never deletes `main`'s.
   GitHub drops a cache unused for seven days, so
   after a longer gap the next run starts afresh: every open alert reads as new,
   and no feed has a copy to fall back on for that run.
+- **The run's problems, in the log.** The brief the live run prints said
+  "DEGRADED - 1 problem, see end", and its end was the disclaimer; the one
+  annotation of a degraded run said "some feeds failed" for exit 3 only,
+  which exit 1, alerts open, outranks. The brief now lists the problems, and
+  each is an annotation of its own on the run, however it exited.
+- **The run's problems, said.** The banner counts a degraded run's
+  problems and points to the data provenance card, which listed each feed's
+  fetch and none of the problems. The card now says each, a problem that
+  names its feed under that feed and the rest after the list, and the
+  banner's words link to it.
+- **A feed that gives nothing.** A parser's failure was the only problem a
+  run counted: text whose layout had changed under its parser gave no rows
+  and was published as a feed with nothing, SOI with a year indented one
+  space, RONI with a column added, and the run classified on ONI for RONI's
+  want. Text that gives nothing, or a table of tables with nothing in any, is
+  now a problem too: the run is degraded and says which feed and why.
 - **What stays.** The pages' code, and the data that do not change from run to
   run (the gazetteer, the composite grids, the coastlines, borders, rivers and
   lakes, the relief), are not in the pages but beside them, in
@@ -2730,7 +2800,12 @@ publishes the run (`.github/workflows/live.yml`):
   not reached yet, or a run put back with `--allow-older`) is never taken,
   whether `run.json` names it or the page read again holds it. A browser that
   keeps no session storage, or a reader saving data (Data Saver), is only ever
-  offered the update.
+  offered the update. The theme is the reader's on every page: **Dark**, the
+  one theme button each page has, is pressed while the dark theme is shown,
+  the reader's or the system's, and the choice is kept in the browser's
+  storage for the site, the one thing the site keeps there, and put back
+  before any page of it is painted; a press back to the system's own scheme
+  follows the system again, and keeps nothing.
 
 Run it now from the Actions tab (*Live site*, then *Run workflow*) or with
 `gh workflow run live.yml`; pause it with *Disable workflow* there, or with
@@ -2739,10 +2814,19 @@ enabled again, the next scheduled run, or one run by hand, takes the relay up.
 A run that could not happen or could not publish fails, and the site keeps its
 last run. GitHub notifies whoever started a run that fails, and no one of a
 run its own bot started, as it starts the relay and the runs the relay
-dispatches: so a failed run on `main`, or a failed relay, opens an issue,
+dispatches: so a failed run on `main`, the watch on the site among its
+jobs, or a failed relay, opens an issue,
 *A run of the live site failed*, which notifies the repository's owner, unless
 one is open already. While it is open, later failures open none, and the
-Actions tab lists them; closing it asks to be told of the next. A run with
+Actions tab lists them; closing it asks to be told of the next. GitHub
+deploys each push to `gh-pages` in a workflow of its own, *pages build and
+deployment*, and one that fails tells no one: one failed with "Failed to get
+ID Token" and the site stood still for 20 minutes. So each run on `main` reads
+the `run.json` the site serves, at an address of its own past the CDN's ten
+minutes, and opens an issue, *The site has fallen behind gh-pages*, when
+`gh-pages` has held a run the site does not serve for more than 25 minutes,
+unless one is open: one deployment lost is made good by the next, and one
+still deploying is not one lost. A run with
 open alerts or failed feeds is published, with a notice or a warning on the
 run, as its pages say. GitHub pauses the schedules of a public repository
 after 60 days without activity, and the workflow with them, which the relay
@@ -2762,7 +2846,7 @@ run every hour, or as often as `--watch` asks, and served pages that follow it.
 python -m unittest discover -s tests -v
 ```
 
-2007 tests, no network required. They cover:
+2061 tests, no network required. They cover:
 
 - **every parser**, against checked-in fixtures of each NOAA format, including
   the awkward cases: negative anomalies glued to the preceding column
@@ -2791,7 +2875,13 @@ python -m unittest discover -s tests -v
   and on the quantity it measures (the terminal report's QBO: its wind in m/s,
   its phase the wind's, its score in sigma, all of the newest month that has
   its wind),
-  no count printed with a lazy "(s)" plural, no signed zero on an axis, month
+  every status written in words and every muted word, link and chip in a
+  colour that reads at 4.5:1 on its ground in either theme, El Niño, La Niña
+  and Niño 3.4 spelled with their tilde on every page, in its words, labels
+  and data alike,
+  no count printed with a lazy "(s)" plural, no signed zero on an axis or
+  anywhere else a value rounds to zero (0.00, never +0.00 or −0.00, on the
+  pages, in their hovers and tables and in the terminal report), month
   ticks giving the year in full, every tile in degrees saying °C, a longitude
   or latitude rounded before it is given a hemisphere (180, not 180E), fix and
   issue times written as times (16 Oct 18Z, 25 Sep 2026 11:40 UTC), JTWC's
@@ -2808,8 +2898,12 @@ python -m unittest discover -s tests -v
   is not guaranteed sorted, box means are cosine-weighted, neither the depth
   interpolation nor the longitude interpolation extrapolates past the outermost
   mooring, a decommissioned longitude is dropped from the Hovmöller, and the
-  thermocline tilt averages both ends, skips a mooring that never crossed 20 °C
-  and declines rather than averaging one end with itself;
+  thermocline tilt is between fixed ends, each averaged over its moorings,
+  skips a mooring that never crossed 20 °C, says which mooring of an end was
+  silent, and declines without a mooring at either end; and the 3-D
+  thermocline each mooring's anomaly against its own climatology, meaned over
+  the array's last fortnight with a silent mooring left out, the Hovmöller of
+  the isotherm read off the equator alone;
 - **the ocean a day or two ago**: the maps served by whichever of OISST's two
   analyses has the later day, the final on a day both have, each product's own
   copy standing in for it when it fails and never overwritten by the other's,
@@ -2818,7 +2912,8 @@ python -m unittest discover -s tests -v
   its addresses in turn, each once, and never while CoastWatch answers, its
   preliminary for all its days and then all but the oldest, the product's copy
   claiming beside its answer and serving before it on the very day CoastWatch
-  made the copy, a copy NCEI made serving as current while CoastWatch is behind
+  made the copy, as current unless CoastWatch said a later day it failed to
+  deliver, a copy NCEI made serving as current while CoastWatch is behind
   it but not a copy of CoastWatch's own once CoastWatch goes back, every answer
   passed over named with the day it said or as saying none, and a map NCEI
   served marked as the analysis it is; sea level asked of CoastWatch's own
@@ -2887,6 +2982,10 @@ python -m unittest discover -s tests -v
   chart; whose SOI it is, CPC's monthly SOI set beside the 30-day, the DMI's
   base and the season IOD events form in; schema 11's days in the JSON, and
   the report's;
+- **the atmosphere**: an MJO reading too old to place, over ten days, saying
+  so and helping nothing, one reaching the Pacific naming the band it reaches,
+  and the Walker composite of a month only when most of its weight reported,
+  an early lone SOI setting no month of it;
 - **westerly wind events**: the vendored base on the feed's very cells, land
   and sea valued; the regions and their neighbours from their geometry; the
   base interpolated between the months' middles and across the year's end;
@@ -2895,8 +2994,10 @@ python -m unittest discover -s tests -v
   one of five not, strictly above 2 m/s, a gap breaking a run, the centre,
   peaks, point and wind measure, under way, from the window's start and
   building; overlaps within three days counting as the stronger, each region
-  named once, and no cell in two regions; the Hovmöller's rows from the
-  analyses each day has, one at either end of a window ending at 00Z or 06Z; a
+  named once, and no cell in two regions; the events read off the 06Z and
+  18Z analyses by their time, all of 180 days asked and those at 00Z and 12Z
+  passed over; the Hovmöller's rows from the analyses each day has, one at
+  either end of a window from 18Z to 06Z; a
   feed with no smoothed value in any region refused and an analysis without
   values left out; the feed's query, tier and archive flag, a broken answer
   costing only itself; the card's lines, mark, bars, outlines, hovers, caption,
@@ -2956,12 +3057,19 @@ python -m unittest discover -s tests -v
   survives being an HTML attribute — one catalogue entry contains an apostrophe,
   and unescaped it silently turns the whole panel inert;
 - **the cyclone decks**: hemisphere-lettered tenths parse to signed degrees,
+  a live storm's deck served from its copy says so with its age, and a
+  forecast copied over six hours before the index of live storms, or at no
+  known time, is left out, though not from a replay whose index is as old,
   a gzipped a-deck is read, `OFCL` is picked out of forty interleaved techs and
   the ensemble members matched separately, ACE counts only six-hourly warm-core
   fixes at 34 kt or above — an intermediate landfall fix, a post-tropical one, a
   sub-gale one and a forecast one are each present in the fixture and each
   excluded — rapid intensification is measured over a true 24 hours rather than
-  over four rows, category floors land on the Saffir-Simpson boundaries exactly,
+  over four rows, a day ending on a landfall fix between the analyses read
+  from the wind interpolated between those either side, a row or a JTWC line
+  whose ten digits are no time is dropped, an invest is aged against the
+  run's clock, HURDAT2's fixes are read for the season counts as for the
+  tracks, one missing its comma among them, category floors land on the Saffir-Simpson boundaries exactly,
   each forecast point is marked as NHC's track graphic marks it (a category's
   number, else NHC's letter for its wind, drawn open where the system is not a
   tropical cyclone, never a category for a subtropical storm, nothing without a
@@ -2971,7 +3079,9 @@ python -m unittest discover -s tests -v
 - **the season verdict**: climatology is cut at the same calendar date rather
   than compared against a full-season normal, a year with no storms is a zero
   and not a gap, and the El Niño composite excludes the year being scored and
-  starts at each basin's satellite era, which `latest.json` names;
+  starts at each basin's satellite era, which `latest.json` names; the
+  season is the newest year with a storm, the last counted whole until the
+  new one's first storm, and one barely begun not scored;
 - **the storm overlay**: tracks project onto the globe and cull with it, a
   forecast track is drawn dashed and distinctly from the observed one, and a
   chip's status colour never travels without its label;
@@ -3022,8 +3132,8 @@ python -m unittest discover -s tests -v
   view pans, is held to the size the map was measured at, moves with the
   ground under a gesture and gives way over imagery; the page is measured again
   whenever the map's box changes; a press on +, − or Fit is the button's, not
-  the start of a drag; either theme switch reads the ramp again, and the Theme
-  button turns from the theme shown, the system's where none is chosen; and over a
+  the start of a drag; either theme switch reads the ramp again, and the theme
+  button is the site's one; and over a
   base the field takes the ramp made for its ground, the page's where the
   imagery cannot be had, the middle step left clear and said in words, and
   the key shows the colours drawn;
@@ -3052,7 +3162,8 @@ python -m unittest discover -s tests -v
 - **the new cyclone sources**: a KMZ is read as its KML text; NHC's watches and
   warnings come out as coast segments by kind, the cone as a polygon, the surge
   areas with their depths, and the wind speed probabilities by place, wind and
-  lead; JTWC's `.tcw` warnings become storms with their radii and its
+  lead; JTWC's `.tcw` warnings become storms with their radii, a storm that
+  crossed the date line followed on them under its own id, and its
   disturbances become areas, a formation alert (or its cancellation) is read
   from its prose and laid on its invest's area, a first warning that cancels
   an alert is still a warning and ends that alert, an alert with no issue time
@@ -3126,7 +3237,8 @@ python -m unittest discover -s tests -v
   anything drawn needs NASA, and asks GIBS again whatever the base; a NASA frame
   whose tiles never came is said to be down, the coastline drawn and every
   failed tile asked for again on Retry, a failure that set its frame aside
-  excepted; an Esri
+  excepted; the time line saying the latest image's time and its age, a
+  frame's as a frame's, and Now only of the clock; an Esri
   placeholder rules out every level under it and redraws the tiles, not the
   marks; the compare menu offers every layer it can show; a layer that needs
   the page served says so where it is pressed; the Towns switch says why its
@@ -3211,7 +3323,12 @@ python -m unittest discover -s tests -v
   offered passed over, a take never started twice, answers that name no run
   passed over, a hand-over left in storage read like input, one run written two
   ways, a tab frozen for hours, and the beacon found beside any address; every
-  page setting a theme handed over before it is styled; the desk's refresh
+  page setting the reader's theme, chosen on any page, else one handed over,
+  before it is styled, with one theme button, Dark, pressed while the dark
+  theme is shown, the system's where none is chosen, turning from the theme
+  shown and keeping the choice where storage allows, following the system
+  again when turned back to its scheme, and the theme all the site keeps in
+  the browser's lasting storage; the desk's refresh
   loading for a run another code wrote, failing for a take that fails part way
   once its place is put back, passing over a copy no newer than its own, and
   naming the run it took and leaving the panel as the reader left it (*Here* and
@@ -3263,7 +3380,13 @@ python -m unittest discover -s tests -v
   leaving alone a workflow disabled by hand; and the state a run
   started from let go of, run under bash against a gh that lists or fails,
   only after a good run on `main` and once the run's own is listed by its
-  whole key; every job on Ubuntu 24.04, named; and `--watch` running no
+  whole key; the publish step's own time limit inside the job's, the state
+  saved only by a run that published, and each problem of a published run an
+  annotation of its own however it exited, run under bash, escaped so a
+  feed's text starts no command, ten at most; the watch on the site, run under
+  bash against a gh and a curl, opening an issue once the site serves a run
+  25 minutes older than gh-pages, none while one is open or when GitHub or the
+  site cannot say; every job on Ubuntu 24.04, named; and `--watch` running no
   more often than every ten minutes, and hourly without a number;
 - **the street**: the card's composite matching the atlas tool's own on a full
   record, the event under way and the months still under way left out, a season
@@ -3354,7 +3477,11 @@ python -m unittest discover -s tests -v
   the terminal report and the dashboard quoting the *same* thermocline tilt, the
   *same* storm intensities and the *same* STORMFURY verdict, and a JSON payload
   that round-trips; then every page naming that run, the dashboard dated by it,
-  and its pages published as one run naming no path of this machine.
+  and its pages published as one run naming no path of this machine; every
+  date the run reads taken in UTC from its own clock; a feed whose text gives
+  nothing a problem of the run; and a run without one of its indices degraded
+  and saying so, problem by problem, on the provenance card the banner links
+  to and at the end of the brief.
 
 If NOAA changes a format, these fail before a bad number reaches the dashboard.
 

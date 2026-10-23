@@ -69,13 +69,33 @@ class SystemState:
         return bool(self.warnings)
 
 
+def _nothing(value) -> bool:
+    """Whether a parse gave nothing: no rows, or a table of tables with none."""
+    if isinstance(value, dict):
+        return all(_nothing(item) for item in value.values())
+    if isinstance(value, (list, tuple, str)):
+        return not value
+    return value is None
+
+
 def _safe(warnings: list[str], label: str, function, *args, default=None, **kwargs):
-    """Run a parser, turning a failure into a warning instead of a crash."""
+    """Run a parser, turning a failure into a warning instead of a crash.
+
+    Text that gives nothing is a failure too: a feed whose layout changed
+    under its parser reads as a feed with nothing, and a run that took it so
+    published SOI with no rows and classified on ONI for RONI's want.
+    """
     try:
-        return function(*args, **kwargs)
+        result = function(*args, **kwargs)
     except Exception as exc:  # noqa: BLE001 - reported, not swallowed
         warnings.append(f"{label}: {type(exc).__name__}: {exc}")
         return default
+    text = args[0] if args and isinstance(args[0], str) else ""
+    if text.strip() and _nothing(result):
+        warnings.append(f"{label}: its {len(text):,} characters gave nothing: the feed's "
+                        "layout may have changed")
+        return default
+    return result
 
 
 def parse_all(fetched: dict) -> tuple[dict, list[str]]:
@@ -156,7 +176,7 @@ def parse_all(fetched: dict) -> tuple[dict, list[str]]:
     return series, warnings
 
 
-def build_spatial(fetched: dict) -> grids.SpatialState:
+def build_spatial(fetched: dict, today: date | None = None) -> grids.SpatialState:
     """Shape every spatial feed that came back, tolerating any of them missing.
 
     The spatial tier is strictly additive: it makes the event visible, it does
@@ -292,7 +312,7 @@ def build_spatial(fetched: dict) -> grids.SpatialState:
         item = getattr(state, name)
         if item is None:
             continue
-        age = grids.age_days(item.as_of)
+        age = grids.age_days(item.as_of, today)
         if age is not None:
             state.stale[name] = age
     return state
@@ -353,6 +373,10 @@ def run(
     patience = sources.Patience()
     fetched = sources.fetch_all(raw_dir, offline=offline, progress=progress, patience=patience)
     series, warnings = parse_all(fetched)
+    # The run's one clock, from when its feeds are in: its stamp, and the day
+    # each reading's age and each effect's season are set against.
+    run_at = storage.now()
+    today = datetime.fromisoformat(run_at).date()
 
     # RONI is the official index and ONI the legacy one beside it. Either can
     # carry the classification, so only losing both stops the run; losing
@@ -415,11 +439,12 @@ def run(
         series.get("grids") or {},
         series.get("mjo") or {},
         (series.get("grids") or {}).get("qbo30"),
+        today=today,
     )
     if not atmosphere_state.indicators:
         warnings.append("No atmospheric feeds parsed: coupling cannot be assessed.")
 
-    spatial = build_spatial(fetched)
+    spatial = build_spatial(fetched, today)
     warnings.extend(spatial.notes)
     if not spatial.available:
         warnings.append("No spatial feeds parsed: the map and section views are absent.")
@@ -431,7 +456,8 @@ def run(
     # reproduces the last online one instead of going quiet, and the same
     # patience.
     storms = cyclones.build(
-        fetched, index_series, lambda source: sources.fetch(source, raw_dir, offline, patience)
+        fetched, index_series, lambda source: sources.fetch(source, raw_dir, offline, patience),
+        today=today, now=run_at,
     )
     warnings.extend(storms.notes)
     # A protective product the index links but that did not arrive is a failed
@@ -479,9 +505,7 @@ def run(
         index_name=index_name,
     )
 
-    run_at = storage.now()
-    impact_assessment = outlook(assessment, forecast_result.peak,
-                                datetime.fromisoformat(run_at).date())
+    impact_assessment = outlook(assessment, forecast_result.peak, today)
 
     # Persist, then evaluate alerts, what changed against the state a day before.
     conn = storage.connect(db_path)

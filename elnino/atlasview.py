@@ -65,7 +65,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import assets, atlas, atlasdata, coastline, composite, fields, geo, live, relief, sitenav
 from .impacts import CATALOGUE, window_text
-from .svg import esc, table
+from .svg import esc, signed, spell, table
 
 # Degrees of longitude per pixel at the two ends of the zoom range. The wide
 # end puts the whole world in about a thousand pixels; the tight end is about
@@ -292,9 +292,9 @@ def _anchor_rows(state) -> list[list[str]]:
         rows.append([
             local.title.split(",")[0],
             atlas.SEASON_LABEL[strongest.season].replace(" to ", "–"),
-            "—" if percent is None else f"{percent:+.0f}%",
-            f"{strongest.precip.value:+.2f}",
-            f"{strongest.precip.t:+.2f}" if strongest.precip.t is not None
+            "—" if percent is None else f"{signed(percent, 0)}%",
+            f"{signed(strongest.precip.value, 2)}",
+            f"{signed(strongest.precip.t, 2)}" if strongest.precip.t is not None
             else "—",
             f"{strongest.precip.crit:.2f}",
             strongest.precip.direction,
@@ -390,7 +390,7 @@ body.atlaspage { height: 100vh; display: flex; flex-direction: column;
 .atlasbar button[aria-pressed="true"] { background: var(--ink);
   color: var(--surface); }
 .atlasbar .lbl { font-size: 10.5px; letter-spacing: .07em;
-  text-transform: uppercase; color: var(--muted); }
+  text-transform: uppercase; color: var(--muted-ink); }
 .atlasbar .spacer { flex: 1 1 auto; }
 .atlaszoom { position: absolute; right: 14px; top: 14px; display: grid;
   gap: 6px; }
@@ -425,7 +425,7 @@ body.atlaspage { height: 100vh; display: flex; flex-direction: column;
 .dossier .bigsub { font-size: 12.5px; color: var(--ink2); margin: 3px 0 2px; }
 .dossier table { width: 100%; border-collapse: collapse; font-size: 12.5px;
   margin: 4px 0 2px; }
-.dossier th { text-align: left; font-weight: 500; color: var(--muted);
+.dossier th { text-align: left; font-weight: 500; color: var(--muted-ink);
   font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
   padding: 0 0 4px; }
 .dossier th.num, .dossier td.num { text-align: right;
@@ -441,7 +441,7 @@ body.atlaspage { height: 100vh; display: flex; flex-direction: column;
   width: 1px; background: var(--axis); }
 .dossier tr.weak td { opacity: .5; }
 .dossier h3 { margin: 22px 0 7px; font-size: 10.5px; letter-spacing: .07em;
-  text-transform: uppercase; color: var(--muted); }
+  text-transform: uppercase; color: var(--muted-ink); }
 .dossier .lk { border-left: 2px solid var(--border); padding: 1px 0 1px 10px;
   margin-bottom: 11px; font-size: 12.5px; line-height: 1.5; }
 .dossier .lk b { font-weight: 600; }
@@ -1797,7 +1797,9 @@ _JS = r"""
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
       .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
+  // Signed as written: a value that rounds to zero is "0.0", not "−0.0".
   function signed(v, digits) {
+    v = Number(v.toFixed(digits));
     return (v > 0 ? "+" : v < 0 ? "−" : "")
       + Math.abs(v).toFixed(digits);
   }
@@ -2167,19 +2169,12 @@ _JS = r"""
       view = { lon: 150, lat: 0, dpp: fitted() };
       marked = null;
       panel.innerHTML = HINT;
-    } else if (t.id === "theme") {
-      // From the theme shown: with none chosen, the system's own, or the
-      // first press in a dark system set the dark theme already shown.
-      var chosen = document.documentElement.getAttribute("data-theme");
-      var dark = chosen ? chosen === "dark"
-        : !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
-      document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
     } else { return; }
     syncBar();
     schedule();
   });
   // The relief's two colours and the composite's ramp are the page's own
-  // tokens, so a change of theme - the button above, or the system's own -
+  // tokens, so a change of theme - the theme button, or the system's own -
   // is a repaint of both canvases as much as of the page.
   function themed() { tone = null; ramp = null; schedule(); }
   if (window.MutationObserver) {
@@ -2191,6 +2186,8 @@ _JS = r"""
     if (scheme.addEventListener) { scheme.addEventListener("change", themed); }
     else if (scheme.addListener) { scheme.addListener(themed); }
   }
+  // The site's one theme button, its choice kept for every page (live.py).
+  elninoLive.themeButton(document.getElementById("theme"));
   document.addEventListener("keydown", function (ev) {
     if (ev.target.tagName === "INPUT") { return; }
     var step = W * 0.25 * view.dpp;
@@ -2339,7 +2336,7 @@ def _controls() -> str:
     <button type="button" data-layer="places">Places</button>
   </span>
   <span class="spacer"></span>
-  <span class="grp"><button type="button" id="theme">Theme</button></span>
+  <span class="grp"><button type="button" id="theme" aria-pressed="false">Dark</button></span>
 </header>"""
 
 
@@ -2398,7 +2395,7 @@ def page(state) -> str:
     # inside a JSON string ends the script element wherever it appears, and a
     # storm named "<!--<script>" leaves the page's own closing tag unable to.
     data = json.dumps(_run_payload(state), separators=(",", ":")).replace("<", "\\u003c")
-    return f"""<!DOCTYPE html>
+    return spell(f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -2446,7 +2443,7 @@ def page(state) -> str:
 {_legend()}
 <script>var ATLAS={data};</script>
 </body>
-</html>"""
+</html>""")
 
 
 def _assets() -> tuple:

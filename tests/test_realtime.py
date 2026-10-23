@@ -603,7 +603,22 @@ class TestConditionalRequests(_Fetching, unittest.TestCase):
         # Unchanged since it was downloaded, as a gridded feed with no new day
         # is, and its record as the download left it.
         self.assertEqual((got.fetched_at, got.url, got.sha256), (first.fetched_at, self.URL, first.sha256))
-        self.assertEqual(self.meta("file"), record)
+        self.assertEqual(self.meta("file"), {**record, "checked_at": got.checked_at})
+
+    def test_a_copy_told_unchanged_records_when_it_was_last_known_current(self):
+        # A copy served after a failed fetch was as old as its download: a
+        # storm's deck the server had called unchanged every run for days was
+        # refused as days old (cyclones' DECK_COPY_HOURS), though it was the
+        # file as of the last 304.
+        first = self.fetch({self.URL: sources.Answer("AL011851\n", self.TAG, self.DATE)})
+        self.assertEqual((first.checked_at, "checked_at" in self.meta("file")), ("", False))
+        got = self.fetch({self.URL: NOT_MODIFIED})
+        checked = self.meta("file")["checked_at"]
+        self.assertEqual((got.checked_at, got.fetched_at), (checked, first.fetched_at))
+        self.assertGreaterEqual(checked, first.fetched_at)
+        served = self.fetch({self.URL: RuntimeError("no route")})
+        self.assertEqual((served.from_cache, served.fetched_at, served.checked_at),
+                         (True, first.fetched_at, checked))
 
     def downloaded(self, change):
         """The file downloaded, tagged and dated, its record then changed by
@@ -1248,7 +1263,8 @@ class TestPatience(unittest.TestCase):
             start = self.clock.now
             got = run({probe(nrt): [("hang", self.UNREACHABLE)], probe(final): [("hang", self.UNREACHABLE)],
                        probe(ncei_nrt): answer(LATER), probe(ncei_final): answer(FINAL_LAST)})
-        self.assertEqual((got.text, got.from_cache), (csv("a"), True))
+        # NCEI at the copy's day: the copy serves, as current.
+        self.assertEqual((got.text, got.from_cache, got.unchanged), (csv("a"), False, True))
         self.assertEqual(self.clock.now - start, sources.TIMEOUT)
         self.assertEqual([url for url, _ in self.tries if "coastwatch" in url], [probe(nrt)])
         self.assertIn("coastwatch.example left a try unanswered for 45 s", got.warnings[0])
@@ -1408,18 +1424,22 @@ class TestSecondServer(_Fetching, unittest.TestCase):
             f"latest day 2026-10-13, no later than its copy's 2026-10-14 ({self.SECOND}))"])
         self.assertEqual((self.kept(), self.meta()["probe"]), (csv("cw"), "2026-10-14T12:00:00Z"))
 
-    def test_ncei_s_answer_for_the_day_of_coastwatch_s_copy_leaves_the_copy(self):
+    def test_ncei_s_answer_for_the_day_of_coastwatch_s_copy_leaves_the_copy_current(self):
         # CoastWatch's preliminary window reaches back four weeks and NCEI's
         # two: a day both have is not swapped for NCEI's, and the daily card
-        # keeps what the final changed.
+        # keeps what the final changed. And NCEI at the copy's day says the
+        # copy is the latest there is: it serves as current, where 25 of 94
+        # runs said the fetch had failed and the cache alert churned.
         self.fetch(self.hour())
         self.asked.clear()
         got = self.fetch(self.down(self.hour(ncei=LATER)))
-        self.assertEqual((got.text, got.url, got.from_cache), (csv("cw"), self.PRIMARY, True))
+        self.assertEqual((got.text, got.url, got.from_cache, got.unchanged),
+                         (csv("cw"), self.PRIMARY, False, True))
         self.assertNotIn(self.SECOND, self.asked)
         self.assertEqual(got.warnings, [
-            f"live fetch failed ({self.failed(self.PRIMARY)}; {self.failed(self.FINAL)}; "
-            f"latest day 2026-10-13, no later than its copy's 2026-10-13 ({self.SECOND}))"])
+            f"{self.failed(self.PRIMARY)}; {self.failed(self.FINAL)}; "
+            f"latest day 2026-10-13, no later than its copy's 2026-10-13 ({self.SECOND}); "
+            f"served by {self.PRIMARY}"])
         self.assertEqual((self.kept(), self.meta()["url"]), (csv("cw"), self.PRIMARY))
 
     def test_coastwatch_failing_its_new_day_s_subset_leaves_its_copy_before_ncei_s_same_day(self):
@@ -2273,6 +2293,28 @@ class TestFeedWarnings(unittest.TestCase):
         self.assertIn("served by", said)
         self.assertIn('<span class="said">HTTP Error 404: Not Found (', nhc)
 
+    def test_the_provenance_card_says_every_problem_of_the_run(self):
+        # The banner says "See data provenance below", and the card listed
+        # each feed's fetch and none of the run's problems: a feed whose text
+        # gave nothing, or the run on the legacy index, was counted at the top
+        # of the page and said nowhere on it.
+        card = dashboard._provenance_card(self.fetches(), [
+            "oni: its 19 characters gave nothing: the feed's layout may have changed",
+            "RONI did not arrive: the classification is running on the legacy ONI.",
+        ])
+        oni, _pacific, _nhc, other = re.findall(r"<li>.*?</li>", card, re.S)
+        self.assertIn('<span class="said">its 19 characters gave nothing: the feed&#x27;s '
+                      "layout may have changed</span>", oni)
+        self.assertIn("<h3>Other problems this run</h3>", card)
+        self.assertEqual(other, "<li>RONI did not arrive: the classification is running on "
+                                "the legacy ONI.</li>")
+        caption = " ".join(re.search(r'<p class="caption">(.*?)</p>', card, re.S).group(1).split())
+        self.assertTrue(caption.endswith(". 2 problems this run, each said under the feed it "
+                                         "came from or listed after the feeds."), caption)
+        one = dashboard._provenance_card(self.fetches(), ["oni: ValueError: no rows"])
+        self.assertNotIn("Other problems", one)
+        self.assertIn("1 problem this run, said under the feed it came from", one)
+
     def test_the_report_gives_each_failure_s_reason_first(self):
         text = self.data(self.fetches())
         self.assertIn("nhc_current: HTTP Error 404: Not Found", text)
@@ -2491,7 +2533,7 @@ class TestRealTimeRun(unittest.TestCase):
         for page in (self.html, world):
             self.assertFalse("week ending" in page.lower(), "a CPC week named by its end")
         self.assertIn("Week centred on", self.html)
-        self.assertIn("Nino-3.4 weekly", self.html)
+        self.assertIn("Ni\u00f1o 3.4 weekly", self.html)
         self.assertIn("week centred on", world)
 
     def test_the_report_gives_the_boxes_day_by_day(self):

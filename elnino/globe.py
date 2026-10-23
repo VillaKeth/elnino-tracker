@@ -60,7 +60,7 @@ from . import coastline, cyclones, fields, geo
 from .grids import Field
 from .impacts import CATALOGUE, evaluate, flavour_of, flavour_penalty, window_text
 from .storms import NEUTRAL, STORM_HUES
-from .svg import esc, relative_d
+from .svg import esc, relative_d, signed
 
 # Near hemisphere only. A point within this of the limb is dropped: right at the
 # edge a quad projects almost edge-on and becomes a sliver of noise on the rim.
@@ -766,7 +766,7 @@ def card(state, size: int = 640) -> str:
         f"click one to open it."
     ) if layer else ""
 
-    peak_phrase = (f" and at the projected peak of {peak_index:+.2f} in "
+    peak_phrase = (f" and at the projected peak of {signed(peak_index, 2)} in "
                    f"{esc(peak_label)}") if peak_label else ""
     # The day's analysis, as the global map under it says in full.
     analysis = " (preliminary)" if grid.preliminary else ""
@@ -776,7 +776,7 @@ def card(state, size: int = 640) -> str:
   on the sphere, with the {len(links)} catalogued teleconnection regions outlined.
   <strong class="gdo">Drag to spin, pinch or use &minus;/+ (or ctrl and the wheel) to
   zoom, click anywhere to open that location.</strong> The panel reports every relationship covering the point
-  you pick, scored at today&rsquo;s {esc(index_name)} of {current_index:+.2f}{peak_phrase}.{storm_phrase}</p>
+  you pick, scored at today&rsquo;s {esc(index_name)} of {signed(current_index, 2)}{peak_phrase}.{storm_phrase}</p>
   <div class="ramp">
     <div class="ramplabel">SST anomaly <span class="rampunits">°C</span></div>
     <div class="rampstrip">{strip}</div>
@@ -863,7 +863,7 @@ CSS = """
   background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); }
 .globe-svg:focus-visible { outline: 2px solid var(--s1); outline-offset: 4px; }
 .ghint { margin: 6px 0 0; text-align: center; font-size: 0.7rem;
-  color: var(--muted); }
+  color: var(--muted-ink); }
 
 /* The sphere itself. Ocean is the neutral midpoint of the diverging ramp, so a
    cell the sensor missed reads as "no reading" rather than as zero anomaly. */
@@ -898,13 +898,13 @@ CSS = """
 .gcontrols { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .grow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .glabel { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--muted); margin-right: 2px;
+  text-transform: uppercase; color: var(--muted-ink); margin-right: 2px;
   min-width: 62px; }
 .gbtn, .gchip { font: inherit; font-size: 0.72rem; font-weight: 600;
   padding: 4px 11px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--border); background: var(--plane); color: var(--ink2); }
 .gbtn:hover, .gchip:hover { color: var(--ink); border-color: var(--axis); }
-.gchip.on { color: var(--s1); background: color-mix(in srgb, var(--s1) 10%, transparent);
+.gchip.on { color: var(--s1-ink); background: color-mix(in srgb, var(--s1) 10%, transparent);
   border-color: color-mix(in srgb, var(--s1) 50%, transparent); }
 
 /* --- the panel that opens on a click --------------------------------------- */
@@ -913,33 +913,33 @@ CSS = """
   gap: 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
 .dossier h3 { margin: 0; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
 .localsst { font-size: 0.83rem; color: var(--ink2); margin: 8px 0 2px; }
-.dcount { font-size: 0.74rem; color: var(--muted); margin: 0 0 10px; }
+.dcount { font-size: 0.74rem; color: var(--muted-ink); margin: 0 0 10px; }
 .dz { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
 .dz h4 { margin: 0 0 4px; font-size: 0.86rem; display: flex; gap: 7px;
   align-items: baseline; flex-wrap: wrap; }
 .pmark { color: var(--ink2); font-size: 0.7rem; }
-.pname { font-weight: 500; color: var(--muted); font-size: 0.72rem;
+.pname { font-weight: 500; color: var(--muted-ink); font-size: 0.72rem;
   text-transform: uppercase; letter-spacing: 0.05em; }
 .dzeffect { margin: 0 0 8px; font-size: 0.85rem; }
 .dzgrid { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px;
   margin: 0 0 8px; font-size: 0.78rem; }
-.dzgrid dt { color: var(--muted); }
+.dzgrid dt { color: var(--muted-ink); }
 .dzgrid dd { margin: 0; color: var(--ink2); }
 .dzdetail { margin: 0 0 6px; font-size: 0.78rem; color: var(--ink2); }
 .dzexp { margin: 0; font-size: 0.78rem; color: var(--ink2); }
-.dznote { margin: 6px 0 0; font-size: 0.74rem; color: var(--muted);
+.dznote { margin: 6px 0 0; font-size: 0.74rem; color: var(--muted-ink);
   font-style: italic; }
 
 /* A likelihood carries its strength in dots as well as in the word, so it
    survives greyscale, colour vision deficiency and a glance. */
 .lk { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; }
-.lkdots { letter-spacing: 1px; font-size: 0.62rem; color: var(--muted); }
+.lkdots { letter-spacing: 1px; font-size: 0.62rem; color: var(--muted-ink); }
 .lk3 { color: var(--ink); font-weight: 650; }
 .lk3 .lkdots { color: var(--ink); }
 .lk2 { color: var(--ink); font-weight: 600; }
 .lk2 .lkdots { color: var(--ink2); }
 .lk1 { color: var(--ink2); }
-.lk0 { color: var(--muted); }
+.lk0 { color: var(--muted-ink); }
 
 .dtable td { white-space: normal; text-align: left; vertical-align: top; }
 .dtable th { text-align: left; }
@@ -974,12 +974,12 @@ CSS = """
 .tckey { display: inline-block; width: 12px; height: 12px; border-radius: 50%;
   margin-right: 8px; vertical-align: -1px; }
 .dsub { margin: 14px 0 5px; font-size: 0.72rem; font-weight: 700;
-  letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-ink); }
 .tctable { width: 100%; border-collapse: collapse; font-size: 0.76rem;
   font-variant-numeric: tabular-nums; }
 .tctable th, .tctable td { text-align: left; white-space: nowrap;
   border-bottom: 1px solid var(--border); }
-.tctable th { font-weight: 600; color: var(--muted); padding: 2px 8px 4px 0; }
+.tctable th { font-weight: 600; color: var(--muted-ink); padding: 2px 8px 4px 0; }
 .tctable td { padding: 3px 8px 3px 0; }
 .tctable .tcnum { text-align: right; padding-right: 14px; }
 .tcwarn { margin: 10px 0 0; font-size: 0.76rem; color: var(--ink2); }
@@ -1088,8 +1088,10 @@ GLOBE_JS = r"""
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
     });
   }
+  // Signed as written: a value that rounds to zero is "0.0", not "−0.0".
   function signed(v, places) {
-    return (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(places);
+    v = Number(v.toFixed(places));
+    return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(places);
   }
   function lonName(v) {
     v = wrap(v);

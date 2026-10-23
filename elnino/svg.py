@@ -21,6 +21,12 @@ import math
 import re
 
 # --- palette ---------------------------------------------------------------
+# A colour that is also written in words has an "-ink" twin, the colour as
+# words: the status colours, the muted grey and the series colours are chosen
+# to be seen as marks, a bar, a dot or an axis line, which at 3:1 they are,
+# while words need 4.5:1 against the card and the page (WCAG AA). On the light
+# ground each twin is the colour darkened to that; on the dark ground the twin
+# is the colour itself wherever it already reads.
 LIGHT = {
     "surface": "#fcfcfb", "plane": "#f9f9f7",
     "ink": "#0b0b0b", "ink2": "#52514e", "muted": "#898781",
@@ -28,6 +34,8 @@ LIGHT = {
     "s1": "#2a78d6", "s2": "#eb6834", "s3": "#1baf7a", "s4": "#eda100", "s5": "#e87ba4",
     "warm": "#e34948", "cool": "#2a78d6",
     "good": "#0ca30c", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b",
+    "good-ink": "#0a7a0a", "warning-ink": "#8f5f00", "serious-ink": "#b0461f",
+    "critical-ink": "#d03b3b", "muted-ink": "#6b6a65", "s1-ink": "#1f63b8", "s2-ink": "#b54a1c",
     "track": "#e6e5e0",
 }
 DARK = {
@@ -37,6 +45,8 @@ DARK = {
     "s1": "#3987e5", "s2": "#d95926", "s3": "#199e70", "s4": "#c98500", "s5": "#d55181",
     "warm": "#e66767", "cool": "#3987e5",
     "good": "#0ca30c", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b",
+    "good-ink": "#0ca30c", "warning-ink": "#fab219", "serious-ink": "#ec835a",
+    "critical-ink": "#ff6b6b", "muted-ink": "#898781", "s1-ink": "#3987e5", "s2-ink": "#e8703f",
     "track": "#2c2c2a",
 }
 
@@ -58,26 +68,64 @@ _PAGE_UNITS = (
     (re.compile(r" x10\^14 m3\b"), " \u00d7 10\u00b9\u2074 m\u00b3"),
     (re.compile(r"(\d) sigma\b"), "\\1\u03c3"),
 )
+# And its words: the event as the site's name spells it, and the Niño regions
+# as CPC and the map write them, "Niño 3.4" for "Nino-3.4". A storm or a
+# place named Nina keeps its name.
+_PAGE_WORDS = (
+    (re.compile(r"\b(El|La) Nin([oa])(s?)\b"), "\\1 Ni\u00f1\\2\\3"),
+    (re.compile(r"\bNino[- ](?=\d)"), "Ni\u00f1o "),
+    (re.compile(r"\bNino(?= (?:box|region|ind)\w*\b)"), "Ni\u00f1o"),
+)
+
+
+def zero_unsigned(text: str) -> str:
+    """A number as written, unsigned when it is zero as written: "-0.0" and
+    "+0.00" read as a direction they do not have, so they are "0.0" and
+    "0.00". Its units stay ("-0.0 °C" is "0.0 °C"); only a text with no other
+    digit than 0 loses its sign."""
+    return text.lstrip("+-") if not re.search(r"[1-9]", text) else text
+
+
+def signed(value: float, places: int) -> str:
+    """``value`` to ``places`` decimals with its sign, as the format ``+.2f``
+    writes it, but unsigned when it rounds to zero: -0.004 is "0.00", where
+    the format writes "-0.00", and 0.004 "0.00", not "+0.00"."""
+    return zero_unsigned(f"{value:+.{places}f}")
 
 
 def tick_text(value: float, fmt: str = "{:+.1f}") -> str:
-    """An axis label. Zero is unsigned whatever the format: a "+0.0" at the
-    zero line reads as a direction it does not have."""
-    if abs(value) < 1e-9:
-        return fmt.format(0.0).lstrip("+-")
-    return fmt.format(value)
+    """An axis label. Zero is unsigned whatever the format, and so is a value
+    that rounds to it: a "+0.0" at the zero line reads as a direction it does
+    not have."""
+    return zero_unsigned(fmt.format(value))
 
 
 def prose(text: object) -> str:
-    """Escape one of the model's sentences for the page, with its units signed.
+    """Escape one of the model's sentences for the page, with its units signed
+    ("degC" as °C, "2 sigma" as 2σ) and its words spelled as the page spells
+    them.
 
     Kept apart from ``esc``, which also carries JSON into data attributes,
-    where rewriting a substring would rewrite the data.
+    where signing a unit would rewrite the data. The spelling is not what
+    keeps them apart: ``spell`` runs over each page whole, data attributes
+    and all, so a sentence is spelled the same whether it comes through
+    ``prose`` or ``esc``; ``prose`` spells it so that it reads as the page
+    does before the page is assembled.
     """
     out = esc(text)
     for spelling, sign in _PAGE_UNITS:
         out = spelling.sub(sign, out)
-    return out
+    return spell(out)
+
+
+def spell(text: str) -> str:
+    """The model's ASCII words as the page spells them: El Niño, La Niña and
+    Niño 3.4. Each page is run through it whole, its hovers and the data it
+    shows from as well as its words; the code a page runs is in its assets,
+    and writes none of them."""
+    for spelling, word in _PAGE_WORDS:
+        text = spelling.sub(word, text)
+    return text
 
 
 # --- label geometry ----------------------------------------------------------

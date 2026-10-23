@@ -32,8 +32,8 @@ import csv
 import io
 import math
 from dataclasses import dataclass, field as dc_field, replace
-from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING
+from datetime import date, datetime, timedelta, timezone
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:  # winds reads its feed with this module's reader
     from .winds import Winds
@@ -218,26 +218,62 @@ class Profile:
         return None
 
 
-def tilt(depths, ends: int = 2):
-    """West-minus-east thermocline tilt, and the two endpoint means behind it.
+# The ends of the basin the thermocline's tilt is taken between, degrees
+# east: 165E and 180 in the west, 110W and 95W in the east. Taken from
+# whichever two moorings reported first and last, the tilt moved with the
+# array: 41.5 m with all eight on the 29 September 2026 cache, 23.6 m with
+# 95W silent, its east end shifted to 125W and 110W.
+TILT_WEST = (165.0, 180.0)
+TILT_EAST = (250.0, 265.0)
 
-    Returns ``(drop, west, east)`` in metres, or ``None`` if either end is too
-    thin to average. Three panels and the terminal report all quote this
-    quantity, and they have to quote the same one: a reader comparing the
-    section against the report is checking the instrument, not the ocean.
 
-    Each end is averaged over ``ends`` moorings rather than read off the single
-    outermost one. That costs a little of the basin span and buys immunity to
-    one mooring that has drifted, gone missing or come back warm, which on this
-    array is common enough that the single-pair version swings by ten metres
-    between runs for no oceanographic reason at all.
+class Tilt(NamedTuple):
+    """The west-minus-east tilt in metres, the two end means behind it, and
+    the moorings each end was read from (degrees east)."""
+
+    drop: float
+    west: float
+    east: float
+    west_from: tuple
+    east_from: tuple
+
+    def where(self, end: str) -> str:
+        """The moorings one end was read from: "165E and 180", or "110W,
+        with 95W silent"."""
+        group, used = ((TILT_WEST, self.west_from) if end == "west"
+                       else (TILT_EAST, self.east_from))
+        said = " and ".join(lon_name(lon) for lon in used)
+        silent = [lon_name(lon) for lon in group if lon not in used]
+        return said + (f", with {silent[0]} silent" if silent else "")
+
+
+def tilt(depths: dict) -> Tilt | None:
+    """West-minus-east thermocline tilt between the fixed ends of the basin,
+    from the 20 °C isotherm's depth by mooring longitude (degrees east; None
+    where it never crossed). None without a mooring at either end.
+
+    Three panels and the terminal report all quote this quantity, and they
+    have to quote the same one: a reader comparing the section against the
+    report is checking the instrument, not the ocean.
+
+    Each end is the mean of its two moorings, or the one that reported,
+    rather than the single outermost mooring: that buys immunity to one that
+    has drifted or come back warm, which on this array is common enough that
+    a single pair swings by ten metres between runs for no oceanographic
+    reason. And the ends are fixed, so a silent mooring costs its end a
+    mooring rather than moving the end along the basin.
     """
-    known = [d for d in depths if d is not None]
-    if ends < 1 or len(known) < 2 * ends:
+    def end(group: tuple) -> tuple[float, tuple] | None:
+        found = {target: depth for lon, depth in depths.items() if depth is not None
+                 for target in group if abs(lon % 360.0 - target) < 0.5}
+        if not found:
+            return None
+        return sum(found.values()) / len(found), tuple(sorted(found))
+
+    west, east = end(TILT_WEST), end(TILT_EAST)
+    if west is None or east is None:
         return None
-    west = sum(known[:ends]) / ends
-    east = sum(known[-ends:]) / ends
-    return west - east, west, east
+    return Tilt(west[0] - east[0], west[0], east[0], west[1], east[1])
 
 
 # --- griddap: OISST and altimetry -------------------------------------------
@@ -402,24 +438,39 @@ def hovmoller_tail(record: Field | None, recent: str, value_key: str = "anom") -
 
 
 # --- tabledap: TAO/TRITON moorings ------------------------------------------
+# The equator's moorings, as sources asks the equatorial tables for them.
+EQUATOR = 0.6
+
+
 def _tao_rows(text: str, value_key: str) -> list[tuple[str, float, float, float]]:
-    """(time, lon, depth-or-zero, value) for Pacific moorings only."""
+    """(time, lon, depth-or-zero, value) for Pacific moorings on the equator:
+    a table of the whole array is read for its equatorial rows."""
+    return [(time, lon, depth, value)
+            for time, lat, lon, depth, value in _tao_array(text, value_key)
+            if abs(lat) <= EQUATOR]
+
+
+def _tao_array(text: str, value_key: str) -> list[tuple[str, float, float, float, float]]:
+    """(time, lat, lon, depth-or-zero, value) for Pacific moorings only; a table
+    asked of the equator alone may give no latitude, and is read as on it."""
     names, rows = read_csv(text)
     time_i = column(names, "time")
+    lat_i = names.index("latitude") if "latitude" in names else None
     lon_i = column(names, "longitude")
     val_i = column(names, value_key)
     depth_i = names.index("depth") if "depth" in names else None
     out = []
     for row in rows:
         lon, value = row[lon_i], row[val_i]
-        if lon is None or value is None or not isinstance(row[time_i], str):
+        lat = row[lat_i] if lat_i is not None else 0.0
+        if lon is None or lat is None or value is None or not isinstance(row[time_i], str):
             continue
         if not PACIFIC_EAST[0] <= lon <= PACIFIC_EAST[1]:
             continue
         depth = row[depth_i] if depth_i is not None else 0.0
         if depth is None:
             continue
-        out.append((row[time_i], lon, depth, value))
+        out.append((row[time_i], lat, lon, depth, value))
     return out
 
 
@@ -579,50 +630,48 @@ def iso_hovmoller(text: str, months: int = 24, anomaly: bool = False) -> Field:
     )
 
 
+# The days each mooring's thermocline is meaned over for the 3-D surface,
+# to the array's latest: a fortnight, of the month or more the table is asked.
+MESH_DAYS = 14
+
+
 def thermocline_mesh(text: str, iso_text: str | None = None) -> Mesh:
     """The thermocline as a surface over latitude and longitude.
 
-    Averaged over the last fortnight of daily values, because a single day at a
-    single mooring is dominated by tropical instability waves and the surface
-    comes out corrugated for reasons that have nothing to do with ENSO.
+    Each mooring's mean over the fortnight to the array's latest day, because
+    a single day at a single mooring is dominated by tropical instability
+    waves and the surface comes out corrugated for reasons that have nothing
+    to do with ENSO. A mooring silent all fortnight is left out.
     """
-    rows = _tao_rows(text, "ISO_6")
+    rows = _tao_array(text, "ISO_6")
     if not rows:
         raise ValueError("TAO isotherm: no Pacific rows")
-    names, raw = read_csv(text)
-    lat_i = column(names, "latitude")
-    lon_i = column(names, "longitude")
-    time_i = column(names, "time")
-    val_i = column(names, "ISO_6")
-
+    latest = max(_day(time_stamp) for time_stamp, *_ in rows)
+    first = (date.fromisoformat(latest) - timedelta(days=MESH_DAYS - 1)).isoformat()
     bucket: dict[tuple[float, float], list[float]] = {}
-    stamps: list[str] = []
-    for row in raw:
-        lat, lon, value = row[lat_i], row[lon_i], row[val_i]
-        if lat is None or lon is None or value is None:
-            continue
-        if not PACIFIC_EAST[0] <= lon <= PACIFIC_EAST[1]:
-            continue
-        bucket.setdefault((lat, lon), []).append(value)
-        if isinstance(row[time_i], str):
-            stamps.append(_day(row[time_i]))
+    for time_stamp, lat, lon, _d, value in rows:
+        if _day(time_stamp) >= first:
+            bucket.setdefault((lat, lon), []).append(value)
 
-    climatology: dict[tuple[float, int], list[float]] = {}
+    # Each mooring's own normal for the month, from the monthly table of the
+    # whole array: the thermocline shoals away from the equator, so the
+    # equator's normal makes every mooring off it an anomaly.
+    climatology: dict[tuple[float, float, int], list[float]] = {}
     if iso_text:
-        for time_stamp, lon, _d, value in _tao_rows(iso_text, "ISO_6"):
-            climatology.setdefault((lon, int(time_stamp[5:7])), []).append(value)
-    month = int(stamps[-1][5:7]) if stamps else 0
+        for time_stamp, lat, lon, _d, value in _tao_array(iso_text, "ISO_6"):
+            climatology.setdefault((lat, lon, int(time_stamp[5:7])), []).append(value)
+    month = int(latest[5:7])
 
     nodes = []
     for (lat, lon), values in sorted(bucket.items()):
         height = sum(values) / len(values)
-        base = climatology.get((lon, month), [])
+        base = climatology.get((lat, lon, month), [])
         anomaly = (height - sum(base) / len(base)) if len(base) >= MIN_CLIM_YEARS else None
         nodes.append(MeshNode(lat=lat, lon=lon, height=height, anomaly=anomaly))
 
     return Mesh(
         nodes=tuple(nodes), label="20 °C isotherm depth", units="m",
-        as_of=max(stamps) if stamps else "",
+        as_of=latest,
         note="Mean of the last fortnight of daily values at each mooring.",
     )
 
@@ -959,7 +1008,8 @@ class SpatialState:
 
 
 def age_days(stamp: str, today: date | None = None) -> int | None:
-    """How stale a field is, in days, from its own as_of stamp."""
+    """How stale a field is, in days, from its own as_of stamp, on ``today``
+    (the run's day), else UTC's."""
     if not stamp:
         return None
     for pattern in ("%Y-%m-%d", "%Y-%m"):
@@ -967,5 +1017,5 @@ def age_days(stamp: str, today: date | None = None) -> int | None:
             when = datetime.strptime(stamp, pattern).date()
         except ValueError:
             continue
-        return ((today or date.today()) - when).days
+        return ((today or datetime.now(timezone.utc).date()) - when).days
     return None

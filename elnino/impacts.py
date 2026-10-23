@@ -34,6 +34,7 @@ from datetime import date
 
 from .classify import CP_FLAVOUR, EP_FLAVOUR, Episode
 from .forecast import Projection, season_months
+from .svg import signed
 
 # Confidence reflects how consistently the relationship appears across past
 # events, not how severe the outcome is.
@@ -521,7 +522,7 @@ def assess(
     if current_index is not None and current_index < peak_index - 0.3:
         notes.append(
             f"These are keyed to the PROJECTED {index_name} peak of "
-            f"{peak_index:+.2f} degC, not today's {current_index:+.2f} degC. If the "
+            f"{signed(peak_index, 2)} degC, not today's {signed(current_index, 2)} degC. If the "
             "event underperforms the forecast, the lower-margin entries drop out first."
         )
 

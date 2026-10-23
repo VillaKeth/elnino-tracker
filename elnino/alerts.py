@@ -21,9 +21,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from .classify import displayed, find_episodes
+from .svg import signed
 from .winds import EQUATORIAL, HV97_EVENTS, HV97_LONGEST, REGIONS_BY_KEY, THRESHOLD
 
 INFO = "info"
@@ -145,7 +146,7 @@ def _precedent(assessment, threshold: float) -> str:
                 + f" since {series[0].year}.")
     record = max(series, key=lambda season: season.value)
     return (f"a level {name} has not reached since {series[0].year}: its highest "
-            f"season is {displayed(record.value):+.1f} degC, {record.label}.")
+            f"season is {signed(displayed(record.value), 1)} degC, {record.label}.")
 
 
 def evaluate(
@@ -178,8 +179,8 @@ def evaluate(
             level=level,
             title=f"{name_of_index} at or above +{threshold:.1f} degC - {name}",
             detail=(
-                f"{latest.label} {name_of_index} is {latest.value:+.2f} degC, "
-                f"which CPC prints as {printed:+.1f}: {assessment.index_tier} "
+                f"{latest.label} {name_of_index} is {signed(latest.value, 2)} degC, "
+                f"which CPC prints as {signed(printed, 1)}: {assessment.index_tier} "
                 "conditions this season. An event's category is set by its "
                 "peak, which is still ahead of it while it is building."
             ),
@@ -218,7 +219,7 @@ def evaluate(
             level=CRITICAL,
             title=f"Warmest {latest.season} on record",
             detail=(
-                f"{latest.value:+.2f} degC is the highest {latest.season} "
+                f"{signed(latest.value, 2)} degC is the highest {latest.season} "
                 f"{name_of_index} in {ranking.total_season} years of record."
             ),
             value=latest.value,
@@ -249,8 +250,8 @@ def evaluate(
                 level=INFO,
                 title="Legacy ONI and official RONI diverging",
                 detail=(
-                    f"ONI {oni.value:+.2f} against RONI {roni.value:+.2f}, a gap "
-                    f"of {divergence:+.2f} degC. That much of the raw anomaly is "
+                    f"ONI {signed(oni.value, 2)} against RONI {signed(roni.value, 2)}, a gap "
+                    f"of {signed(divergence, 2)} degC. That much of the raw anomaly is "
                     "the whole tropical ocean running warm rather than the "
                     "Pacific, which is why CPC has classified on RONI since "
                     "February 2026."
@@ -267,7 +268,7 @@ def evaluate(
             level=WATCH,
             title="Still intensifying",
             detail=(
-                f"{name_of_index} rose {momentum.season_delta:+.2f} degC from the "
+                f"{name_of_index} rose {signed(momentum.season_delta, 2)} degC from the "
                 f"previous season ({momentum.direction})."
             ),
             value=momentum.season_delta,
@@ -280,7 +281,7 @@ def evaluate(
             level=WATCH,
             title="Sharp four-week warming in Nino-3.4",
             detail=(
-                f"Weekly Nino-3.4 has risen {momentum.weekly_delta:+.2f} degC over "
+                f"Weekly Nino-3.4 has risen {signed(momentum.weekly_delta, 2)} degC over "
                 "four weeks."
             ),
             value=momentum.weekly_delta,
@@ -297,7 +298,7 @@ def evaluate(
                 level=CRITICAL,
                 title="Record equatorial warm water volume",
                 detail=(
-                    f"{state.latest.label} WWV anomaly is {state.anomaly:+.2f} "
+                    f"{state.latest.label} WWV anomaly is {signed(state.anomaly, 2)} "
                     f"x10^14 m3 - the highest of {state.total_alltime} months on "
                     "record. Stored heat is the fuel available to the surface "
                     "anomaly over the following two to three seasons."
@@ -312,7 +313,7 @@ def evaluate(
                 title="Warm water volume in the top five on record",
                 detail=(
                     f"Rank {state.rank_alltime} of {state.total_alltime} months at "
-                    f"{state.anomaly:+.2f} x10^14 m3."
+                    f"{signed(state.anomaly, 2)} x10^14 m3."
                 ),
                 value=state.anomaly,
             )
@@ -324,7 +325,7 @@ def evaluate(
                 level=WARNING,
                 title="Heat content still rising during an active event",
                 detail=(
-                    f"WWV is {state.tendency:+.3f} x10^14 m3 per month and still "
+                    f"WWV is {signed(state.tendency, 3)} x10^14 m3 per month and still "
                     "climbing while the surface anomaly is already large. Events "
                     "normally begin discharging by this stage; continued recharge "
                     "means the event has not yet spent its fuel."
@@ -357,7 +358,7 @@ def evaluate(
                 level=CRITICAL,
                 title="Walker circulation response is extreme",
                 detail=(
-                    f"Composite atmospheric index {walker:+.2f} sigma across "
+                    f"Composite atmospheric index {signed(walker, 2)} sigma across "
                     f"{len(atmosphere_state.indicators)} independent feeds. Full "
                     "coupling means the teleconnections are live, not merely possible."
                 ),
@@ -370,7 +371,7 @@ def evaluate(
                 level=WARNING,
                 title="Ocean and atmosphere are coupled",
                 detail=(
-                    f"Composite atmospheric index {walker:+.2f} sigma, with "
+                    f"Composite atmospheric index {signed(walker, 2)} sigma, with "
                     f"{atmosphere_state.agreement:.0%} of indicators in agreement."
                 ),
                 value=walker,
@@ -383,7 +384,7 @@ def evaluate(
                 title="Ocean warm but atmosphere lagging",
                 detail=(
                     f"Nino-3.4 is well above threshold while the Walker index is "
-                    f"only {walker:+.2f} sigma. Teleconnections need the atmospheric "
+                    f"only {signed(walker, 2)} sigma. Teleconnections need the atmospheric "
                     "response, so impacts may underperform the SST anomaly."
                 ),
                 value=walker,
@@ -418,7 +419,7 @@ def evaluate(
                 level=CRITICAL,
                 title="More likely than not to reach historic intensity",
                 detail=(
-                    f"Ensemble peak {peak.mean:+.2f} degC at {peak.label}, with "
+                    f"Ensemble peak {signed(peak.mean, 2)} degC at {peak.label}, with "
                     f"{probability[2.5]:.0%} probability of reaching +2.5 degC - "
                     + _precedent(assessment, 2.5)
                 ),
@@ -431,7 +432,7 @@ def evaluate(
                 level=WARNING,
                 title="Projected to peak in very strong territory",
                 detail=(
-                    f"Ensemble peak {peak.mean:+.2f} degC at {peak.label}, "
+                    f"Ensemble peak {signed(peak.mean, 2)} degC at {peak.label}, "
                     f"{probability[2.0]:.0%} probability of exceeding +2.0 degC."
                 ),
                 value=peak.mean,
@@ -445,7 +446,7 @@ def evaluate(
                 detail=(
                     f"Method spread is {peak.spread:.2f} degC at {peak.label}: "
                     + ", ".join(
-                        f"{name} {value:+.2f}" for name, value in sorted(peak.methods.items())
+                        f"{name} {signed(value, 2)}" for name, value in sorted(peak.methods.items())
                     )
                     + ". Treat the central value with more caution than usual."
                 ),
@@ -455,7 +456,8 @@ def evaluate(
     # -- integrity -----------------------------------------------------------
     try:
         centre = latest.centre
-        age_days = (date.today() - centre).days
+        today = (datetime.fromisoformat(now) if now else datetime.now(timezone.utc)).date()
+        age_days = (today - centre).days
         if age_days > STALE_DAYS + 60:
             _add(
                 out,
@@ -534,7 +536,7 @@ def evaluate(
                 level=INFO,
                 title=f"{name_of_index} changed since {then}",
                 detail=(
-                    f"{prior:+.2f} then, {latest.value:+.2f} degC now. A change this "
+                    f"{signed(prior, 2)} then, {signed(latest.value, 2)} degC now. A change this "
                     "size usually means a new month posted, but it can also be a "
                     "revision to an existing season."
                 ),
@@ -572,9 +574,9 @@ def wind_rules(winds) -> list[Alert]:
             title=f"Westerly wind event under way: {region.name} region, {region.span}",
             detail=(
                 f"{'at least ' if before else ''}{event.days:g} days above "
-                f"{THRESHOLD:+g} m/s since {'before ' if before else ''}"
+                f"{signed(THRESHOLD, 0)} m/s since {'before ' if before else ''}"
                 f"{event.first:%Y-%m-%d %HZ} in CCMP's near-real-time winds to "
-                f"{winds.last}, peaking at {event.peak:+.1f} m/s on "
+                f"{winds.last}, peaking at {signed(event.peak, 1)} m/s on "
                 f"{event.centre:%Y-%m-%d}{sustained}{counts}. Equatorial westerly anomalies "
                 "force downwelling Kelvin waves east."
             ),
@@ -646,7 +648,7 @@ def cyclone_rules(storms) -> list[Alert]:
                 out,
                 code=f"tc_ri_{storm.key}",
                 level=WARNING if change < 50 else CRITICAL,
-                title=f"{storm.title}: rapid intensification, {change:+.0f} kt in 24 h",
+                title=f"{storm.title}: rapid intensification, {signed(change, 0)} kt in 24 h",
                 detail=(
                     f"NHC calls 30 kt in 24 hours rapid intensification; this is "
                     f"{change:.0f}, through {_stamp(when)}. Forecast intensity error "

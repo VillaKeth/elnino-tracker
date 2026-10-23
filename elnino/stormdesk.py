@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 from . import (alerts, assets, coastline, cyclones, exposure, fields, live, outlook, sitenav,
                street, streetstorms, thennow, worldmap)
 from .storms import NEUTRAL, STORM_HUES
-from .svg import DARK, esc, table
+from .svg import DARK, esc, spell, table
 
 SCHEMA = 1
 
@@ -588,7 +588,7 @@ def storm_entry(storm) -> dict | None:
             "discussion": advisory.get("discussion") or None,
             "graphics": advisory.get("graphics") or None,
             "centre": {"name": centre, "url": CENTRES.get(centre)},
-            "responsible": responsible(centre, storm.basin, now.lon, now.lat),
+            "responsible": responsible(centre, storm.waters, now.lon, now.lat),
         },
         "notes": list(storm.notes)
                  + list(getattr(storm.products, "notes", None) or ()),
@@ -1505,7 +1505,7 @@ body.deskpage {{ background: var(--plane); }}
 #map.dragging {{ cursor: grabbing; }}
 .gibspane {{ position: absolute; inset: 0; overflow: hidden; pointer-events: none; }}
 /* Bottom to top: the compared layer, the base, NASA's reference overlays,
-   NASA's ocean and flood tiles, the El Nino composite, each map's own roads
+   NASA's ocean and flood tiles, the El Niño composite, each map's own roads
    and names on its side of the divider, the drawn marks, the divider, the
    controls. */
 #tiles-b {{ z-index: 1; }}
@@ -1636,7 +1636,7 @@ body.deskpage {{ background: var(--plane); }}
 .subhead {{ font-size: 0.88rem; margin: 12px 0 4px; }}
 .deskpanel h4 {{ font-size: 0.86rem; margin: 16px 0 4px; }}
 .deskpanel p {{ font-size: 0.84rem; color: var(--ink2); margin: 4px 0 8px; }}
-.deskpanel a {{ color: var(--s1); }}
+.deskpanel a {{ color: var(--s1-ink); }}
 .stormrows, .arearows, .centres, .actions, .wwlist, .notes {{ list-style: none;
   margin: 0; padding: 0; }}
 .stormrow, .arearow {{ display: grid; grid-template-columns: 14px minmax(0, 1fr) auto;
@@ -1777,7 +1777,7 @@ def page(state, focus: str = "storms") -> str:
     built = _time(data["built"]) if data["built"] else "unknown"
     # The scripts the page runs, then those it loads only when asked.
     named = "\n".join(filter(None, (assets.tags(_assets()), assets.lazy_tags(_later(state)))))
-    return f"""<!DOCTYPE html>
+    return spell(f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -1794,7 +1794,7 @@ def page(state, focus: str = "storms") -> str:
 <div class="headtext"><h1>{esc(words["title"])}</h1>
 <p class="sub"><span class="long">{esc(words["sub"])} </span>Built <span id="built">{built}</span>.</p></div>
 {_find()}
-<div class="headbtns"><button type="button" class="themebtn" id="theme">Dark</button></div>
+<div class="headbtns"><button type="button" class="themebtn" id="theme" aria-pressed="false">Dark</button></div>
 </header>
 {_toolbar(first=words["first"], controls=enso)}
 <main class="desk">
@@ -1809,7 +1809,7 @@ def page(state, focus: str = "storms") -> str:
 </main>
 <script id="desk-data" type="application/json">{raw}</script>
 </body>
-</html>"""
+</html>""")
 
 
 def _assets() -> tuple:
@@ -1956,6 +1956,7 @@ _JS = r"""
     var out = D.outlook.filter(function (a) { return a.alert && a.formation && lapsed(a.formation.until); })
                        .map(function (a) { return a.key; }).join(" ");
     if (out !== lapsedNow) { lapsedNow = out; dirty(); }
+    scrubRead.textContent = scrubText();
   }
 
   // ---- the storms ---------------------------------------------------------
@@ -3239,12 +3240,15 @@ _JS = r"""
     var text = said.join(" ");
     if (text !== creditSaid) { creditEl.textContent = text; creditSaid = text; }
   }
+  // The time the storms are drawn for. An imager's frame is said to be one,
+  // the newest with how far it runs behind the clock; "Now" is the clock's.
   function scrubText() {
     var st = BYID[S.selected];
     if (!st) return S.scrub ? "+" + S.scrub + " h" : "Now";
-    var T = when(st);
-    if (!S.scrub) return "Now: " + utc(T);
-    return "+" + S.scrub + " h: " + utc(T) + (centreAt(st, T) ? "" : ", past the forecast");
+    var drawn = base(st), T = drawn.t + S.scrub * HOUR;
+    if (S.scrub) return "+" + S.scrub + " h: " + utc(T) + (centreAt(st, T) ? "" : ", past the forecast");
+    if (!drawn.image) return "Now: " + utc(T);
+    return S.loop || S.frame ? "Frame " + utc(T) : "Latest image " + utc(T) + " (" + ago(T) + ")";
   }
 
   // ---- the frame loop ------------------------------------------------------
@@ -4198,13 +4202,8 @@ _JS = r"""
     pills();
     if (had && framePill.querySelector(".pillmore")) framePill.querySelector(".pillmore").focus();
   });
-  var root = document.documentElement, themeBtn = $("theme");
-  function darkNow() {
-    var t = root.getAttribute("data-theme");
-    return t ? t === "dark" : !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  }
-  function themeLabel() { themeBtn.textContent = darkNow() ? "Light" : "Dark"; }
-  themeBtn.addEventListener("click", function () { root.setAttribute("data-theme", darkNow() ? "light" : "dark"); themeLabel(); });
+  // The site's one theme button, its choice kept for every page (live.py).
+  elninoLive.themeButton($("theme"));
   document.addEventListener("click", function (e) {
     var el = e.target.closest ? e.target.closest("[data-fly],[data-select],[data-tab],[data-here],[data-google],[data-show-region],#retry,#herego") : null;
     if (!el) return;
@@ -4508,7 +4507,6 @@ _JS = r"""
   unserved();
   readToggles();
   measure();
-  themeLabel();
   document.querySelectorAll("#panel section.storm").forEach(function (sec) { tab(sec, "now"); });
   if (STORMS.length) select(STORMS[0].id);
   // The page's first layer is the one its toolbar shows pressed: the street

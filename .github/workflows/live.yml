@@ -105,24 +105,63 @@ jobs:
           key: tracker-state-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: tracker-state-
 
+      # A job that runs out its half hour is cancelled, and a cancelled run
+      # tells no one; a step that runs out its own time fails, and the
+      # failure opens an issue. About 70 storm fetches one after another,
+      # each allowed 120 s, can outlast the job.
       - name: Run the tracker and publish the run
         id: publish
+        timeout-minutes: 25
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh auth setup-git
+          # The run prints its brief, and a feed's text with it: no line of
+          # it is a workflow command, fenced by a token a feed cannot know,
+          # until the step's own annotations below.
+          fence=$(python3 -c 'import secrets; print(secrets.token_hex(16))')
+          echo "::stop-commands::$fence"
           code=0
           ./publish.sh --remote "https://github.com/$GITHUB_REPOSITORY.git" || code=$?
+          echo "::$fence::"
           case $code in
-            0) ;;
+            0 | 3) ;;
             1) echo "::notice title=Alerts open::Published with WARNING or CRITICAL alerts open." ;;
-            3) echo "::warning title=Degraded run::Published, but some feeds failed and fell back on their last copy." ;;
             *) exit "$code" ;;
           esac
+          # Each of the run's problems an annotation of its own, however it
+          # exited: 1, alerts open, outranks 3, degraded. A message's %, CR
+          # and LF are escaped, so a feed's text cannot start a command.
+          python3 - output/latest.json <<'PY'
+          import json
+          import sys
 
+          SHOWN = 10  # GitHub shows ten of a step's warnings
+
+
+          def escaped(text):
+              return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+          try:
+              with open(sys.argv[1], encoding="utf-8") as file:
+                  warnings = [str(warning) for warning in json.load(file).get("warnings") or []]
+          except (OSError, ValueError, AttributeError):
+              warnings = []
+          if len(warnings) > SHOWN:
+              rest = len(warnings) - SHOWN + 1
+              warnings = warnings[:SHOWN - 1] + [
+                  f"{rest} more problems this run: the brief above lists them all, as latest.json does"]
+          for warning in warnings:
+              print(f"::warning title=Degraded run::{escaped(warning)}")
+          PY
+
+      # Only a run that published saves its state: the next run restores the
+      # newest saved, and a run that failed, perhaps for its state, leaves
+      # the next to start from the last good run's.
       - name: Save the tracker's state
         id: saved
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -208,13 +247,90 @@ jobs:
             exit 1
           fi
 
+  # GitHub deploys each push to gh-pages in a workflow of its own, pages
+  # build and deployment, and one that fails tells no one: one failed with
+  # "Failed to get ID Token ... Request timeout" and the site stood still for
+  # 20 minutes. Each run on main reads the run.json the site serves, which a
+  # run writes last, at an address of its own past the CDN's ten minutes, and
+  # opens an issue when gh-pages has held a run the site does not serve for
+  # more than LAG seconds, unless one is open. One deployment lost is made good
+  # by the next.
+  watch:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read  # to read when gh-pages was published
+      issues: write   # to open the issue
+    steps:
+      - name: Open an issue when the site has fallen behind gh-pages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LAG: 1500
+        run: |
+          site="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}"
+          # gh-pages is one commit, "Publish the run of <run_at>" (publish.py).
+          if ! branch=$(gh api "repos/$GITHUB_REPOSITORY/commits/gh-pages" \
+                          --jq '.commit.committer.date + " " + .commit.message'); then
+            echo "GitHub could not say what gh-pages holds."
+            exit 0
+          fi
+          if ! served=$(curl -fsS --max-time 20 "$site/run.json?t=$(date -u +%s)"); then
+            echo "The site's run.json could not be read."
+            exit 0
+          fi
+          # How long gh-pages has held a run the site does not serve: none while
+          # the site serves gh-pages' own, however long ago it was published,
+          # and the time since the push while Pages deploys it. The two runs'
+          # own clocks are never set against each other. A commit publish.py
+          # did not make is not judged.
+          verdict=$(python3 - "$branch" "$served" <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timezone
+
+
+          def when(stamp):
+              return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+
+
+          try:
+              committed, message = sys.argv[1].split(" ", 1)
+              held = message.strip().removeprefix("Publish the run of ")
+              shown = json.loads(sys.argv[2])["run_at"]
+              waited = 0 if when(held) == when(shown) else int(
+                  (datetime.now(timezone.utc) - when(committed)).total_seconds())
+              print(waited, held, shown, committed, sep="\t")
+          except (ValueError, KeyError, TypeError, AttributeError):
+              pass
+          PY
+          )
+          IFS=$'\t' read -r waited held shown committed <<< "$verdict"
+          echo "gh-pages holds $branch, and the site serves $served."
+          if ! [[ $waited =~ ^-?[0-9]+$ ]] || [ "$waited" -le "$LAG" ]; then exit 0; fi
+          title="The site has fallen behind gh-pages"
+          open=$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" \
+                   --jq "map(select(.title == \"$title\")) | length") || open=
+          if [[ $open =~ ^[1-9][0-9]*$ ]]; then
+            echo "An issue is open on it already."
+            exit 0
+          fi
+          body="gh-pages has held the run of $held for $(( waited / 60 )) minutes, since it was published at \
+          $committed, and the site serves the run of $shown: GitHub Pages has not deployed it. The \
+          deployment is a workflow of GitHub's own, pages build \
+          and deployment in the Actions tab, and one that fails tells no one. The next push to gh-pages \
+          deploys again, or re-run the one that failed. While this issue is open no other is opened on \
+          it: close it to be told again."
+          gh api --method POST "repos/$GITHUB_REPOSITORY/issues" -f title="$title" -f body="$body" --jq .html_url
+
   # GitHub notifies whoever started a run that fails, and no one of a run its
   # own bot started, as it starts the relay (relay.yml) and the runs the relay
   # dispatches: a failed run on main opens an issue, which notifies the
   # repository's owner, unless one is open already. The same step as the
   # relay's.
   tell:
-    needs: [due, run, book]
+    needs: [due, run, book, watch]
     if: ${{ failure() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

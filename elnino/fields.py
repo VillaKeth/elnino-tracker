@@ -44,7 +44,7 @@ from itertools import count
 
 from .coastline import segments
 from .grids import Field, lat_name, lon_name
-from .svg import Plot, esc, map_plot, relative_d, table
+from .svg import Plot, esc, map_plot, relative_d, signed, table, zero_unsigned
 
 # --- ramps ------------------------------------------------------------------
 # Diverging, 11 classes, index 5 is neutral. Generated in Oklab.
@@ -223,7 +223,8 @@ class Ramp:
         edges = self.edges()
         cells = "".join(
             f'<span class="rampcell" style="background:var(--{self.prefix}{i})" '
-            f'title="{esc(fmt.format(edges[i]))} to {esc(fmt.format(edges[i + 1])) }"></span>'
+            f'title="{esc(zero_unsigned(fmt.format(edges[i])))} to '
+            f'{esc(zero_unsigned(fmt.format(edges[i + 1])))}"></span>'
             for i in range(self.steps)
         )
         # Each label at its own value's place along the bar. They used to be
@@ -235,7 +236,7 @@ class Ramp:
         for i, value in enumerate(values):
             left = (value - self.low) / (self.high - self.low) * 100.0
             shift = 0 if i == 0 else 100 if i == len(values) - 1 else 50
-            text = "0" if self.diverging and value == 0 else fmt.format(value)
+            text = "0" if self.diverging and value == 0 else zero_unsigned(fmt.format(value))
             marks.append(
                 f'<span class="ramptick" style="left:{left:.2f}%;'
                 f'transform:translateX(-{shift}%)">{esc(text)}</span>'
@@ -458,7 +459,8 @@ def _draw_hits(plot: Plot, grid: Field, x_edges, y_edges, fmt,
         if not seen:
             return None
         low, high = min(seen), max(seen)
-        return fmt.format(low) if low == high else f"{fmt.format(low)} to {fmt.format(high)}"
+        low, high = zero_unsigned(fmt.format(low)), zero_unsigned(fmt.format(high))
+        return low if low == high else f"{low} to {high}"
 
     spans = [[span(r, c) for c in cols] for r in rows]
     if all(s is None for line in spans for s in line):
@@ -612,7 +614,7 @@ def field_table(grid: Field, caption: str, fmt: str = "{:+.2f}",
             line = [lon_name(grid.x[col])]
             for row in rows_used:
                 value = grid.values[row][col]
-                line.append(fmt.format(value) if value is not None else "-")
+                line.append(zero_unsigned(fmt.format(value)) if value is not None else "-")
             body.append(line)
     else:
         namer = (lambda v: f"{v:.0f} m") if grid.y_name == "depth" else lat_name
@@ -622,7 +624,7 @@ def field_table(grid: Field, caption: str, fmt: str = "{:+.2f}",
             line = [namer(grid.y[row])]
             for col in cols_used:
                 value = grid.values[row][col]
-                line.append(fmt.format(value) if value is not None else "-")
+                line.append(zero_unsigned(fmt.format(value)) if value is not None else "-")
             body.append(line)
 
     note = ""
@@ -772,7 +774,7 @@ def sst_map(grid: Field, box_means: dict[str, float],
             f'stroke-width="1.6" opacity="0.8"/>'
         )
         mean = box_means.get(box.key)
-        caption = box.label + (f" {mean:+.2f}" if mean is not None else "")
+        caption = box.label + (f" {signed(mean, 2)}" if mean is not None else "")
         # Nino-1+2 is the only box that does not straddle the equator, so its top
         # edge runs straight through Nino-3 and a label above it lands inside its
         # neighbour. That one goes underneath instead.
@@ -1059,14 +1061,14 @@ def section_card(state) -> str:
     }
     known = {k: v for k, v in depths.items() if v is not None}
     tilt = ""
-    measured = grids.tilt(list(known.values()))
+    measured = grids.tilt({p.lon: p.isotherm() for p in state.profiles})
     if measured is not None:
-        drop, west, east = measured
         tilt = (
-            f" The 20 °C isotherm averages {west:.0f} m across the two westernmost "
-            f"moorings and {east:.0f} m across the two easternmost, a tilt of "
-            f"<strong>{drop:.0f} m</strong> across the basin. A neutral Pacific runs "
-            f"near 100 m of tilt and a mature El Nino flattens it."
+            f" The 20 °C isotherm lies at {measured.west:.0f} m at the west end of the "
+            f"basin ({esc(measured.where('west'))}) and {measured.east:.0f} m at the east "
+            f"end ({esc(measured.where('east'))}), a tilt of "
+            f"<strong>{measured.drop:.0f} m</strong> across the basin. A neutral Pacific "
+            f"runs near 100 m of tilt and a mature El Nino flattens it."
         )
 
     rows = [[k, f"{v:.0f}"] for k, v in known.items()]

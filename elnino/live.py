@@ -56,20 +56,27 @@ def code_of(folder: Path) -> str:
 CODE = code_of(Path(__file__).parent)
 
 
-# Run before the page is first painted: the theme a page loading again for a
-# new run handed over, so a reader in the dark theme sees no flash of light.
+# Run before the page is first painted, so a reader in the dark theme sees no
+# flash of light: the theme the reader chose on any page of the site, kept by
+# the follower's themeButton, else the one a page loading again for a new run
+# handed over.
 _THEME = """(function () {
-  try {
-    var handed = JSON.parse(window.sessionStorage.getItem("elnino-live:" + location.pathname));
-    var theme = handed && handed.place && handed.place.theme;
-    if (theme === "light" || theme === "dark") document.documentElement.setAttribute("data-theme", theme);
-  } catch (e) { /* nothing handed over: the page opens in its own theme */ }
+  function theme(t) { return t === "light" || t === "dark" ? t : null; }
+  var chosen = null;
+  try { chosen = theme(window.localStorage.getItem("elnino-theme")); } catch (e) { /* storage refused */ }
+  if (!chosen) {
+    try {
+      var handed = JSON.parse(window.sessionStorage.getItem("elnino-live:" + location.pathname));
+      chosen = theme(handed && handed.place && handed.place.theme);
+    } catch (e) { /* nothing handed over: the page opens in its own theme */ }
+  }
+  if (chosen) document.documentElement.setAttribute("data-theme", chosen);
 })();"""
 
 
 def head(run_at: str | None) -> str:
     """What a page carries in its head: the run it shows, the code that wrote
-    it, and the script that puts back a theme handed over. A page with no run
+    it, and the script that puts back the reader's theme. A page with no run
     time names no run, and so never follows the site."""
     if not run_at:
         return ""
@@ -87,7 +94,9 @@ def head(run_at: str | None) -> str:
 # offering no Later. A page keeps state of its own across a load with
 # {keep: f, restore: g}, and the reader's place in its boxes with
 # {boxes: [their ids]}: their scroll, and what stands at the top of each,
-# which elninoLive.hold() holds through a take.
+# which elninoLive.hold() holds through a take. Each page hands its theme
+# button to elninoLive.themeButton(button), which keeps the reader's choice
+# for every page of the site.
 SCRIPT = r"""var elninoLive = (function () {
   "use strict";
   // The site is asked which run it serves every minute. A page that loads
@@ -581,5 +590,37 @@ SCRIPT = r"""var elninoLive = (function () {
       lazyOf(document) === lazyOf(doc);
   }
 
-  return {follow: follow, shows: shows, sameCode: sameCode, hold: hold};
+  // ---- the reader's theme ----------------------------------------------------
+  // Every page's theme button: "Dark", pressed while the dark theme is shown,
+  // the reader's or the system's. A press turns from the theme shown, and the
+  // choice is kept for every page of the site, which the script in each
+  // page's head puts back, or for this page alone where storage refuses it.
+  // A press back to the system's own scheme follows the system again, and
+  // keeps nothing: a scheme kept as a choice would not follow it at dusk.
+  function systemDark() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+  function darkShown() {
+    var t = document.documentElement.getAttribute("data-theme");
+    return t ? t === "dark" : systemDark();
+  }
+  function themeButton(btn) {
+    function pressed() { btn.setAttribute("aria-pressed", darkShown() ? "true" : "false"); }
+    btn.addEventListener("click", function () {
+      var theme = darkShown() ? "light" : "dark";
+      if ((theme === "dark") === systemDark()) {
+        document.documentElement.removeAttribute("data-theme");
+        try { window.localStorage.removeItem("elnino-theme"); } catch (e) { /* nothing kept */ }
+      } else {
+        document.documentElement.setAttribute("data-theme", theme);
+        try { window.localStorage.setItem("elnino-theme", theme); } catch (e) { /* this page alone */ }
+      }
+      pressed();
+    });
+    var scheme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+    if (scheme && scheme.addEventListener) scheme.addEventListener("change", pressed);
+    pressed();
+  }
+
+  return {follow: follow, shows: shows, sameCode: sameCode, hold: hold, themeButton: themeButton};
 })();"""

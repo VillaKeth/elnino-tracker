@@ -33,7 +33,7 @@ from datetime import date, datetime, timezone
 
 from . import atlas, atlasview, composite, geo, grids
 from .impacts import peak_when
-from .svg import esc
+from .svg import esc, signed
 
 ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/"
 _TILE = "/MapServer/tile/{z}/{y}/{x}"
@@ -167,7 +167,9 @@ def next_season(season: str) -> str:
 
 
 def _signed(value: float) -> str:
-    """One decimal with its sign, the minus a true minus, zero unsigned."""
+    """One decimal with its sign, the minus a true minus, and a value that
+    rounds to zero unsigned: -0.04 is "0.0", not "−0.0"."""
+    value = round(value, 1)
     sign = "+" if value > 0 else "−" if value < 0 else ""
     return f"{sign}{abs(value):.1f}"
 
@@ -308,11 +310,11 @@ def section(state) -> str:
     if latest is None:
         out.append("<p>The index did not arrive this run.</p>")
     else:
-        said = (f"<b>{esc(a.index_name)} {latest.value:+.2f} \u00b0C</b> for {esc(latest.label)}: "
+        said = (f"<b>{esc(a.index_name)} {signed(latest.value, 2)} \u00b0C</b> for {esc(latest.label)}: "
                 f"{esc(_nino(a.index_tier))}.")
         oni = getattr(a, "oni_latest", None)
         if a.index_name == "RONI" and oni is not None:
-            said += f" The legacy ONI reads {oni.value:+.2f} \u00b0C for {esc(oni.label)}."
+            said += f" The legacy ONI reads {signed(oni.value, 2)} \u00b0C for {esc(oni.label)}."
         out.append(f"<p>{said}</p>")
         if getattr(a, "status", ""):
             out.append(f"<p>CPC's status: {esc(_nino(a.status))}.</p>")
@@ -321,7 +323,7 @@ def section(state) -> str:
         out.append("<p>No weekly SSTs arrived this run.</p>")
     else:
         week = getattr(a, "latest_week", None)
-        out.append(f"<p>Ni\u00f1o 3.4 this week: <b>{box['anomaly']:+.1f} \u00b0C</b> "
+        out.append(f"<p>Ni\u00f1o 3.4 this week: <b>{signed(box['anomaly'], 1)} \u00b0C</b> "
                    f"{esc(_BASIS_WORDS[box['basis']])}"
                    + (f" (the week centred on {esc(week.label)})" if week is not None else "")
                    + ".</p>")
@@ -331,9 +333,9 @@ def section(state) -> str:
     else:
         index = getattr(a, "index_name", "the index")
         when = peak_when((peak.season, peak.year), _built_day(state))
-        out.append(f"<p>Forecast peak of {esc(index)}: <b>{peak.mean:+.2f} \u00b0C</b> in "
+        out.append(f"<p>Forecast peak of {esc(index)}: <b>{signed(peak.mean, 2)} \u00b0C</b> in "
                    f"{esc(peak.label)}, {when} "
-                   f"(10 to 90%: {peak.low:+.2f} to {peak.high:+.2f} \u00b0C).</p>")
+                   f"(10 to 90%: {signed(peak.low, 2)} to {signed(peak.high, 2)} \u00b0C).</p>")
     impacts = getattr(state, "impacts", None)
     if impacts is None:
         out.append("<p>The impact outlook did not run.</p>")
@@ -1093,7 +1095,11 @@ _JS = r"""
     ensoCtx.drawImage(fieldCanvas, f.x * dpr, f.y * dpr, f.w * step * dpr, f.h * step * dpr);
     ensoCtx.globalAlpha = 1;
   }
-  function signedText(v, digits) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(digits); }
+  // Signed as written: a value that rounds to zero is "0.0", not "−0.0".
+  function signedText(v, digits) {
+    v = Number(v.toFixed(digits));
+    return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(digits);
+  }
   var ensoSaid = "";
   // The reading changes as the view moves. On a line of its own, it only grows
   // while the key keeps its width, so the map above does not jump by a line,

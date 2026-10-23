@@ -33,7 +33,7 @@ from dataclasses import replace as dc_replace
 
 from . import alerts, cyclones, stormfury
 from .coastline import segments
-from .svg import Plot, _hit, _legend, esc, nice_ticks, relative_d, table
+from .svg import Plot, _hit, _legend, esc, nice_ticks, relative_d, signed, table
 from .svg import boxes_clear as _clear, label_box as _label_box
 
 # Fixed hue order, assigned to storms in ATCF order and never cycled. A fourth
@@ -853,7 +853,7 @@ def tracks_card(state) -> str:
         chips = [_chip(_status_for(now), now.label)]
         if change >= cyclones.RI_THRESHOLD:
             chips.append(_chip("critical" if change >= 50 else "serious",
-                               f"rapid intensification {change:+.0f} kt/24 h"))
+                               f"rapid intensification {signed(change, 0)} kt/24 h"))
         threats = [t for t in storm.threats(350.0) if (t[1].wind or 0) >= 34]
         if threats:
             gap, fix, place = threats[0]
@@ -968,7 +968,7 @@ def season_card(state) -> str:
             f'<div class="tcchips">{_chip(status, word)}</div>'
             f'<p class="prose">The catalogue calls for <strong>'
             f'{esc(scored["expected"])}</strong> activity here at {esc(index_name)} '
-            f'{index_value:+.2f} ({esc(scored["likelihood"])}, '
+            f'{signed(index_value, 2)} ({esc(scored["likelihood"])}, '
             f'{esc(scored["confidence"])} confidence). Observed activity is '
             f'<strong>{esc(scored["observed"])}</strong>: {season.ace:.0f} ACE '
             f'against {season.normal_ace:.0f} normal by {esc(season.through)}'
@@ -1029,15 +1029,15 @@ def css() -> str:
   border-radius: 11px; padding: 12px 14px; }
 .tcstorm h3, .tcverdict h3 { font-size: 0.95rem; margin: 0 0 3px; }
 .tcstorm .caption, .tcverdict .prose { margin: 0 0 9px; font-size: 0.8rem; }
-.tcid { color: var(--muted); font-weight: 500; font-size: 0.8rem; margin-left: 6px; }
+.tcid { color: var(--muted-ink); font-weight: 500; font-size: 0.8rem; margin-left: 6px; }
 .tcchips { display: flex; flex-wrap: wrap; gap: 7px; }
 .tcchip { display: inline-flex; align-items: center; gap: 5px; font-size: 0.76rem;
   font-weight: 600; padding: 3px 9px 3px 7px; border-radius: 999px;
   border: 1px solid currentColor; }
-.tcchip[data-status="critical"] { color: var(--critical); }
-.tcchip[data-status="serious"] { color: var(--serious); }
-.tcchip[data-status="warning"] { color: var(--warning); }
-.tcchip[data-status="good"] { color: var(--good); }
+.tcchip[data-status="critical"] { color: var(--critical-ink); }
+.tcchip[data-status="serious"] { color: var(--serious-ink); }
+.tcchip[data-status="warning"] { color: var(--warning-ink); }
+.tcchip[data-status="good"] { color: var(--good-ink); }
 .tcchip span { color: var(--ink); }
 @media (max-width: 640px) { .tcgrid { grid-template-columns: 1fr; } }
 /* The category on a forecast point, and the legend's keys, drawn as the map
@@ -1118,9 +1118,10 @@ def _fury_dumbbell(moves: list[dict], skill: dict) -> str:
         plot.add(f'<text x="{plot.left - 12:.1f}" y="{y + 4:.1f}" '
                  f'text-anchor="end" class="rowlabel">{esc(label)}</text>')
         miss = move["wind_after"] - move["predicted_kt"]
+        off = signed(miss, 0)
         plot.add(f'<text x="{plot.left + plot.plot_w + 12:.1f}" '
                  f'y="{y + 4:.1f}" class="rowlabel">'
-                 f'{esc(f"{miss:+d} kt off")}</text>')
+                 f'{esc(f"{off} kt off")}</text>')
         # One direct label, on the first row, so the legend never has to be
         # consulted to know which dot is which.
         if index == 0:
@@ -1135,7 +1136,7 @@ def _fury_dumbbell(moves: list[dict], skill: dict) -> str:
                       f'eyewall {move["from_nm"]} to {move["to_nm"]} nm '
                       f'in {move["hours"]} h'))
         plot.add(_hit(after, y, f'{move["storm"]}, {_clock(move["stamp"])}', detail,
-                      f'observed change {move["observed_pct"]:+.0f}%'))
+                      f'observed change {signed(move["observed_pct"], 0)}%'))
 
     desc = (f'{len(shown)} natural eyewall expansions. Angular momentum '
             f'predicted a mean {skill.get("mean_predicted_drop", 0):.0f} per '
@@ -1177,8 +1178,8 @@ def _fury_histogram(swings: dict) -> str:
         base = plot.sy(0)
         plot.add(f'<rect x="{x:.1f}" y="{y:.1f}" width="{width:.1f}" '
                  f'height="{base - y:.1f}" rx="3" fill="var(--s3)"/>')
-        plot.add(_hit(x + width / 2, y, f"{start:+.0f}% to "
-                      f"{start + BIN_PCT:+.0f}%",
+        plot.add(_hit(x + width / 2, y, f"{signed(start, 0)}% to "
+                      f"{signed(start + BIN_PCT, 0)}%",
                       f"{count} of {len(values)} intervals",
                       "unseeded hurricanes, 24 hours apart"))
 
@@ -1206,7 +1207,7 @@ def _fury_histogram(swings: dict) -> str:
     for tick in nice_ticks(low, high, 8):
         plot.add(f'<text x="{plot.sx(tick):.1f}" '
                  f'y="{plot.sy(0) + 20:.1f}" text-anchor="middle" '
-                 f'class="tick">{esc(f"{tick:+.0f}%")}</text>')
+                 f'class="tick">{esc(f"{signed(tick, 0)}%")}</text>')
     plot.add(f'<text x="{plot.left + plot.plot_w / 2:.1f}" y="296" '
              f'text-anchor="middle" class="axistitle">change in maximum '
              f'wind over 24 hours, unseeded hurricanes this season</text>')
@@ -1247,10 +1248,10 @@ def fury_card(state) -> str:
     move_rows = [[m["storm"], _clock(m["stamp"]), f'{m["from_nm"]}→{m["to_nm"]} nm',
                   f'{m["hours"]} h', f'{m["wind_before"]} kt',
                   f'{m["predicted_kt"]} kt', f'{m["wind_after"]} kt',
-                  f'{m["observed_pct"]:+.0f}%']
+                  f'{signed(m["observed_pct"], 0)}%']
                  for m in fury.moves if m.get("predicted_kt")]
     swing_rows = [[c["storm"], _clock(c["stamp"]), f'{c["from_kt"]} kt',
-                   f'{c["to_kt"]} kt', f'{c["pct"]:+.1f}%']
+                   f'{c["to_kt"]} kt', f'{signed(c["pct"], 1)}%']
                   for c in sorted(fury.swings.get("changes") or [],
                                   key=lambda c: c["pct"])]
 
@@ -1371,7 +1372,7 @@ def fury_css() -> str:
 .furyreason { background: var(--plane); border: 1px solid var(--border);
   border-radius: 11px; padding: 12px 14px; }
 .furyreason h3 { font-size: 0.78rem; letter-spacing: 0.08em; margin: 0 0 6px;
-  color: var(--muted); font-weight: 700; }
+  color: var(--muted-ink); font-weight: 700; }
 .furyreason p { margin: 0; font-size: 0.83rem; line-height: 1.5; }
 #stormfury h3 { font-size: 1rem; margin: 26px 0 6px; }
 #stormfury code { font-size: 0.85em; background: var(--plane);

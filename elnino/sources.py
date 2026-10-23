@@ -36,7 +36,7 @@ import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import NamedTuple
 
@@ -100,16 +100,6 @@ NCEI_NRT = f"{NCEI}/griddap/ncdc_oisst_v2_avhrr_prelim_by_time_zlev_lat_lon.csv"
 # How far back the rolling Hovmoller windows reach. Sixteen months is two
 # boreal winters' worth of context without making the vertical axis unreadable.
 HOVMOLLER_MONTHS = 16
-
-
-def _since(months: int) -> str:
-    """ISO date roughly ``months`` back, for a rolling request window."""
-    today = date.today()
-    year, month = today.year, today.month - months
-    while month <= 0:
-        month += 12
-        year -= 1
-    return f"{year:04d}-{month:02d}-01"
 
 
 def erddap(base: str, query: str) -> str:
@@ -196,12 +186,12 @@ SSH_PRODUCTS = {
 # time, an analysis of satellite radiometer and scatterometer winds over NCEP's
 # GFS, six-hourly on a quarter degree, a day or two behind. CoastWatch's copy
 # stopped on 2 June 2026. The westerly wind events (``winds``) take the last
-# 360 analyses, every other one back from the latest: 180 days twice a day, 12
-# hours apart. The cells are every ninth, 2.25 degrees apart and symmetric
+# 720 analyses, 180 days of them, and read those at 06Z and 18Z by their time
+# (``winds.HOURS``), 12 hours apart. The cells are every ninth, 2.25 degrees apart and symmetric
 # about the equator, 14.625S to 14.625N by 120.125E to 279.875E: the cells of
 # the vendored base (``windclim``).
 CCMP_NRT = "https://oceanwatch.pifsc.noaa.gov/erddap/griddap/ccmp-daily-v2-1-NRT.csv"
-_WIND_DAYS = "[last-718:2:last]"
+_WIND_DAYS = "[last-719:last]"
 _WIND_CELLS = "[(-14.625):9:(14.625)][(120.125):9:(279.875)]"
 
 
@@ -607,22 +597,28 @@ SOURCES: tuple[Source, ...] = (
     ),
     Source(
         key="tao_isotherm",
-        name="TAO/TRITON monthly 20 °C isotherm depth, equator",
+        name="TAO/TRITON monthly 20 °C isotherm depth, whole array",
         url=erddap(
             f"{COASTWATCH}/tabledap/pmelTaoMonIso.csv",
-            f"time,longitude,ISO_6{_TAO_EQ}",
+            "time,latitude,longitude,ISO_6",
         ),
         agency="NOAA PMEL via CoastWatch ERDDAP",
         cadence="monthly",
         tier="spatial",
-        note="Thermocline depth; the clearest view of Kelvin wave propagation.",
+        note="Thermocline depth: on the equator the clearest view of Kelvin wave "
+             "propagation, and at every mooring the monthly normal its 3-D anomaly is "
+             "taken against.",
     ),
     Source(
         key="tao_mesh",
         name="TAO/TRITON daily 20 °C isotherm depth, whole array",
+        # Two months back by the server's clock, in UTC, so the window moves
+        # with every run however long the process has been up, and holds the
+        # fortnight the 3-D surface is meaned over with the array weeks behind
+        # (its newest day was 28 September on 20 October 2026).
         url=erddap(
             f"{PMEL}/tabledap/pmelTaoDyIso.csv",
-            f"time,latitude,longitude,ISO_6&time>={_since(1)}",
+            "time,latitude,longitude,ISO_6&time>=now-60days",
         ),
         agency="NOAA PMEL",
         cadence="daily",
@@ -730,7 +726,8 @@ SOURCES: tuple[Source, ...] = (
         cadence="every warning",
         tier="cyclone",
         markup=True,
-        note="Live warnings for the west Pacific, Indian Ocean and southern hemisphere.",
+        note="Live warnings for the west Pacific, Indian Ocean and southern hemisphere, "
+             "and for an east or central Pacific storm that crosses the date line.",
     ),
     Source(
         key="jtwc_abpw",
@@ -861,13 +858,18 @@ class Fetched:
     url: str = ""
     # The copy downloaded at ``fetched_at`` is current, and was not downloaded
     # again: its dataset had no new day, its server said the file had not
-    # changed since, or the product's own address is behind the copy the
-    # second server made.
+    # changed since, the product's own address is behind the copy the second
+    # server made, or the second server is at the day of the copy the
+    # product's own address made, with no address saying a later one.
     unchanged: bool = False
     # The copy downloaded at ``fetched_at``, under an hour before, of an ERDDAP
     # table, which cannot say whether it changed: it serves without the table
     # being asked for (``TABLE_REST``).
     rested: bool = False
+    # When the copy was last told unchanged, by a 304 or by the probe at its
+    # day, as a time; empty when it never was. The age of a copy served after
+    # a fetch fails counts from it (a storm's deck, cyclones.DECK_COPY_HOURS).
+    checked_at: str = ""
 
     @property
     def ok(self) -> bool:
@@ -1139,15 +1141,12 @@ class _Product:
 
     def keep(self, data: bytes, meta: dict) -> None:
         """Write the copy and then its record, each whole or not at all."""
-        for path, payload in ((self.cache, data),
-                              (self.record, json.dumps(meta, indent=2).encode("utf-8"))):
-            part = path.with_name(path.name + ".part")
-            try:
-                part.write_bytes(payload)
-                os.replace(part, path)
-            except OSError:
-                part.unlink(missing_ok=True)
-                raise
+        _write_whole(self.cache, data)
+        self.keep_record(meta)
+
+    def keep_record(self, meta: dict) -> None:
+        """Write the record alone, whole or not at all; the copy stands."""
+        _write_whole(self.record, json.dumps(meta, indent=2).encode("utf-8"))
 
     def served(self, source: Source, current: bool = False) -> Fetched:
         """The copy, served for want of a live answer, or as ``current`` while
@@ -1155,7 +1154,8 @@ class _Product:
         meta = self.meta()
         return Fetched(source, self.kept(meta), meta.get("fetched_at", "unknown"),
                        from_cache=not current, sha256=meta.get("sha256", ""),
-                       url=meta.get("url", ""), unchanged=current)
+                       url=meta.get("url", ""), unchanged=current,
+                       checked_at=str(meta.get("checked_at") or ""))
 
 
 class _Bid(NamedTuple):
@@ -1230,9 +1230,10 @@ def fetch(source: Source, raw_dir: Path, offline: bool = False,
     other. A product whose address fails, there or on the way to its subset, is
     asked of the second server's addresses in turn, and its copy claims beside
     the answer, and ahead of it on the copy's own day when the product's own
-    address made the copy. A copy the second server made claims beside the
-    product's own address as well, and serves as current while that is behind
-    it. A gridded product
+    address made the copy, serving then as current unless an address said a
+    later day it could not deliver. A copy the second server made claims
+    beside the product's own address as well, and serves as current while
+    that is behind it. A gridded product
     keeps its copy, without downloading the subset again, while its dataset's
     latest day is the one the copy was downloaded at and has values for.
 
@@ -1252,13 +1253,18 @@ def fetch(source: Source, raw_dir: Path, offline: bool = False,
     for product in products:
         bids += _copy_bid(product) if offline else _live_bids(product, product.addresses, problems, wait=wait)
 
+    failed: list[_Bid] = []
     while bids:
         bid = max(bids, key=_Bid.rank)
         bids.remove(bid)
         # A copy chosen over an answer of the product's own address, which is
-        # behind it, is as current as any answer.
+        # behind it, or over the second server's for the very day the
+        # product's own address made the copy, is as current as any answer,
+        # unless an address said a later day and failed to deliver it.
         current = not bid.live and any(
-            other.live and other.url == bid.product.url for other in bids)
+            other.live and other.product is bid.product
+            and (other.url == bid.product.url or other.echo) for other in bids
+        ) and not any(said.product is bid.product and said.day > bid.day for said in failed)
         try:
             got = (_download(source, bid.product, bid.url, bid.day, now, wait) if bid.live
                    else bid.product.served(source, current))
@@ -1268,6 +1274,7 @@ def fetch(source: Source, raw_dir: Path, offline: bool = False,
             # its copy, unless that claims already beside the answer that
             # failed.
             if bid.live:
+                failed.append(bid)
                 addresses = bid.product.addresses
                 bids += _live_bids(bid.product, addresses[addresses.index(bid.url) + 1:],
                                    problems, copied=_beside(bid, _copy_bid(bid.product)), wait=wait)
@@ -1384,6 +1391,17 @@ def _read_meta(path: Path) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
+def _write_whole(path: Path, payload: bytes) -> None:
+    """Write ``payload`` to ``path`` whole or not at all."""
+    part = path.with_name(path.name + ".part")
+    try:
+        part.write_bytes(payload)
+        os.replace(part, path)
+    except OSError:
+        part.unlink(missing_ok=True)
+        raise
+
+
 def _download(source: Source, product: _Product, url: str, said: str, now: str,
               wait: _Wait | None = None) -> Fetched:
     """A product's text, downloaded from ``url`` and kept, or its copy when the
@@ -1400,7 +1418,7 @@ def _download(source: Source, product: _Product, url: str, said: str, now: str,
         # A copy that is gone, or is not what its record was written for, is
         # downloaded again.
         with contextlib.suppress(OSError, ValueError):
-            return _current(source, product.kept(meta), meta, url, now)
+            return _current(source, product.kept(meta), meta, url, now, product)
     if ours and rests(url):
         # So is one whose record says no time it was downloaded, or a time
         # after now, as a clock put back would.
@@ -1422,7 +1440,7 @@ def _download(source: Source, product: _Product, url: str, said: str, now: str,
             copy = product.kept(meta)
     answer = _http_get(url, asking if copy is not None else None, wait=wait)
     if answer is None:
-        return _current(source, copy, meta, url, now)
+        return _current(source, copy, meta, url, now, product)
     # One line ending from here on, and the copy written as the very bytes its
     # digest is taken over. In text mode on Windows every "\n" was written as
     # "\r\n" and every CRLF a feed sent became "\r\r\n", which read back as
@@ -1473,10 +1491,16 @@ def _within(stamp, now: str, span: timedelta) -> bool:
     return timedelta(0) <= datetime.fromisoformat(now) - datetime.fromisoformat(stamp) < span
 
 
-def _current(source: Source, text: str, meta: dict, url: str, now: str) -> Fetched:
-    """The copy, current though not downloaded again: unchanged since it was."""
+def _current(source: Source, text: str, meta: dict, url: str, now: str,
+             product: Product | None = None) -> Fetched:
+    """The copy, current though not downloaded again: unchanged since it was.
+    Its record says when it was last known so (``checked_at``), for its age
+    when a later fetch fails and it serves."""
+    if product is not None:
+        with contextlib.suppress(OSError):
+            product.keep_record({**meta, "checked_at": now})
     return Fetched(source, text, meta.get("fetched_at", now), from_cache=False,
-                   sha256=meta.get("sha256", ""), url=url, unchanged=True)
+                   sha256=meta.get("sha256", ""), url=url, unchanged=True, checked_at=now)
 
 
 def _archive(raw_dir: Path, name: str, data: bytes, digest: str) -> None:

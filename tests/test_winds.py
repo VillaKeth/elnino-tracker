@@ -224,10 +224,19 @@ class TestFilter(unittest.TestCase):
         self.assertAlmostEqual(response ** 2, 0.5, delta=0.005)
         self.assertEqual(winds.STEP, timedelta(hours=12))
 
-    def test_a_neighbour_missing_or_not_12_hours_away_leaves_no_value(self):
+    def test_a_neighbour_not_12_hours_away_leaves_no_value(self):
         times = _times(3) + [T0 + HALF * 4, T0 + HALF * 5, T0 + HALF * 6]
         self.assertEqual(winds.smooth(times, [1.0, 1.0, 1.0, 1.0, None, 1.0]),
-                         [None, 1.0, None, None, None, None])
+                         [None, 1.0, None, None, 1.0, None])
+
+    def test_one_missing_value_between_two_12_hours_either_side_is_bridged(self):
+        # A missing value left none at it or beside it: a feed missing one
+        # analysis inside an event read as two events, or one cut short. One
+        # is bridged from its neighbours, their mean; two in a row are a gap.
+        self.assertEqual(winds.smooth(_times(5), [0.0, 4.0, None, 8.0, 4.0]),
+                         [None, 3.5, 6.0, 6.5, None])
+        self.assertEqual(winds.smooth(_times(5), [0.0, 4.0, None, None, 4.0]),
+                         [None, None, None, None, None])
 
 
 class TestRuns(unittest.TestCase):
@@ -246,6 +255,49 @@ class TestRuns(unittest.TestCase):
 
 class TestEvents(unittest.TestCase):
     """Westerly wind events found in a feed of the base plus an anomaly."""
+
+    def test_the_events_are_read_off_the_analyses_at_06z_and_18z_by_their_time(self):
+        # Every other analysis was asked for, counted back from the latest:
+        # the series turned between 06Z/18Z and 00Z/12Z with each new
+        # analysis, and a missing one turned the rest of it across an 18-hour
+        # step the filter cannot take, which cut a 10.5-day event to 7.5 days.
+        every = [T0 - timedelta(hours=6) + timedelta(hours=6) * k for k in range(41)]
+        kept = [when for when in every if when.hour in (6, 18)]
+        central = winds.REGIONS_BY_KEY["C"]
+
+        def anomaly(when, lat, lon):
+            return 3.0 if kept[4] <= when <= kept[12] and central.holds(lat, lon) else 0.0
+        # The feed ends on a 00Z analysis, and misses the 12Z inside the event.
+        lost = [when for when in every if when != kept[8] + timedelta(hours=6)]
+        got = winds.analyse(_feed(lost, anomaly))
+        self.assertEqual(got.times, tuple(kept))
+        self.assertEqual([(e.region, e.first, e.last, e.samples) for e in got.events],
+                         [("C", kept[4], kept[12], 9)])
+
+    def test_a_missing_06z_or_18z_analysis_inside_an_event_is_bridged(self):
+        # CCMP's near-real-time feed misses an analysis now and then. One
+        # missing inside a 10.5-day event left the filter no value at it or
+        # beside it, and the event was read as two, or cut short: it is
+        # bridged from the analyses 12 hours either side, and the feed's
+        # times gain its slot. Two missing in a row stay a gap.
+        every = [T0 - timedelta(hours=6) + timedelta(hours=6) * k for k in range(41)]
+        kept = [when for when in every if when.hour in (6, 18)]
+        central = winds.REGIONS_BY_KEY["C"]
+
+        def anomaly(when, lat, lon):
+            return 3.0 if kept[4] <= when <= kept[12] and central.holds(lat, lon) else 0.0
+        got = winds.analyse(_feed([when for when in every if when != kept[8]], anomaly))
+        self.assertEqual((got.times, got.bridged), (tuple(kept), (kept[8],)))
+        self.assertEqual([(e.region, e.first, e.last, e.samples) for e in got.events],
+                         [("C", kept[4], kept[12], 9)])
+        self.assertIsNotNone(got.smoothed["C"][8])
+        # The day of the bridged analysis has its other one's band.
+        self.assertEqual(len(got.hovmoller.values), 10)
+        self.assertTrue(all(value is not None for value in got.hovmoller.values[4]))
+        got = winds.analyse(_feed([when for when in every if when not in (kept[8], kept[9])], anomaly))
+        self.assertEqual((got.times, got.bridged),
+                         (tuple(when for when in kept if when not in (kept[8], kept[9])), ()))
+        self.assertEqual(got.events, ())
 
     def test_six_analyses_above_two_are_an_event_and_five_are_not(self):
         times = _times(20)
@@ -290,10 +342,11 @@ class TestEvents(unittest.TestCase):
         self.assertEqual(got.under_way, (event,))
 
     def test_a_gap_before_the_latest_analysis_leaves_the_run_under_way(self):
-        # The last analysis comes a day after the one before it, so neither
-        # of the two is smoothed: the run reaching the latest smoothed
-        # analysis has not been seen to end.
-        times = _times(15) + [T0 + HALF * 16]
+        # The last analysis comes a day and a half after the one before it,
+        # two missing, which no bridge spans, so neither of the two is
+        # smoothed: the run reaching the latest smoothed analysis has not
+        # been seen to end.
+        times = _times(15) + [T0 + HALF * 17]
         got = winds.analyse(_feed(times, _block("E", times, 7, 9)))
         (event,) = got.events
         self.assertEqual((event.first, event.last, event.samples), (times[7], times[13], 7))
@@ -373,16 +426,17 @@ class TestHovmoller(unittest.TestCase):
         # A symmetric band of latitudes cancels; the day's two analyses average.
         self.assertTrue(all(abs(value - 0.5) < 1e-6 for value in got.values[0]))
 
-    def test_analyses_at_00z_and_12z_make_the_days_as_well(self):
-        times = _times(4, datetime(2026, 9, 1, 0, tzinfo=timezone.utc))
+    def test_the_feed_s_analyses_at_00z_and_12z_are_passed_over(self):
+        start = datetime(2026, 9, 1, 0, tzinfo=timezone.utc)
+        times = [start + timedelta(hours=6) * k for k in range(8)]
         got = winds.analyse(_feed(times, lambda when, lat, lon: 2.0 * (when.hour == 12))).hovmoller
         self.assertEqual(got.y_labels, ("2026-09-01", "2026-09-02"))
-        self.assertTrue(all(abs(value - 1.0) < 1e-6 for row in got.values for value in row))
+        self.assertTrue(all(abs(value) < 1e-6 for row in got.values for value in row))
 
-    def test_a_window_not_ending_at_18z_has_its_end_days_from_their_one_analysis(self):
-        # From 12Z: the first day has its 12Z analysis alone, the last its 00Z.
-        times = _times(4, datetime(2026, 9, 1, 12, tzinfo=timezone.utc))
-        got = winds.analyse(_feed(times, lambda when, lat, lon: 2.0 * (when.hour == 12))).hovmoller
+    def test_a_window_from_18z_to_06z_has_its_end_days_from_their_one_analysis(self):
+        # The first day has its 18Z analysis alone, the last its 06Z.
+        times = _times(4, datetime(2026, 9, 1, 18, tzinfo=timezone.utc))
+        got = winds.analyse(_feed(times, lambda when, lat, lon: 2.0 * (when.hour == 18))).hovmoller
         self.assertEqual(got.y_labels, ("2026-09-01", "2026-09-02", "2026-09-03"))
         for row, expected in zip(got.values, (2.0, 1.0, 0.0)):
             self.assertTrue(all(value is not None and abs(value - expected) < 1e-6
@@ -463,13 +517,14 @@ def _axis(start: float, stride: int, stop: float) -> tuple[float, ...]:
 class TestFeed(unittest.TestCase):
     """CCMP's near-real-time analyses, asked on the base's cells."""
 
-    def test_it_asks_180_days_twice_a_day_on_the_base_s_cells(self):
+    def test_it_asks_every_analysis_of_180_days_on_the_base_s_cells(self):
         source = sources.SOURCES_BY_KEY["wind_daily"]
         self.assertTrue(source.url.startswith(sources.CCMP_NRT + "?"), source.url)
         self.assertEqual(_query(source.url),
-                         "uwnd[last-718:2:last][(-14.625):9:(14.625)][(120.125):9:(279.875)]")
-        # Every other one of the last 719 six-hourly analyses: 360, 12 hours apart.
-        self.assertEqual(len(range(0, 719, 2)), 360)
+                         "uwnd[last-719:last][(-14.625):9:(14.625)][(120.125):9:(279.875)]")
+        # The last 720 six-hourly analyses, 180 days, of which the 360 at
+        # 06Z and 18Z are read.
+        self.assertEqual(len(range(0, 720)) // 2, 360)
         self.assertEqual(_axis(-14.625, 9, 14.625), windclim.LATS)
         self.assertEqual(_axis(120.125, 9, 279.875), windclim.LONS)
 
@@ -845,7 +900,8 @@ class TestReport(unittest.TestCase):
 
     def test_the_equatorial_regions_latest_days_and_the_note(self):
         text = "\n".join(report._wind_lines(_under_way_and_past()))
-        self.assertRegex(text, r"\n +West +Central +East\n  2026-09-20 +\+3\.00 +\+4\.00 +\+0\.00\n")
+        # A region at exactly zero is written unsigned, as on every page.
+        self.assertRegex(text, r"\n +West +Central +East\n  2026-09-20 +\+3\.00 +\+4\.00 +0\.00\n")
         self.assertEqual(len(re.findall(r"^  2026-09-\d\d ", text, re.M)), report.DAILY_ROWS)
         flat = _flat(text)
         for words in ("half power at 2.75 days", "count as the stronger",

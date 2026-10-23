@@ -2527,7 +2527,7 @@ def css() -> str:
 .streettable { width: 100%; border-collapse: collapse; font-size: 0.74rem; font-variant-numeric: tabular-nums; }
 .streettable th, .streettable td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--border);
   vertical-align: top; font-weight: 400; }
-.streettable th[scope="col"] { color: var(--muted); font-weight: 500; }
+.streettable th[scope="col"] { color: var(--muted-ink); font-weight: 500; }
 .streetfail .toolbtn { margin-left: 4px; }
 .streetwait { color: var(--ink2); }
 /* The stage: Google's panorama between the bar and a strip of the minimap and

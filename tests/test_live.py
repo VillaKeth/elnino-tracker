@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -80,6 +80,15 @@ class TestTheFollowerScript(unittest.TestCase):
     def test_its_words_are_text_and_it_names_no_insecure_address(self):
         self.assertNotIn("innerHTML", live.SCRIPT)
         self.assertNotIn("http://", live.SCRIPT)
+
+    def test_the_theme_is_all_the_site_keeps_in_the_browser_s_lasting_storage(self):
+        # As the README says: the reader's theme, kept for every page, is the
+        # one thing the site keeps there, and let go of when the reader turns
+        # back to the system's scheme.
+        code = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "elnino").glob("*.py"))
+        uses = re.findall(r"localStorage\.(\w+)\(([^,)]*)", code)
+        self.assertEqual(sorted(set(uses)), [("getItem", '"elnino-theme"'), ("removeItem", '"elnino-theme"'),
+                                             ("setItem", '"elnino-theme"')])
 
 
 # The runs a test page shows and the site serves: the page's own, the next
@@ -155,6 +164,7 @@ function El(tag) {
 }
 El.prototype.setAttribute = function (name, value) { this.attrs[name] = String(value); };
 El.prototype.getAttribute = function (name) { return name in this.attrs ? this.attrs[name] : null; };
+El.prototype.removeAttribute = function (name) { delete this.attrs[name]; };
 El.prototype.appendChild = function (child) { this.children.push(child); child.parentNode = this; return child; };
 El.prototype.addEventListener = function (type, fn) { (this.on[type] = this.on[type] || []).push(fn); };
 El.prototype.click = function () { (this.on.click || []).forEach(function (fn) { fn({type: "click"}); }); };
@@ -277,6 +287,16 @@ function frame() { var due = FRAMES; FRAMES = []; due.forEach(function (fn) { fn
 Object.defineProperty(window, "sessionStorage", {get: function () {
   if (BLOCKED) throw new Error("SecurityError: the site's storage is blocked");
   return STORE;
+}});
+// The site's lasting storage, which every page of it shares.
+var LOCAL = {}, LOCALFULL = false;
+Object.defineProperty(window, "localStorage", {get: function () {
+  if (BLOCKED) throw new Error("SecurityError: the site's storage is blocked");
+  return {
+    getItem: function (key) { return Object.prototype.hasOwnProperty.call(LOCAL, key) ? LOCAL[key] : null; },
+    setItem: function (key, value) { if (LOCALFULL) throw new Error("QuotaExceededError"); LOCAL[key] = String(value); },
+    removeItem: function (key) { delete LOCAL[key]; }
+  };
 }});
 
 var RELOADS = [];
@@ -1240,6 +1260,65 @@ themes.push(document.documentElement.getAttribute("data-theme"));
 console.log(JSON.stringify(themes));
 """)
         self.assertEqual(got, ["dark", "light", None, None, None, None, None, None])
+
+    def test_the_head_puts_back_the_theme_the_reader_chose_on_any_page(self):
+        # Dark chosen on the map was lost on the storm desk and the
+        # dashboard: only a page loading again for a run handed its own over.
+        got = self.page(r"""
+var themes = [];
+function opened(chosen, handed) {
+  LOCAL = chosen === null ? {} : {"elnino-theme": chosen};
+  DATA = {};
+  if (handed !== null) DATA[KEY] = JSON.stringify({place: {theme: handed}});
+  document.documentElement = new El("html");
+  head();
+  themes.push(document.documentElement.getAttribute("data-theme"));
+}
+opened("dark", null);       // chosen on another page
+opened("light", "dark");    // the reader's latest choice, made on another page since
+opened("sepia", "dark");    // no theme: the page's own handover
+opened(null, null);         // nothing chosen: the system's theme
+BLOCKED = true;
+opened("dark", "dark");     // the site's storage refused
+console.log(JSON.stringify(themes));
+""")
+        self.assertEqual(got, ["dark", "light", "dark", None, None])
+
+    def test_the_theme_button_switches_the_theme_keeps_it_and_says_so(self):
+        # One button on every page, "Dark", pressed while the dark theme is
+        # shown, whether the reader's or the system's. A press back to the
+        # system's own scheme follows the system again, on every page: the
+        # choice kept was the scheme itself, and a system that changed its
+        # scheme at dusk was not followed.
+        got = self.page(r"""
+var DARK_SYSTEM = false, said = [];
+window.matchMedia = function () { return {matches: DARK_SYSTEM, addEventListener: function () {}}; };
+var live = follower();
+function state(btn) {
+  return [document.documentElement.getAttribute("data-theme"), LOCAL["elnino-theme"] || null,
+          btn.getAttribute("aria-pressed")];
+}
+var btn = new El("button");
+live.themeButton(btn);
+said.push(btn.getAttribute("aria-pressed"));
+btn.click(); said.push(state(btn));
+// Back to the system's light: the system is followed again, nothing kept.
+btn.click(); said.push(state(btn));
+// Storage full: the theme still switches, for this page.
+LOCALFULL = true;
+btn.click(); said.push(state(btn));
+LOCALFULL = false;
+// In a dark system, Dark is pressed before any press, and a press is light.
+document.documentElement = new El("html"); DARK_SYSTEM = true; LOCAL = {};
+var other = new El("button");
+live.themeButton(other);
+said.push(other.getAttribute("aria-pressed"));
+other.click(); said.push(state(other));
+other.click(); said.push(state(other));
+console.log(JSON.stringify(said));
+""")
+        self.assertEqual(got, ["false", ["dark", "dark", "true"], [None, None, "false"], ["dark", None, "true"],
+                               "true", ["light", "light", "false"], [None, None, "true"]])
 
     def test_one_run_written_two_ways_is_the_page_s_own(self):
         # Review Focus 1.
@@ -2688,8 +2767,17 @@ class TestTheLiveRun(unittest.TestCase):
         self.assertEqual(self.live.count("          path: |\n" + paths), 2)
         self.assertEqual(self.live.count("key: tracker-state-${{ github.run_id }}-${{ github.run_attempt }}\n"), 2)
         self.assertIn("restore-keys: tracker-state-\n", self.live)
-        self.assertRegex(self.live, r"if: \$\{\{ !cancelled\(\) \}\}\n"
+        self.assertRegex(self.live, r"if: \$\{\{ !cancelled\(\) && steps\.publish\.outcome == 'success' \}\}\n"
                                     r"        uses: actions/cache/save@[0-9a-f]{40} # v6\.\d+\.\d+\n")
+
+    def test_a_run_that_failed_saves_no_state_for_the_next_to_start_from(self):
+        # The next run restores the newest state saved, so a failed run's was
+        # what the next started from: a state made by a run that failed,
+        # perhaps for it, and its alerts reconciled as if they had been
+        # published. And it was 21 MB that nothing let go of.
+        save = self.live.split("      - name: Save the tracker's state\n", 1)[1]
+        save = save.split("\n      - name:", 1)[0]
+        self.assertIn("        if: ${{ !cancelled() && steps.publish.outcome == 'success' }}\n", save)
 
     def test_a_run_lets_go_of_the_state_it_started_from_once_its_own_is_saved(self):
         # Each publishing run saved 21 MB: about 3 GB a day at a run every ten
@@ -2765,9 +2853,64 @@ class TestTheLiveRun(unittest.TestCase):
         self.assertIn('./publish.sh --remote "https://github.com/$GITHUB_REPOSITORY.git" || code=$?\n', self.live)
 
     def test_open_alerts_and_a_degraded_run_are_published_and_said(self):
-        for line in ("0) ;;", '1) echo "::notice title=Alerts open::', '3) echo "::warning title=Degraded run::',
-                     '*) exit "$code" ;;'):
+        for line in ("0 | 3) ;;", '1) echo "::notice title=Alerts open::', '*) exit "$code" ;;'):
             self.assertIn(line, self.live)
+
+    def test_each_problem_of_a_published_run_is_an_annotation_of_its_own(self):
+        # "Published, but some feeds failed and fell back on their last copy"
+        # was said for exit 3 only, which 1, alerts open, outranks: a run
+        # degraded with an alert open said nothing of it, and neither said why.
+        script = self._script(self.live, "Run the tracker and publish the run")
+        self.assertNotIn("fell back on their last copy", script)
+        self.assertIn("  0 | 3) ;;\n", script)
+        self.assertIn("python3 - output/latest.json <<'PY'\n", script)
+
+    @unittest.skipIf(sys.platform == "win32", "the live run is Linux")
+    def test_a_published_run_s_problems_are_annotated_however_it_exited(self):
+        # The step's own script under bash, with a publish.sh that writes the
+        # run's latest.json and exits as track.py did.
+        script = self._script(self.live, "Run the tracker and publish the run")
+        many = [f"problem {n}" for n in range(1, 13)]
+        with tempfile.TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            self._fakes(here, gh="exit 0\n")
+            # The run prints its brief, and a feed's text with it: a line of
+            # it that is a workflow command.
+            (here / "publish.sh").write_text(
+                '#!/bin/sh\necho "::error::planted by a feed"\nmkdir -p output\n'
+                'printf "%s" "$LATEST" > output/latest.json\nexit "$CODE"\n',
+                encoding="utf-8", newline="\n")
+            (here / "publish.sh").chmod(0o755)
+            (here / "step.sh").write_text(script, encoding="utf-8", newline="\n")
+            told = "::warning title=Degraded run::"
+            for code, warnings, said in (
+                    ("0", [], []),
+                    # Alerts open and degraded: both said.
+                    ("1", ["oni: its 19 characters gave nothing: the feed's layout may have changed"],
+                     ["::notice title=Alerts open::Published with WARNING or CRITICAL alerts open.",
+                      told + "oni: its 19 characters gave nothing: the feed's layout may have changed"]),
+                    # A feed's text cannot start a command of its own.
+                    ("3", ["a line\n::error::not one 100%"], [told + "a line%0A::error::not one 100%25"]),
+                    # GitHub shows ten of a step's warnings: the tenth counts the rest.
+                    ("3", many, [told + w for w in many[:9]]
+                     + [told + "3 more problems this run: the brief above lists them all, as latest.json does"]),
+                    # Nothing published: nothing said of it.
+                    ("2", ["problem 1"], [])):
+                with self.subTest(code=code, warnings=len(warnings)):
+                    done = subprocess.run(
+                        ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(here / "step.sh")],
+                        cwd=here, env=dict(os.environ, PATH=f"{here}{os.pathsep}{os.environ['PATH']}",
+                                           CODE=code, LATEST=json.dumps({"warnings": warnings}),
+                                           GITHUB_REPOSITORY="owner/repo"),
+                        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+                    self.assertEqual(done.returncode, 2 if code == "2" else 0, done.stdout + done.stderr)
+                    # No line of the brief is a command, fenced by a token
+                    # a feed cannot know, until the step's own annotations.
+                    lines = re.findall(r"^::.*", done.stdout, re.M)
+                    self.assertRegex(lines[0], r"^::stop-commands::[0-9a-f]{32}$")
+                    token = lines[0].rsplit("::", 1)[1]
+                    self.assertEqual(lines[1:3], ["::error::planted by a feed", f"::{token}::"])
+                    self.assertEqual(lines[3:], said)
 
     def test_the_schedule_is_kept_from_pausing_without_failing_the_run(self):
         step = self.live.split("- name: Keep the schedule from pausing\n", 1)[1]
@@ -2831,6 +2974,18 @@ class TestTheLiveRun(unittest.TestCase):
         self.assertEqual(self.tests.count("    timeout-minutes: 30\n"), 1)
         # A pull request's code never runs with the live run's token.
         self.assertNotIn("pull_request", self.live)
+
+    def test_a_hung_publish_fails_rather_than_running_out_the_job_s_time(self):
+        # About 70 storm fetches one after another, each allowed 120 s, can
+        # outlast the job's half hour. A job that runs out its time is
+        # cancelled, and a cancelled run opens no issue: the site would go
+        # stale and say nothing. A step that runs out its own time fails, and
+        # the failure is told.
+        step = self.live.split("      - name: Run the tracker and publish the run\n", 1)[1]
+        step = step.split("\n      - name:", 1)[0]
+        self.assertIn("        id: publish\n        timeout-minutes: 25\n", step)
+        tell = self.live.split("\n  tell:\n", 1)[1]
+        self.assertIn("    if: ${{ failure() && github.ref == 'refs/heads/main' }}\n", tell)
 
     def test_a_relayed_run_is_a_dispatch_that_says_so(self):
         # The relay (relay.yml) dispatches each run with relay set, and that
@@ -3026,13 +3181,108 @@ class TestTheLiveRun(unittest.TestCase):
                     # What it was given is said only once it is a time.
                     self.assertNotIn("\n::warning::", "\n" + done.stdout)
 
+    def test_a_site_fallen_behind_gh_pages_opens_an_issue(self):
+        # GitHub deploys each push to gh-pages in a workflow of its own, pages
+        # build and deployment, and one that fails tells no one: one failed
+        # with "Failed to get ID Token ... Request timeout" and the site stood
+        # still for 20 minutes. Each run on main watches for it, beside the
+        # run, with a token that may read the code and open an issue.
+        self.assertIn("\n  watch:\n", self.live)
+        watch = self.live.split("\n  watch:\n", 1)[1].split("\n  tell:\n", 1)[0]
+        self.assertTrue(watch.startswith("    if: ${{ github.ref == 'refs/heads/main' }}\n"), watch[:200])
+        self.assertIn("    timeout-minutes: 5\n", watch)
+        block = re.search(r"\n    permissions:\n((?:      .*\n)+)", watch).group(1)
+        self.assertEqual(re.findall(r"^      ([\w-]+): (\w+)", block, re.M),
+                         [("contents", "read"), ("issues", "write")])
+        self.assertIn("          LAG: 1500\n", watch)
+
+    @unittest.skipIf(sys.platform == "win32", "the live run is Linux")
+    def test_the_site_is_watched_against_gh_pages_and_told_once(self):
+        # The step's own script, under bash, with a gh that says what gh-pages
+        # holds and when it was published, and how many issues so titled are
+        # open, and a curl that serves the site's run.json.
+        script = self._script(self.live, "Open an issue when the site has fallen behind gh-pages")
+        title = "The site has fallen behind gh-pages"
+        now = datetime.now(timezone.utc)
+
+        def stamp(minutes):
+            return (now - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        def pages(minutes, run_at):
+            # gh-pages as publish.py makes it: one commit, naming its run.
+            return f"{stamp(minutes)} Publish the run of {run_at}"
+
+        def run(at):
+            return '{"run_at": "%s"}' % at
+        old, new = "2026-10-20T19:03:15+00:00", "2026-10-20T19:33:15+00:00"
+        with tempfile.TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            self._fakes(here, gh='case "$2" in\n'
+                                 '  --method) printf "%s\\0" "$@" > "$ISSUE"; echo https://github.com/owner/repo/issues/8 ;;\n'
+                                 '  repos/owner/repo/commits/gh-pages) [ -z "$UNASKED" ] || exit 1; echo "$BRANCH" ;;\n'
+                                 '  *) echo "$*" >> "$CALLS"; printf "%s\\n" "$OPEN" ;;\n'
+                                 'esac\n',
+                        curl='echo "$*" > "$FETCHED"; [ -z "$UNREAD" ] || exit 22; printf "%s" "$SERVED"\n')
+            calls, issue, fetched = here / "calls", here / "issue", here / "fetched"
+            for branch, served, open_, unasked, unread, opened in (
+                    # gh-pages has held a run the site does not serve for
+                    # thirty minutes: told.
+                    (pages(30, new), run(old), "0", "", "", True),
+                    # Pushed two minutes ago and still deploying, after a gap
+                    # of forty minutes between the runs: not yet. Read against
+                    # the old run's clock, this was told.
+                    (pages(2, new), run("2026-10-20T18:53:15+00:00"), "0", "", "", False),
+                    # Twenty minutes, a deployment or two late: not yet.
+                    (pages(20, new), run(old), "0", "", "", False),
+                    # Deployed, however long ago, written either way.
+                    (pages(180, new), run(new), "0", "", "", False),
+                    (pages(180, new), run("2026-10-20T19:33:15Z"), "0", "", "", False),
+                    # Told already.
+                    (pages(30, new), run(old), "1", "", "", False),
+                    # A commit publish.py did not make is not judged.
+                    (f"{stamp(30)} Update index.html", run(old), "0", "", "", False),
+                    # GitHub or the site could not be asked, or the site
+                    # served no run: nothing to tell.
+                    (pages(30, new), run(old), "0", "1", "", False),
+                    (pages(30, new), run(old), "0", "", "1", False),
+                    (pages(30, new), "<html>Not Found</html>", "0", "", "", False)):
+                with self.subTest(branch=branch, served=served, open=open_, unasked=unasked,
+                                  unread=unread):
+                    for path in (calls, issue, fetched):
+                        path.unlink(missing_ok=True)
+                    done = self._bash(here, script, BRANCH=branch, SERVED=served, OPEN=open_,
+                                      UNASKED=unasked, UNREAD=unread, CALLS=str(calls), ISSUE=str(issue),
+                                      FETCHED=str(fetched), LAG="1500", GITHUB_REPOSITORY="owner/repo",
+                                      GITHUB_REPOSITORY_OWNER="Owner")
+                    self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                    self.assertEqual(issue.exists(), opened, done.stdout)
+                    if not unasked:
+                        # Past the CDN's ten minutes: every reading is its own address.
+                        self.assertRegex(fetched.read_text(encoding="utf-8"),
+                                         r"^-fsS --max-time 20 https://owner\.github\.io/repo/run\.json\?t=\d+\n$")
+                    if opened:
+                        args = issue.read_text(encoding="utf-8").split("\0")[:-1]
+                        self.assertEqual(args[:6], ["api", "--method", "POST", "repos/owner/repo/issues",
+                                                    "-f", f"title={title}"])
+                        self.assertTrue(args[7].startswith(
+                            f"body=gh-pages has held the run of {new} for 30 minutes, since it was "
+                            f"published at {stamp(30)}, and the site serves the run of {old}: GitHub "
+                            "Pages has not deployed it."), args[7])
+                        self.assertEqual(args[8:], ["--jq", ".html_url"])
+                        self.assertEqual(calls.read_text(encoding="utf-8"),
+                                         'api repos/owner/repo/issues?state=open&per_page=100 '
+                                         f'--jq map(select(.title == "{title}")) | length\n')
+
     def test_a_failed_run_or_relay_opens_an_issue_with_a_token_that_may_only_do_that(self):
         # GitHub notifies whoever started a run that fails, and no one of a
         # run its own bot started, as it starts the relay and the runs the
         # relay dispatches. The same step in both workflows, word for word.
         relay = self._relay()
         step = "      - name: Open an issue on the failure unless one is open\n"
-        for name, text, needs in (("live.yml", self.live, "[due, run, book]"), ("relay.yml", relay, "relay")):
+        # The watch on the site among the run's jobs: a watch that failed
+        # (GitHub's API down for it) opened nothing and told no one.
+        for name, text, needs in (("live.yml", self.live, "[due, run, book, watch]"),
+                                  ("relay.yml", relay, "relay")):
             with self.subTest(name):
                 self.assertIn("\n  tell:\n", text)
                 tell = text.split("\n  tell:\n", 1)[1]

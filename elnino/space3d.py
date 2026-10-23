@@ -38,7 +38,7 @@ import math
 from . import grids
 from .fields import BEHIND_DAYS, days_behind
 from .grids import Mesh, lat_name, lon_name
-from .svg import esc, table
+from .svg import esc, signed, table
 
 # Default camera. Yaw is rotation about the vertical, pitch is elevation.
 YAW = -38.0
@@ -222,7 +222,7 @@ def thermocline(mesh: Mesh, width: int = 620, height: int = 430, age: int | None
                 "t": (
                     f"{lat_name(lats[row])} {lon_name(lons[col])} - "
                     f"{mean['h']:.0f} m"
-                    + (f", {mean['a']:+.0f} m vs normal" if mean["a"] is not None else "")
+                    + (f", {signed(mean['a'], 0)} m vs normal" if mean["a"] is not None else "")
                 ),
             })
 
@@ -241,15 +241,16 @@ def thermocline(mesh: Mesh, width: int = 620, height: int = 430, age: int | None
 
     tilt = ""
     equator = grid[lats.index(0.0)]
-    measured = grids.tilt([c["h"] if c else None for c in equator])
+    measured = grids.tilt({lon: cell["h"] if cell else None
+                           for lon, cell in zip(lons, equator)})
     if measured is not None:
-        drop = measured[0]
         tilt = (
             f" The east-west tilt along the equator is "
-            f"<strong>{drop:.0f} m</strong> on this daily array; a neutral Pacific "
-            f"runs near 100 m, and a strong event flattens it. The cross-section "
-            f"below quotes the same tilt from the monthly moorings, over a wider "
-            f"span, so the two numbers are two measurements rather than one."
+            f"<strong>{measured.drop:.0f} m</strong> on this daily array; a neutral "
+            f"Pacific runs near 100 m, and a strong event flattens it. The "
+            f"cross-section below quotes the tilt between the same moorings from "
+            f"their monthly profiles, so the two numbers are two measurements of one "
+            f"quantity."
         )
 
     scale_note = (
@@ -290,9 +291,9 @@ def _ramp_note(use_anomaly: bool, limit: float, shallow: float, deep: float) -> 
             for i in range(11)
         )
         ticks = (
-            f'<span class="ramptick">{-limit:+.0f}</span>'
+            f'<span class="ramptick">{signed(-limit, 0)}</span>'
             f'<span class="ramptick">0</span>'
-            f'<span class="ramptick">{limit:+.0f}</span>'
+            f'<span class="ramptick">{signed(limit, 0)}</span>'
         )
         caption = "thermocline anomaly <span class=\"rampunits\">m</span>"
     else:
@@ -436,7 +437,7 @@ def phase_spiral(state, width: int = 620, height: int = 430) -> str:
         z = index / max(len(track) - 1, 1) * 2.0 - 1.0
         points.append({
             "p": [round(x, 4), round(y, 4), round(z, 4)],
-            "t": f"{label}: Nino-3.4 {point.sst:+.2f} °C, WWV {point.heat:+.2f} × 10¹⁴ m³",
+            "t": f"{label}: Nino-3.4 {signed(point.sst, 2)} °C, WWV {signed(point.heat, 2)} × 10¹⁴ m³",
             "label": label,
         })
 
@@ -462,7 +463,7 @@ def phase_spiral(state, width: int = 620, height: int = 430) -> str:
     body = _render_line_scene(payload, -50.0, 20.0, width, height)
 
     rows = [
-        [p["label"], f"{track[i].sst:+.2f}", f"{track[i].heat:+.2f}"]
+        [p["label"], f"{signed(track[i].sst, 2)}", f"{signed(track[i].heat, 2)}"]
         for i, p in enumerate(points)
     ][::-1][:36]
 

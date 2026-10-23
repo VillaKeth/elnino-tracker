@@ -28,7 +28,7 @@ from .alerts import CRITICAL, INFO, WARNING, WATCH, utc_time
 from .forecast import weights_text
 from .impacts import flavour_words
 from .svg import (Plot, _hit, _legend, boxes_clear, crosses, esc,
-                  label_box, nice_ticks, prose, table, tick_text)
+                  label_box, nice_ticks, prose, signed, table, tick_text, zero_unsigned)
 
 PHASE_MONTHS = 48
 # The forecast band is the mean's hue at this strength, and its legend key is
@@ -151,8 +151,8 @@ def chart_phase(state) -> str:
     for point, (x, y), sx_, hy_ in zip(track, points, xs, ys):
         plot.add(_hit(
             x, y, point.when.strftime("%b %Y"),
-            f"Nino-3.4 {point.sst:+.2f} °C ({sx_:+.2f}σ)  ·  "
-            f"WWV {point.heat:+.2f} ({hy_:+.2f}σ)",
+            f"Nino-3.4 {signed(point.sst, 2)} °C ({signed(sx_, 2)}σ)  ·  "
+            f"WWV {signed(point.heat, 2)} ({signed(hy_, 2)}σ)",
         ))
 
     plot.add(
@@ -174,8 +174,8 @@ def chart_phase(state) -> str:
         )
 
     rows = [
-        [t.when.strftime("%b %Y"), f"{t.sst:+.2f}", f"{x:+.2f}",
-         f"{t.heat:+.2f}", f"{y:+.2f}"]
+        [t.when.strftime("%b %Y"), f"{signed(t.sst, 2)}", f"{signed(x, 2)}",
+         f"{signed(t.heat, 2)}", f"{signed(y, 2)}"]
         for t, x, y in reversed(list(zip(track, xs, ys)))
     ]
     confidence = "" if sub.phase_confident else " (close to a boundary, so read it as indicative)"
@@ -244,7 +244,7 @@ def chart_heat(state) -> str:
             f'<circle cx="{end[0]:.1f}" cy="{end[1]:.1f}" r="4.5" fill="{colour}" '
             f'stroke="var(--surface)" stroke-width="2"/>'
             f'<text x="{end[0] + 8:.1f}" y="{end[1] + 4:.1f}" class="pointlabel" '
-            f'fill="var(--ink)">{esc(fmt.format(values[-1]))}</text>'
+            f'fill="var(--ink)">{esc(zero_unsigned(fmt.format(values[-1])))}</text>'
         )
         return pts
 
@@ -263,17 +263,17 @@ def chart_heat(state) -> str:
     for index, point in enumerate(track):
         plot.add(_hit(heat_pts[index][0], heat_pts[index][1],
                       point.when.strftime("%b %Y"),
-                      f"WWV {point.heat:+.2f} × 10¹⁴ m³"))
+                      f"WWV {signed(point.heat, 2)} × 10¹⁴ m³"))
         plot.add(_hit(sst_pts[index][0], sst_pts[index][1],
                       point.when.strftime("%b %Y"),
-                      f"Nino-3.4 {point.sst:+.2f} °C"))
+                      f"Nino-3.4 {signed(point.sst, 2)} °C"))
 
     lead = (
         f"Measured lead {sub.lead_months} months (r = {sub.lead_correlation:.2f})"
         if sub.lead_months else "Lead not resolvable from this record"
     )
     rows = [
-        [p.when.strftime("%b %Y"), f"{p.heat:+.2f}", f"{p.sst:+.2f}"]
+        [p.when.strftime("%b %Y"), f"{signed(p.heat, 2)}", f"{signed(p.sst, 2)}"]
         for p in reversed(track[-36:])
     ]
     return f"""
@@ -418,12 +418,12 @@ def chart_forecast(state) -> str:
         projection = projections[index]
         plot.add(_hit(
             x, y, projection.label,
-            f"{projection.mean:+.2f} °C  (80% band {projection.low:+.2f} to {projection.high:+.2f})",
-            "  ·  ".join(f"{k} {v:+.2f}" for k, v in sorted(projection.methods.items())),
+            f"{signed(projection.mean, 2)} °C  (80% band {signed(projection.low, 2)} to {signed(projection.high, 2)})",
+            "  ·  ".join(f"{k} {signed(v, 2)}" for k, v in sorted(projection.methods.items())),
         ))
     for index, value in enumerate(history):
         plot.add(_hit(hist_pts[index][0], hist_pts[index][1], value.label,
-                      f"{index_name} {value.value:+.2f} °C observed"))
+                      f"{index_name} {signed(value.value, 2)} °C observed"))
 
     peak = forecast.peak
     if peak:
@@ -431,7 +431,7 @@ def chart_forecast(state) -> str:
         px, py = mean_pts[offset + 1]
         plot.add(
             f'<text x="{px:.1f}" y="{py - 14:.1f}" text-anchor="middle" '
-            f'class="pointlabel">{peak.mean:+.2f} peak</text>'
+            f'class="pointlabel">{signed(peak.mean, 2)} peak</text>'
         )
 
     # x labels: observed seasons then projected ones.
@@ -450,15 +450,15 @@ def chart_forecast(state) -> str:
     )
 
     probability_rows = "".join(
-        f'<div class="prob"><span class="prob-label">P({index_name} peak ≥ {threshold:+.1f} °C)</span>'
+        f'<div class="prob"><span class="prob-label">P({index_name} peak ≥ {signed(threshold, 1)} °C)</span>'
         f'<span class="prob-track"><span class="prob-fill" style="width:{value * 100:.1f}%">'
         f'</span></span><span class="prob-val">{value * 100:.0f}%</span></div>'
         for threshold, value in sorted(forecast.peak_probability.items())
     )
     rows = [
-        [f"+{p.lead}", p.label, f"{p.mean:+.2f}", f"{p.low:+.2f}", f"{p.high:+.2f}",
+        [f"+{p.lead}", p.label, f"{signed(p.mean, 2)}", f"{signed(p.low, 2)}", f"{signed(p.high, 2)}",
          f"{p.spread:.2f}"]
-        + [f"{p.methods[m]:+.2f}" if m in p.methods else "—"
+        + [f"{signed(p.methods[m], 2)}" if m in p.methods else "—"
            for m in ("analog", "recharge", "persistence")]
         for p in projections
     ]
@@ -544,23 +544,23 @@ def chart_walker(state) -> str:
         align = "start" if indicator.score >= 0 else "end"
         plot.add(
             f'<text x="{anchor:.1f}" y="{y + row_h / 2 + 4:.1f}" text-anchor="{align}" '
-            f'class="barvalue">{indicator.score:+.2f}σ{esc(suffix)}</text>'
+            f'class="barvalue">{signed(indicator.score, 2)}σ{esc(suffix)}</text>'
         )
         plot.add(
             f'<rect class="hit" x="{plot.left:.1f}" y="{y:.1f}" '
             f'width="{plot.plot_w:.1f}" height="{row_h}" fill="transparent" tabindex="0" '
             f'data-label="{esc(indicator.name)} ({esc(indicator.label)})" '
-            f'data-value="{indicator.score:+.2f}σ  ·  raw {indicator.raw:+.2f}" '
+            f'data-value="{signed(indicator.score, 2)}σ  ·  raw {signed(indicator.raw, 2)}" '
             f'data-extra="{esc(indicator.meaning)}"></rect>'
         )
 
     rows = [
-        [i.name, i.label, f"{i.raw:+.2f}", f"{i.score:+.2f}",
+        [i.name, i.label, f"{signed(i.raw, 2)}", f"{signed(i.score, 2)}",
          "yes" if i.supports_el_nino else "no", "stale" if i.stale else "current"]
         for i in indicators
     ]
     dissent = (
-        ", ".join(f"{d.name} ({d.score:+.2f}σ)" for d in atmosphere.dissenters)
+        ", ".join(f"{d.name} ({signed(d.score, 2)}σ)" for d in atmosphere.dissenters)
         or "none"
     )
     coupled = "Coupled" if atmosphere.coupled else "Not yet coupled"
@@ -578,7 +578,7 @@ def chart_walker(state) -> str:
       'Diverging horizontal bars, one per atmospheric index, showing standard-score '
       'anomalies signed so positive is El Nino-like.')}</div>
   <div class="walkerfoot">
-    <span class="chip">{esc(coupled)} &middot; composite {atmosphere.walker_index:+.2f}&sigma;</span>
+    <span class="chip">{esc(coupled)} &middot; composite {signed(atmosphere.walker_index, 2)}&sigma;</span>
     <span class="chip chip-quiet">{atmosphere.agreement * 100:.0f}% agreement</span>
     <span class="phasenote">Dissenting: {esc(dissent)}</span>
   </div>
@@ -677,7 +677,7 @@ def chart_skill(state) -> str:
     # Every method the forecast weights, in the forecast table's order; a
     # method with too few forecasts at a lead to score has no score.
     lead_rows = [
-        [f"+{s.lead}", f"{s.rmse:.2f}", f"{s.acc:.2f}", f"{s.bias:+.2f}", str(s.count)]
+        [f"+{s.lead}", f"{s.rmse:.2f}", f"{s.acc:.2f}", f"{signed(s.bias, 2)}", str(s.count)]
         + [f"{s.by_method[m]:.2f}" if m in s.by_method else "\u2014"
            for m in ("analog", "recharge", "persistence")]
         + ["yes" if s.useful else "no"]
@@ -839,7 +839,7 @@ def impact_panel(state) -> str:
             if item.needs is None:
                 return "contested: rated possible at most, however strong the event"
             return (f"joins the outlook at a {assessment.index_name} peak of about "
-                    f"{item.needs:+.1f} &deg;C")
+                    f"{signed(item.needs, 1)} &deg;C")
         entries = "".join(
             f'<li>{esc(i.link.region)} &mdash; {esc(i.link.effect)} '
             f'<span class="tiny">({condition(i)})</span></li>'
@@ -850,7 +850,7 @@ def impact_panel(state) -> str:
 
     rows = [
         [i.link.area, i.link.region, i.link.effect, i.timing,
-         i.likelihood.strip(), i.link.confidence, f"{i.link.min_intensity:+.1f}",
+         i.likelihood.strip(), i.link.confidence, f"{signed(i.link.min_intensity, 1)}",
          i.link.flavour]
         for i in assessment.active
     ]
@@ -862,7 +862,7 @@ def impact_panel(state) -> str:
   <h2>Hazard outlook</h2>
   <div class="disclaimer">{notes}</div>
   <p class="caption">Shifted odds from historical composites for a projected
-    {esc(assessment.index_name)} peak of <strong>{assessment.peak_index:+.2f} &deg;C</strong>
+    {esc(assessment.index_name)} peak of <strong>{signed(assessment.peak_index, 2)} &deg;C</strong>
     with {article} {esc(structure)} structure.
     Not a forecast of any individual season, and not a substitute for your national
     meteorological service.</p>

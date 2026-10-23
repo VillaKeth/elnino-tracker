@@ -50,17 +50,20 @@ import re
 from dataclasses import replace
 from datetime import datetime
 
-from .cyclones import Fix, Storm, _tenths
+from .cyclones import Fix, Storm, _tenths, real_stamp
 from .outlook import Disturbance, FormationAlert, aor
 
 # The id's letter is the ocean: W west Pacific, A and B the Arabian Sea and
 # Bay of Bengal, S and P the south Indian Ocean and south Pacific.
 _BASIN_OF_LETTER = {"W": "WP", "A": "IO", "B": "IO", "S": "SH", "P": "SH",
                     "E": "EP", "C": "CP", "L": "AL"}
-# The warning files for the oceans NHC does not cover. JTWC also mirrors
-# NHC's storms (``ep1526.tcw``); NHC is the authority on those.
-_FILE = re.compile(r"\b((?:wp|io|sh)\d{4}\.tcw)\b", re.I)
-_NAMED_FILE = re.compile(r"\b(?:wp|io|sh)(\d\d)(\d\d)\.tcw\b", re.I)
+# The warning files the feed links. JTWC mirrors NHC's storms under their
+# own ids (``ep1526.tcw``), NHC being the authority on them, and keeps an
+# east or central Pacific storm's id when it crosses the date line into
+# JTWC's waters, as Genevieve (07C) did in 2014 and Dora (05E) in 2023.
+_FILE = re.compile(r"\b((?:wp|io|sh|ep|cp)\d{4}\.tcw)\b", re.I)
+_NAMED_FILE = re.compile(r"\b(?:wp|io|sh|ep|cp)(\d\d)(\d\d)\.tcw\b", re.I)
+_NHC_FILE = re.compile(r"^(ep|cp)(\d\d)(\d\d)\.tcw$", re.I)
 
 _HEADER = re.compile(r"^(?P<dtg>\d{10})\s+(?P<num>\d\d)(?P<letter>[A-Z])\s+"
                      r"(?P<name>.+?)\s+(?P<warning>\d{3})\b", re.M)
@@ -77,14 +80,23 @@ _PRESSURE = re.compile(r"MINIMUM\s+CENTRAL\s+PRESSURE\s+AT\s+(\d{4})\d\dZ\s+IS\s
 
 
 def warning_files(rss: str) -> list[str]:
-    """The ``.tcw`` warning files the RSS feed links, west Pacific, Indian
-    Ocean and southern hemisphere only, in the order it lists them."""
+    """The ``.tcw`` warning files the RSS feed links, in the order it lists them."""
     out: list[str] = []
     for match in _FILE.finditer(rss):
         name = match.group(1).lower()
         if name not in out:
             out.append(name)
     return out
+
+
+def nhc_id(filename: str) -> str | None:
+    """The NHC id of an east or central Pacific storm's file, ``ep0523.tcw``
+    as ``ep052023``; None for the oceans JTWC is the authority on."""
+    match = _NHC_FILE.match(filename)
+    if match is None:
+        return None
+    basin, number, year = match.groups()
+    return f"{basin.lower()}{number}20{year}"
 
 
 def _stage(wind: int | None, basin: str) -> str:
@@ -153,8 +165,11 @@ def parse_tcw(text: str, url: str = "") -> Storm | None:
         return None
     dtg = header.group("dtg")
     basin = _BASIN_OF_LETTER.get(header.group("letter"))
-    if basin is None:
+    if basin is None or not real_stamp(dtg):
         return None
+    # JTWC warns on an east or central Pacific storm once it has crossed
+    # into the west Pacific, where a hurricane is a typhoon.
+    waters = "WP" if basin in ("EP", "CP") else basin
     number = int(header.group("num"))
     named = _NAMED_FILE.search(url)
     year = 2000 + int(named.group(2)) if named else int(dtg[:4])
@@ -168,12 +183,12 @@ def parse_tcw(text: str, url: str = "") -> Storm | None:
     history: dict[str, Fix] = {}
     for match in _HISTORY.finditer(text):
         lat, lon = _tenths(match.group(3)), _tenths(match.group(4))
-        if lat is None or lon is None:
-            continue
         stamp = "20" + match.group(2)
+        if lat is None or lon is None or not real_stamp(stamp):
+            continue
         wind = int(match.group(5))
         history[stamp] = Fix(stamp=stamp, tau=0, lat=lat, lon=lon, wind=wind,
-                             pressure=None, stage=_stage(wind, basin), tech="JTWC")
+                             pressure=None, stage=_stage(wind, waters), tech="JTWC")
 
     forecast: list[Fix] = []
     for match in _T_LINE.finditer(text):
@@ -181,7 +196,7 @@ def parse_tcw(text: str, url: str = "") -> Storm | None:
         if lat is None or lon is None:
             continue
         tau, wind = int(match.group(1)), int(match.group(4))
-        stage = _stage(wind, basin)
+        stage = _stage(wind, waters)
         for hour in sorted(ends):
             if tau >= hour:
                 stage = ends[hour]

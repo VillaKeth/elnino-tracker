@@ -5,8 +5,8 @@ whose 850 hPa western-Pacific trade index is strongly westerly, and says
 itself that a true westerly wind burst lasts days and needs daily winds to
 resolve. This module resolves them, as Harrison and Vecchi (1997) defined
 them, from Remote Sensing Systems' CCMP version 2.1 near-real-time analysis
-(``sources.wind_daily``): 180 days of analyses 12 hours apart, on every ninth
-of CCMP's quarter-degree cells.
+(``sources.wind_daily``): 180 days of its analyses at 06Z and 18Z, 12 hours
+apart, on every ninth of CCMP's quarter-degree cells.
 
 The definition
 --------------
@@ -64,6 +64,13 @@ from .grids import Field, column, lat_name, lon_name, read_csv
 
 THRESHOLD = 2.0                 # m/s; a smoothed regional anomaly strictly above it counts
 STEP = timedelta(hours=12)      # between the analyses the filter and a run take
+# The hours of the analyses the events are read off. The feed gives every
+# six-hourly analysis, and these are kept by their time: a missing analysis is
+# then a gap in the series. Taken as every other analysis counted back from
+# the latest, the series turned between 06Z/18Z and 00Z/12Z with each new
+# analysis, and across a missing one turned the rest of it, by an 18-hour
+# step the filter cannot take.
+HOURS = (6, 18)
 MIN_SAMPLES = 6                 # analyses in a run: three days
 FILTER = (0.25, 0.5, 0.25)      # the three-point triangle
 OVERLAP = timedelta(days=3)     # between the centres of overlapping events
@@ -161,8 +168,14 @@ def climate(when: datetime) -> list[list[float | None]]:
 def read(text: str) -> list[tuple[datetime, list[list[float | None]]]]:
     """The feed's analyses in time order, each a grid on ``windclim``'s cells
     (``grid[lat][lon]``, None where the analysis has no value). One with no
-    value at all, listed before its values are in, is not read."""
-    names, rows = read_csv(text)
+    value at all, listed before its values are in, is not read. Only the
+    analyses at HOURS are read, and the other half of the feed's lines is
+    passed over before it is parsed."""
+    lines = text.splitlines(keepends=True)
+    if lines and lines[0].startswith("time,"):
+        hours = {f"{hour:02d}" for hour in HOURS}
+        lines = lines[:2] + [line for line in lines[2:] if line[11:13] in hours]
+    names, rows = read_csv("".join(lines))
     time_i, lat_i, lon_i, u_i = (column(names, name)
                                  for name in ("time", "latitude", "longitude", "uwnd"))
     lat_at = {round(lat, 3): i for i, lat in enumerate(windclim.LATS)}
@@ -171,6 +184,8 @@ def read(text: str) -> list[tuple[datetime, list[list[float | None]]]]:
     for row in rows:
         stamp, lat, lon = row[time_i], row[lat_i], row[lon_i]
         if not isinstance(stamp, str) or lat is None or lon is None:
+            continue
+        if not (stamp[11:13].isdigit() and int(stamp[11:13]) in HOURS):
             continue
         i, j = lat_at.get(round(lat, 3)), lon_at.get(round(lon % 360.0, 3))
         if i is None or j is None:
@@ -190,6 +205,8 @@ def read(text: str) -> list[tuple[datetime, list[list[float | None]]]]:
 def regional(grid: list[list[float | None]], region: Region) -> float | None:
     """A region's anomaly at an analysis: its cells' mean weighted by the
     cosine of latitude, or None short of three quarters of its cells."""
+    if grid is None:
+        return None
     cells = _cells(region)
     total = weights = 0.0
     count = 0
@@ -203,17 +220,38 @@ def regional(grid: list[list[float | None]], region: Region) -> float | None:
 
 
 def smooth(times: list[datetime], values: list[float | None]) -> list[float | None]:
-    """The triangle filter: none at either end, at a missing value, or where
-    either neighbour is missing or not 12 hours away."""
+    """The triangle filter: none at either end, or where either neighbour is
+    missing or not 12 hours away. One missing value between two present 12
+    hours either side is bridged from them, their mean, for the filter and
+    at its own analysis: a feed missing one analysis inside an event read as
+    two events, or one cut short. Two missing in a row are a gap."""
+    filled = list(values)
+    for k in range(1, len(values) - 1):
+        if (values[k] is None and values[k - 1] is not None and values[k + 1] is not None
+                and times[k] - times[k - 1] == STEP and times[k + 1] - times[k] == STEP):
+            filled[k] = (values[k - 1] + values[k + 1]) / 2
     out: list[float | None] = [None] * len(values)
     before, here, after = FILTER
     for k in range(1, len(values) - 1):
-        trio = values[k - 1:k + 2]
+        trio = filled[k - 1:k + 2]
         if any(value is None for value in trio):
             continue
         if times[k] - times[k - 1] != STEP or times[k + 1] - times[k] != STEP:
             continue
         out[k] = before * trio[0] + here * trio[1] + after * trio[2]
+    return out
+
+
+def _bridged(analyses: list[tuple[datetime, list[list[float | None]] | None]]
+             ) -> list[tuple[datetime, list[list[float | None]] | None]]:
+    """The analyses with a slot, its grid None, for one missing between two
+    24 hours apart, so that ``smooth`` can bridge it; two missing in a row
+    stay a gap."""
+    out: list[tuple[datetime, list[list[float | None]] | None]] = []
+    for k, (when, grid) in enumerate(analyses):
+        if k and when - analyses[k - 1][0] == 2 * STEP:
+            out.append((when - STEP, None))
+        out.append((when, grid))
     return out
 
 
@@ -289,6 +327,7 @@ class Winds:
     events: tuple[Event, ...]                      # by first analysis
     building: tuple[Building, ...]
     hovmoller: Field
+    bridged: tuple[datetime, ...] = ()  # analyses the feed lacks, bridged for the filter
 
     @property
     def first(self) -> date:
@@ -322,7 +361,9 @@ def _find(region: Region, times: list[datetime], anomalies: list[list[list[float
             if ongoing:
                 building.append(Building(region.key, times[a], samples, smoothed[b]))
             continue
-        centre = max(range(a, b + 1), key=lambda k: smoothed[k])
+        # Among the analyses the feed has: a bridged one has no grid.
+        centre = max((k for k in range(a, b + 1) if anomalies[k] is not None),
+                     key=lambda k: smoothed[k])
         grid = anomalies[centre]
         point_peak, point = max(
             ((grid[i][j], (windclim.LATS[i], windclim.LONS[j]))
@@ -392,11 +433,13 @@ def _band(grid: list[list[float | None]]) -> list[float | None]:
 
 def _hovmoller(times: list[datetime], anomalies: list[list[list[float | None]]]) -> Field:
     """A row a day of the 5S-5N anomaly by longitude: the mean of the day's
-    analyses with a value there, two 12 hours apart but one on the window's
-    first and last days when it ends at 00Z or 06Z; nothing on a day without."""
+    analyses with a value there, its 06Z and 18Z, but one on the window's
+    first day when it starts at 18Z and on its last when it ends at 06Z;
+    nothing on a day without."""
     by_day: dict[date, list[list[float | None]]] = {}
     for when, grid in zip(times, anomalies):
-        by_day.setdefault(when.date(), []).append(_band(grid))
+        if grid is not None:
+            by_day.setdefault(when.date(), []).append(_band(grid))
     days = _days(times)
     rows = []
     for day in days:
@@ -418,9 +461,13 @@ def analyse(text: str) -> Winds:
     analyses = read(text)
     if len(analyses) < 3:
         raise ValueError(f"wind feed: {len(analyses)} analyses, and the filter needs 3")
+    analyses = _bridged(analyses)
     times = [when for when, _grid in analyses]
-    anomalies = []
+    anomalies: list[list[list[float | None]] | None] = []
     for when, grid in analyses:
+        if grid is None:
+            anomalies.append(None)
+            continue
         base = climate(when)
         anomalies.append([[None if u is None or b is None else u - b
                            for u, b in zip(row, base_row)]
@@ -443,4 +490,5 @@ def analyse(text: str) -> Winds:
         times=tuple(times), smoothed=smoothed, daily=_daily(times, smoothed),
         events=overlaps(events), building=tuple(building),
         hovmoller=_hovmoller(times, anomalies),
+        bridged=tuple(when for when, grid in analyses if grid is None),
     )

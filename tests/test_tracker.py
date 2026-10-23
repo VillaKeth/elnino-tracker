@@ -7,6 +7,8 @@ changes shape these fail before a bad number reaches the dashboard.
 from __future__ import annotations
 
 import base64
+import ast
+import copy
 import dataclasses
 import http.client
 import json
@@ -39,7 +41,7 @@ from elnino import (  # noqa: E402
     outlook, panels, parsers, pipeline, relief, report, sitenav, sources, space3d, storage, stormdesk,
     storms,
     tcproducts,
-    stormfury, subsurface, svg,
+    stormfury, street, streetstorms, subsurface, svg, thennow,
     verification, worldmap,
 )
 from elnino.classify import (  # noqa: E402
@@ -674,6 +676,26 @@ class TestSubsurface(unittest.TestCase):
 
 
 class TestAtmosphere(unittest.TestCase):
+    def test_the_walker_composite_is_of_a_month_most_of_its_weight_reported(self):
+        # The SOI is posted days into a month, before the other feeds: one
+        # early September SOI of -0.2 alone moved the composite from 1.57 to
+        # 0.20, and "coupled" to False.
+        def feed(key, values):
+            history = [MonthValue(2026, month, value) for month, value in values]
+            return atmosphere.Indicator(key=key, name=key, latest=history[-1], raw=0.0,
+                                        score=history[-1].value, meaning="",
+                                        standardized_by_source=True, history=history)
+        full = {key: feed(key, [(7, 1.5), (8, 1.6)]) for key in atmosphere.WALKER_WEIGHTS}
+        early = {**full, "soi": feed("soi", [(7, 1.5), (8, 1.6), (9, -0.2)])}
+        series = atmosphere.walker_series(list(early.values()))
+        self.assertEqual((series[-1].month, round(series[-1].value, 2)), (8, 1.6))
+        # A month with most of the weight in is the composite's, the rest
+        # renormalised over what reported.
+        most = {key: feed(key, [(7, 1.5), (8, 1.6)] + ([(9, 1.0)] if key != "olr" else []))
+                for key in atmosphere.WALKER_WEIGHTS}
+        self.assertEqual(atmosphere.walker_series(list(most.values()))[-1],
+                         MonthValue(2026, 9, 1.0))
+
     def test_standardize_removes_the_annual_cycle(self):
         """A big annual cycle must not masquerade as an anomaly."""
         raw = [12.0 * math.sin(2 * math.pi * i / 12.0) + 0.01 * i for i in range(360)]
@@ -734,6 +756,36 @@ class TestAtmosphere(unittest.TestCase):
                                 qbo=self.qbo((8.52, 11.27), (15.25, 17.97), (1.24, 1.46)))
         lines = report._section_atmosphere(SimpleNamespace(atmosphere=at, spatial=None, series={}))
         self.assertIn("  QBO (30 hPa, Aug 2026): +11.3 m/s, westerly phase, +1.5 sigma.", lines)
+
+    @staticmethod
+    def mjo(day, **bands):
+        """One pentad of CPC's ten bands, each 0.4 but those given."""
+        names = ("20E", "70E", "80E", "100E", "120E", "140E", "160E", "120W", "40W", "10W")
+        return {name: [(day, bands.get("w" + name, bands.get("e" + name, 0.4)))] for name in names}
+
+    def test_an_mjo_reading_too_old_to_place_the_active_phase_says_so(self):
+        # CPC's pentad file is updated about monthly: on 20 Oct its newest
+        # pentad was 25 Sep, and the reading still said it helped the event.
+        m = atmosphere.read_mjo(self.mjo(date(2026, 9, 25), w120W=-2.05), today=date(2026, 10, 20))
+        self.assertEqual(m.age_days, 25)
+        self.assertFalse(m.constructive)
+        self.assertEqual(m.note, "CPC's newest pentad is 25 days old (25 Sep), too old to say "
+                                 "where the active phase is now.")
+        fresh = atmosphere.read_mjo(self.mjo(date(2026, 10, 15), w120W=-2.05), today=date(2026, 10, 20))
+        self.assertEqual(fresh.age_days, 5)
+        self.assertTrue(fresh.constructive)
+
+    def test_an_mjo_reaching_the_pacific_names_the_pacific_band_it_reaches(self):
+        # It said "Enhanced convection sits over the Pacific (40W)": the
+        # Pacific band passed the test, and the note named the strongest.
+        day, today = date(2026, 10, 15), date(2026, 10, 20)
+        over = atmosphere.read_mjo(self.mjo(day, e160E=-1.6, w120W=-0.7), today=today)
+        self.assertTrue(over.note.startswith("Enhanced convection sits over the Pacific (160E), "), over.note)
+        reach = atmosphere.read_mjo(self.mjo(day, w40W=-2.0, w120W=-0.8), today=today)
+        self.assertTrue(reach.constructive)
+        self.assertTrue(reach.note.startswith("Enhanced convection reaches the Pacific (120W), with "
+                                              "the active phase centred over 40W, "), reach.note)
+        self.assertNotIn("Pacific (40W)", reach.note)
 
     def test_westerly_bursts_are_found_in_the_recent_window_only(self):
         quiet = [0.0] * 200
@@ -1336,8 +1388,13 @@ class TestProtectiveProducts(unittest.TestCase):
 class TestJtwc(unittest.TestCase):
     """JTWC's warnings: the west Pacific, Indian Ocean and southern hemisphere."""
 
-    def test_the_rss_lists_only_jtwc_basins(self):
-        self.assertEqual(jtwc.warning_files(fixture("jtwc.rss")), ["wp2526.tcw"])
+    def test_the_rss_lists_every_warning_file(self):
+        # NHC's storms are mirrored under their own ids, and an east or
+        # central Pacific storm keeps its id when it crosses the date line.
+        self.assertEqual(jtwc.warning_files(fixture("jtwc.rss")),
+                         ["wp2526.tcw", "ep1726.tcw", "ep1626.tcw", "ep1526.tcw"])
+        self.assertEqual([jtwc.nhc_id(name) for name in ("ep0523.tcw", "CP0714.tcw", "wp2526.tcw")],
+                         ["ep052023", "cp072014", None])
 
     def test_an_advisory_s_period_wrapped_across_lines_is_read(self):
         # The Indian Ocean advisory breaks its period after the dash, as
@@ -2086,7 +2143,7 @@ class TestStormProductsWiring(unittest.TestCase):
                                    error=None if text else "HTTP Error 404: Not Found")
         return fetch
 
-    def state(self, fetcher=None, current=None, **feeds):
+    def state(self, fetcher=None, current=None, now=None, listed="", **feeds):
         texts = {
             "nhc_current": current or self.current(),
             "atcf_index": fixture("atcf_btk_listing.html"),
@@ -2097,13 +2154,57 @@ class TestStormProductsWiring(unittest.TestCase):
             "jtwc_abpw": fixture("jtwc_abpw_invests.txt"),
             **feeds,
         }
-        fetched = {key: sources.Fetched(sources.SOURCES_BY_KEY[key], text, "", False, "")
+        fetched = {key: sources.Fetched(sources.SOURCES_BY_KEY[key], text,
+                                        listed if key == "nhc_current" else "", False, "")
                    for key, text in texts.items()}
         return cyclones.build(fetched, fetcher=fetcher or self.fetcher(),
-                              today=date(2026, 9, 25))
+                              today=date(2026, 9, 25), now=now)
 
     def storm(self, state, key):
         return [s for s in state.storms if s.key == key][0]
+
+    def test_a_storm_that_crossed_the_date_line_is_followed_on_jtwc_s_warnings(self):
+        # JTWC keeps a storm's id across the date line, as with Genevieve (07C)
+        # in 2014 and Dora (05E) in 2023; only its west Pacific, Indian Ocean
+        # and southern files were read, so the storm vanished as it crossed.
+        crossed = fixture("jtwc_wp2526.tcw").replace("25W SURIGAE", "07C GENEVIEVE")
+        # JTWC's copy of NHC's last warning on a storm still east of the date
+        # line does not bring back a storm NHC has finished with.
+        finished = crossed.replace("07C GENEVIEVE", "08C HONE").replace(
+            "T000 214N 1282E", "T000 214N 1782W")
+        pages = {"cp0726.tcw": crossed, "cp0826.tcw": finished}
+        rss = fixture("jtwc.rss") + "".join(
+            f"<li><a href='https://www.metoc.navy.mil/jtwc/products/{name}'>JMV 3.0 Data</a></li>\n"
+            for name in pages)
+        # NHC tracked Genevieve to the date line: its season keeps it, once.
+        listing = fixture("atcf_btk_listing.html") + "\nbcp072026.dat\n"
+        base, asked = self.fetcher(), []
+
+        def fetch(source):
+            name = source.url.rsplit("/", 1)[-1]
+            asked.append(name)
+            if name in pages:
+                return sources.Fetched(source, pages[name], "", False, "")
+            if source.url == sources.deck_source("b", "cp072026").url:
+                return sources.Fetched(source, _deck([
+                    ("2026092418", 0, "190N", "1772W", 55, 994, "TS", "BEST", 34),
+                    ("2026092500", 0, "200N", "1795W", 50, 996, "TS", "BEST", 34)]), "", False, "")
+            return base(source)
+
+        state = self.state(fetcher=fetch, jtwc_rss=rss, atcf_index=listing)
+        live = {s.key: s for s in state.active}
+        genevieve = live["cp072026"]
+        self.assertEqual((genevieve.title, genevieve.centre, genevieve.basin_name),
+                         ("Genevieve", "JTWC", "West Pacific"))
+        # A typhoon in the west Pacific, where JMA is the regional centre.
+        self.assertEqual(genevieve.forecast[1].stage, "TY")
+        self.assertEqual([c["name"] for c in stormdesk.storm_entry(genevieve)["links"]["responsible"]],
+                         ["JMA (RSMC Tokyo)", "JTWC"])
+        self.assertNotIn("cp082026", live)
+        self.assertEqual([s.centre for s in state.storms if s.key == "cp072026"], ["CPHC"])
+        # NHC is the authority on its live storms: JTWC's copies are not fetched.
+        self.assertFalse({"ep1526.tcw", "ep1626.tcw", "ep1726.tcw"} & set(asked), asked)
+        self.assertEqual([note for note in state.notes if note.startswith("JTWC")], [])
 
     def test_every_product_issued_for_a_storm_is_read(self):
         nolo = self.storm(self.state(), "ep152026")
@@ -2261,6 +2362,65 @@ class TestStormProductsWiring(unittest.TestCase):
         self.assertTrue(state.invests[0].invest)
         self.assertEqual(state.invests[0].name, "Invest 99E")
         self.assertNotIn(state.invests[0], state.active)
+
+    def test_a_live_storm_s_decks_from_copies_say_so_and_an_old_forecast_is_left_out(self):
+        # The decks served from their copies as if live, and said nothing: one
+        # 45 s silence from NHC's ftp server, and a current cone sat over an
+        # old track and an old forecast.
+        base = self.fetcher()
+        best, official = (sources.deck_source(deck, "ep152026").url for deck in "bf")
+        copied = {best: "2026-09-25T15:12:00+00:00", official: "2026-09-25T08:30:00+00:00"}
+        checked = {}
+
+        def fetch(source):
+            got = base(source)
+            if source.url not in copied:
+                return got
+            return dataclasses.replace(got, fetched_at=copied[source.url], from_cache=True,
+                                       checked_at=checked.get(source.url, ""),
+                                       warnings=["live fetch failed (no route to ftp.nhc.noaa.gov)"])
+        nolo = self.storm(self.state(fetch, now="2026-09-25T15:30:00+00:00"), "ep152026")
+        self.assertIn("Best track from its copy of 15:12Z 25 Sep, 18 min old: "
+                      "live fetch failed (no route to ftp.nhc.noaa.gov).", nolo.notes)
+        self.assertEqual(len(nolo.track), 2)
+        self.assertEqual(nolo.forecast, ())
+        self.assertIn("no official forecast deck (its copy of 08:30Z 25 Sep is 7 h older "
+                      "than the active-storm index, an advisory or more behind the cone "
+                      "and warnings it links)", nolo.notes)
+        # Replayed, the index is a copy of the same hour, and the forecast that
+        # went with it is drawn.
+        replay = self.state(fetch, now="2026-09-25T15:30:00+00:00",
+                            listed="2026-09-25T08:31:00+00:00")
+        self.assertTrue(self.storm(replay, "ep152026").forecast)
+        # A forecast copied within the advisory's six hours serves, and says so.
+        copied[official] = "2026-09-25T13:30:00+00:00"
+        nolo = self.storm(self.state(fetch, now="2026-09-25T15:30:00+00:00"), "ep152026")
+        self.assertTrue(nolo.forecast)
+        self.assertIn("Official forecast from its copy of 13:30Z 25 Sep, 2 h old: "
+                      "live fetch failed (no route to ftp.nhc.noaa.gov).", nolo.notes)
+        # A copy whose record has no time is no copy to draw a forecast from.
+        copied[official] = "unknown"
+        nolo = self.storm(self.state(fetch, now="2026-09-25T15:30:00+00:00"), "ep152026")
+        self.assertEqual(nolo.forecast, ())
+        self.assertIn("no official forecast deck (its copy is of unknown age)", nolo.notes)
+        # A copy downloaded 7 hours before the index but told unchanged by
+        # its server 2 hours before it is the deck as of then: it serves.
+        copied[official] = "2026-09-25T08:30:00+00:00"
+        checked[official] = "2026-09-25T13:30:00+00:00"
+        nolo = self.storm(self.state(fetch, now="2026-09-25T15:30:00+00:00"), "ep152026")
+        self.assertTrue(nolo.forecast)
+        self.assertIn("Official forecast from its copy of 08:30Z 25 Sep, current at 13:30Z 25 Sep, "
+                      "2 h old: live fetch failed (no route to ftp.nhc.noaa.gov).", nolo.notes)
+
+    def test_an_invest_is_aged_against_the_run_s_clock(self):
+        # With no storm live there was no advisory to age it against, and it
+        # was aged against 00Z of the run's day: a deck NHC stopped 32 hours
+        # before was still listed, and would have been until the day was out.
+        quiet = json.dumps({"activeStorms": []})
+        late = self.state(current=quiet, now="2026-09-26T20:00:00+00:00")
+        self.assertEqual(late.invests, ())
+        fresh = self.state(current=quiet, now="2026-09-25T20:00:00+00:00")
+        self.assertEqual([s.key for s in fresh.invests], ["ep992026"])
 
     def upgraded(self):
         """The fixtures' state with Invest 99E's deck ending on a numbered storm."""
@@ -3791,8 +3951,9 @@ class TestAlertTimeRuns(unittest.TestCase):
         return _node_json(self, r"""
 var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 Date.now = function () { return Date.parse("2026-09-25T15:00:00Z"); };
-var dirtied = 0, lapsedNow = "";
+var dirtied = 0, lapsedNow = "", scrubRead = {};
 function dirty() { dirtied++; }
+function scrubText() { return "Now"; }
 """ + functions + body)
 
     def test_an_alert_is_worded_until_its_time_and_as_run_out_after(self):
@@ -6053,6 +6214,57 @@ console.log(JSON.stringify(out));
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
+class TestScrubReadRuns(unittest.TestCase):
+    """The time the storms are drawn for, as the line under the map gives it,
+    under node at 13:35Z on 20 October. It said "Now: 20 Oct 12:40 UTC": the
+    newest image's time, called now, 55 minutes behind the clock, and "Now"
+    too of each older frame of a loop."""
+
+    def read(self, body: str):
+        js = stormdesk.script()
+        functions = "\n".join(_js_function(js, n) for n in ("pad2", "utc", "span", "ago", "when",
+                                                              "scrubText"))
+        return _node_json(self, r"""
+var HOUR = 3600000;
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+Date.now = function () { return Date.parse("2026-10-20T13:35:00Z"); };
+var S = {scrub: 0, selected: "s1", loop: false, frame: 0};
+var BYID = {s1: {id: "s1"}}, DRAWN = {t: Date.parse("2026-10-20T12:40:00Z"), image: true};
+function base() { return DRAWN; }
+function centreAt() { return true; }
+""" + functions + "\n" + body)
+
+    def test_the_newest_image_is_said_to_be_an_image_and_how_old_it_is(self):
+        self.assertEqual(self.read("console.log(JSON.stringify(scrubText()));"),
+                         "Latest image 20 Oct 12:40 UTC (55 min ago)")
+
+    def test_a_frame_of_the_loop_is_said_to_be_a_frame(self):
+        got = self.read(r"""
+S.loop = true; S.frame = 3; DRAWN.t = Date.parse("2026-10-20T11:00:00Z");
+var older = scrubText();
+S.frame = 0; DRAWN.t = Date.parse("2026-10-20T12:40:00Z");
+console.log(JSON.stringify([older, scrubText()]));
+""")
+        self.assertEqual(got, ["Frame 20 Oct 11:00 UTC", "Frame 20 Oct 12:40 UTC"])
+
+    def test_with_no_image_under_the_storm_the_clock_is_now(self):
+        got = self.read(r"""
+DRAWN = {t: Date.now(), image: false};
+console.log(JSON.stringify(scrubText()));
+""")
+        self.assertEqual(got, "Now: 20 Oct 13:35 UTC")
+
+    def test_an_hour_on_from_the_image_counts_from_the_image(self):
+        self.assertEqual(self.read("S.scrub = 6; console.log(JSON.stringify(scrubText()));"),
+                         "+6 h: 20 Oct 18:40 UTC")
+
+    def test_the_line_keeps_up_with_the_clock(self):
+        # How old the image is grows while the page is open; the page's
+        # minute timer rewrites the line, as it does every other age.
+        self.assertIn("scrubRead.textContent = scrubText();", _js_function(stormdesk.script(), "ages"))
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
 class TestHashRuns(unittest.TestCase):
     """#at= and #view=, as the page reads them, run under node."""
 
@@ -8187,6 +8399,28 @@ class TestGridReading(unittest.TestCase):
         self.assertEqual(grid.coverage(), 0.0)
         self.assertEqual(grid.span(), (-1.0, 1.0))
 
+    def test_every_date_the_run_reads_is_utc_s(self):
+        # Four places took the machine's own date: a run on a PC behind UTC
+        # read yesterday's for the hours after 00Z, and the 3-D thermocline's
+        # window was fixed when the module was imported, never moving in --watch.
+        local = re.compile(r"\bdate\.today\(\)|\bdatetime\.(?:now|today|utcnow)\(\)")
+        package = Path(grids.__file__).parent
+        found = [f"{path.name}:{n}" for path in sorted(package.glob("*.py"))
+                 for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+                 if local.search(line)]
+        self.assertEqual(found, [])
+        from urllib.parse import unquote
+        url = unquote(sources.SOURCES_BY_KEY["tao_mesh"].url)
+        self.assertTrue(url.endswith("&time>=now-60days"), url)
+
+    def test_an_index_is_aged_by_the_run_s_clock(self):
+        a = assess(*_fixture_inputs())          # RONI JJA 2026, centred 1 July
+
+        def stale(now):
+            return "index_stale" in {x.code for x in alerts.evaluate(a, now=now)}
+        self.assertFalse(stale("2026-10-13T23:00:00+00:00"))   # 104 days
+        self.assertTrue(stale("2026-10-15T00:00:00+00:00"))    # 106 days
+
     def test_age_days_reads_both_stamp_shapes(self):
         self.assertEqual(grids.age_days("2026-09-01", date(2026, 9, 17)), 16)
         self.assertEqual(grids.age_days("2026-08", date(2026, 9, 17)), 47)
@@ -8265,26 +8499,88 @@ class TestMooringSection(unittest.TestCase):
         self.assertEqual(grid.y_labels[-1], "2026-08")
         self.assertEqual(grid.coverage(), 1.0)
 
+    def test_the_isotherm_hovmoller_reads_the_equator_alone(self):
+        # The monthly table is the whole array's, for the 3-D surface.
+        whole = ISO_CSV + "".join(f"2026-0{m}-15T00:00:00Z,5.0,165.0,20.0\n" for m in (5, 6, 7, 8))
+        self.assertEqual(grids.iso_hovmoller(whole, months=4).values,
+                         grids.iso_hovmoller(ISO_CSV, months=4).values)
+
+    def test_each_mooring_s_thermocline_anomaly_is_against_its_own_climatology(self):
+        # The climatology was the equator's at each longitude: a mooring at
+        # 8N at its normal 75 m read -75 m against the equator's 150.
+        head = "time,latitude,longitude,ISO_6\nUTC,degrees_north,degrees_east,m\n"
+        daily = head + "2026-10-10T12:00:00Z,0.0,220.0,120.0\n2026-10-10T12:00:00Z,8.0,220.0,75.0\n"
+        years = range(2010, 2010 + grids.MIN_CLIM_YEARS)
+        monthly = head + "".join(f"{y}-10-15T12:00:00Z,0.0,220.0,150.0\n"
+                                 f"{y}-10-15T12:00:00Z,8.0,220.0,75.0\n" for y in years)
+        def anomalies(clim):
+            return {(n.lat, n.anomaly) for n in grids.thermocline_mesh(daily, clim).nodes}
+        self.assertEqual(anomalies(monthly), {(0.0, -30.0), (8.0, 0.0)})
+        # The equator's table alone, as it was asked before, gives a mooring
+        # off it no anomaly, with a latitude column or without one.
+        equator = "".join(line for line in monthly.splitlines(True) if ",8.0," not in line)
+        bare = "time,longitude,ISO_6\nUTC,degrees_east,m\n" + "".join(
+            f"{y}-10-15T12:00:00Z,220.0,150.0\n" for y in years)
+        for clim in (equator, bare):
+            self.assertEqual(anomalies(clim), {(0.0, -30.0), (8.0, None)})
+
+    def test_the_thermocline_surface_is_each_mooring_s_last_fortnight(self):
+        # It said "the last fortnight" and meaned every row asked for, from
+        # the first of last month: 30 to 61 days.
+        head = "time,latitude,longitude,ISO_6\nUTC,degrees_north,degrees_east,m\n"
+        days = [date.fromordinal(date(2026, 9, 1).toordinal() + i) for i in range(40)]
+        daily = head + "".join(f"{d}T12:00:00Z,0.0,220.0,{100.0 if i < 26 else 150.0}\n"
+                               for i, d in enumerate(days))
+        # A mooring silent since 20 Sep is not on a surface of the fortnight to 10 Oct.
+        mesh = grids.thermocline_mesh(daily + "2026-09-20T12:00:00Z,8.0,220.0,75.0\n")
+        self.assertEqual([(n.lat, n.lon, n.height) for n in mesh.nodes], [(0.0, 220.0, 150.0)])
+        self.assertEqual(mesh.as_of, "2026-10-10")
+        # The surface is the whole array's: moorings off the equator alone make one.
+        off = grids.thermocline_mesh(head + "2026-10-10T12:00:00Z,8.0,220.0,75.0\n")
+        self.assertEqual([(n.lat, n.height) for n in off.nodes], [(8.0, 75.0)])
+
+    def test_the_monthly_isotherm_is_asked_of_the_whole_array(self):
+        url = sources.SOURCES_BY_KEY["tao_isotherm"].url
+        self.assertTrue(url.endswith("/pmelTaoMonIso.csv?time,latitude,longitude,ISO_6"), url)
+
     def test_tilt_averages_both_ends_and_shows_its_working(self):
         """Three panels and the report quote this, so it lives in one place."""
-        drop, west, east = grids.tilt([160.0, 164.0, 140.0, 130.0, 110.0])
-        self.assertAlmostEqual(west, 162.0)
-        self.assertAlmostEqual(east, 120.0)
-        self.assertAlmostEqual(drop, 42.0)
+        measured = grids.tilt({165.0: 160.0, 180.0: 164.0, 220.0: 140.0,
+                               250.0: 130.0, 265.0: 110.0})
+        self.assertAlmostEqual(measured.west, 162.0)
+        self.assertAlmostEqual(measured.east, 120.0)
+        self.assertAlmostEqual(measured.drop, 42.0)
         # The quoted endpoints have to subtract to the quoted tilt, or the
         # sentence built from them contradicts itself in front of the reader.
-        self.assertAlmostEqual(west - east, drop)
+        self.assertAlmostEqual(measured.west - measured.east, measured.drop)
+        self.assertEqual((measured.where("west"), measured.where("east")),
+                         ("165E and 180", "110W and 95W"))
+
+    def test_tilt_is_between_fixed_ends_of_the_basin(self):
+        # It averaged whichever two moorings reported first and last: on the
+        # 29 September cache 41.5 m with all eight, 23.6 m with 95W silent,
+        # its east end moved to 125W and 110W.
+        lons = (165.0, 180.0, 190.0, 205.0, 220.0, 235.0, 250.0, 265.0)
+        depths = dict(zip(lons, (160.0, 156.0, 150.0, 140.0, 130.0, 110.0, 100.0, 90.0)))
+        whole = grids.tilt(depths)
+        self.assertEqual((whole.west, whole.east, whole.drop), (158.0, 95.0, 63.0))
+        silent = grids.tilt({**depths, 265.0: None})
+        self.assertEqual((silent.east, silent.drop), (100.0, 58.0))
+        self.assertEqual(silent.where("east"), "110W, with 95W silent")
+        # A daily array's 147E and 156E are west of the west end, not in it.
+        self.assertEqual(grids.tilt({147.0: 200.0, 156.0: 190.0, **depths}), whole)
 
     def test_tilt_skips_moorings_that_never_crossed(self):
         self.assertEqual(
-            grids.tilt([160.0, None, 164.0, 140.0, None, 130.0, 110.0]),
-            grids.tilt([160.0, 164.0, 140.0, 130.0, 110.0]),
+            grids.tilt({165.0: 160.0, 170.0: None, 180.0: 164.0, 220.0: 140.0,
+                        235.0: None, 250.0: 130.0, 265.0: 110.0}),
+            grids.tilt({165.0: 160.0, 180.0: 164.0, 220.0: 140.0, 250.0: 130.0, 265.0: 110.0}),
         )
 
-    def test_tilt_declines_rather_than_averaging_one_end_with_itself(self):
-        self.assertIsNone(grids.tilt([160.0, 120.0]))
-        self.assertIsNone(grids.tilt([160.0, None, None, 120.0]))
-        self.assertIsNotNone(grids.tilt([160.0, 164.0, 130.0, 110.0]))
+    def test_tilt_declines_without_a_mooring_at_either_end(self):
+        self.assertIsNone(grids.tilt({165.0: 160.0, 220.0: 120.0}))
+        self.assertIsNone(grids.tilt({180.0: None, 220.0: 140.0, 250.0: 120.0}))
+        self.assertIsNotNone(grids.tilt({180.0: 164.0, 250.0: 110.0}))
 
     def test_interp_refuses_to_extrapolate(self):
         points = [(10.0, 1.0), (20.0, 2.0)]
@@ -8486,7 +8782,7 @@ class TestFieldRendering(unittest.TestCase):
         ticks = re.findall(r'<span class="ramptick" style="left:([\d.]+)%'
                            r'[^"]*">([^<]*)</span>', bar)
         self.assertEqual([label for _, label in ticks],
-                         ["+0.0", "+2.0", "+4.0", "+6.0", "+8.0", "+9.0"])
+                         ["0.0", "+2.0", "+4.0", "+6.0", "+8.0", "+9.0"])
         for (left, label) in ticks:
             self.assertAlmostEqual(float(left), float(label) / 9.0 * 100.0,
                                    places=1)
@@ -8570,8 +8866,9 @@ def _hover_blocks(plot, grid, fmt, row_label=None, col_label=None):
             if not seen:
                 empty.append(centre)
                 continue
-            low, high = min(seen), max(seen)
-            span = fmt.format(low) if low == high else f"{fmt.format(low)} to {fmt.format(high)}"
+            # As written: zero unsigned, and ends that read the same one value.
+            low, high = (svg.zero_unsigned(fmt.format(v)) for v in (min(seen), max(seen)))
+            span = low if low == high else f"{low} to {high}"
             where = []
             if row_label:
                 where.append(span_label(row_label(grid.y[row], row),
@@ -8650,6 +8947,90 @@ class TestHoverGrid(unittest.TestCase):
         plot.domain(0, 3, 0, 3)
         fields.draw_cells(plot, grid, self.RAMP)
         self.assertNotIn('class="hit', "".join(plot.parts))
+
+
+class TestEmptyParses(unittest.TestCase):
+    """A feed whose text gives nothing is a problem, not a feed with nothing:
+    SOI with a year indented one space gave no rows, RONI with a column added
+    none, and the run published as though the feeds had nothing, RONI's
+    absence moving the class to ONI's."""
+
+    TEXT = "a layout the parser has not met\n1950 1 2 3\n"
+
+    @staticmethod
+    def fetched(key, text):
+        return {key: sources.Fetched(sources.SOURCES_BY_KEY[key], text, "", False, "")}
+
+    def test_text_that_gives_nothing_degrades_the_run_and_says_so(self):
+        # A list of rows, a table of tables (SOI's, the monthly boxes'), and
+        # the discussion's fields: each with nothing in it.
+        for key in ("roni", "soi", "monthly_sst", "discussion", "mjo"):
+            with self.subTest(key):
+                _series, warnings = pipeline.parse_all(self.fetched(key, self.TEXT))
+                self.assertEqual(warnings, [f"{key}: its 43 characters gave nothing: the feed's "
+                                            "layout may have changed"])
+
+    def test_a_feed_that_gives_something_or_has_no_text_says_nothing(self):
+        _series, warnings = pipeline.parse_all(self.fetched("roni", "   \n"))
+        self.assertEqual(warnings, [])
+        _series, warnings = pipeline.parse_all(self.fetched("oni", fixture("oni.txt")))
+        self.assertEqual(warnings, [])
+
+
+class TestSignedNumbers(unittest.TestCase):
+    """A value is signed as it is written: one that rounds to zero is "0.0",
+    not "−0.0 °C" as the map, the atlas and the globe wrote -0.04."""
+
+    CASES = [(-0.04, 1), (0.04, 1), (-0.004, 2), (0, 2), (1.25, 2), (-1.25, 2), (-0.6, 0), (0.4, 0)]
+    WRITTEN = ["0.0", "0.0", "0.00", "0.00", "+1.25", "−1.25", "−1", "0"]
+
+    @unittest.skipUnless(shutil.which("node"), "node is not installed")
+    def test_the_pages_sign_a_value_as_it_is_rounded(self):
+        for js, name in ((worldmap._JS, "signedText"), (atlasview._JS, "signed"),
+                         (globe.GLOBE_JS, "signed")):
+            with self.subTest(name=name, page=js[:40]):
+                function = _js_function(js, name)
+                self.assertTrue(function)
+                got = _node_json(self, function + "\nconsole.log(JSON.stringify(%s.map(function (c) "
+                                 "{ return %s(c[0], c[1]); })));" % (json.dumps(self.CASES), name))
+                self.assertEqual(got, self.WRITTEN)
+
+    def test_a_value_the_python_writes_is_signed_as_it_is_rounded(self):
+        # f"{value:+.2f}" wrote -0.004 as "-0.00" and 0.004 as "+0.00".
+        self.assertEqual([svg.signed(v, 2) for v in (-0.004, 0.004, 0.0, -0.0, -0.006, 1.25)],
+                         ["0.00", "0.00", "0.00", "0.00", "-0.01", "+1.25"])
+        self.assertEqual((svg.signed(-1.5, 0), svg.signed(0.4, 0), svg.signed(-0.04, 1)), ("-2", "0", "0.0"))
+        self.assertEqual([svg.zero_unsigned(t) for t in ("-0.0 °C", "+0.00", "-0.03", "+0σ", "0.0", "")],
+                         ["0.0 °C", "0.00", "-0.03", "0σ", "0.0", ""])
+        # An axis label was unsigned at zero alone: -0.04 read "-0.0".
+        self.assertEqual((svg.tick_text(-0.04), svg.tick_text(0.0), svg.tick_text(-0.06)), ("0.0", "0.0", "-0.1"))
+
+    def test_no_page_or_report_signs_a_number_that_is_zero_as_written(self):
+        # Every signed format the Python writes goes through svg.signed, or
+        # through svg.zero_unsigned for a format string handed on: any
+        # f-string field whose spec begins with "+", one with a nested
+        # precision ("{v:+.{digits}f}", the daily charts) or an integer
+        # ("{n:+d}", seasons to a peak, knots off) as much as "{v:+.2f}",
+        # which a scan of the text for the last read past.
+        for path in sorted((ROOT / "elnino").glob("*.py")):
+            if path.name in ("relief.py", "atlasdata.py", "coastline.py"):
+                continue
+            with self.subTest(path.name):
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+                helper = {id(node) for fn in ast.walk(tree)
+                          if isinstance(fn, ast.FunctionDef) and path.name == "svg.py" and fn.name == "signed"
+                          for node in ast.walk(fn)}
+                found = sorted(
+                    node.lineno for node in ast.walk(tree)
+                    if isinstance(node, ast.FormattedValue) and id(node) not in helper
+                    and node.format_spec is not None and node.format_spec.values
+                    and isinstance(node.format_spec.values[0], ast.Constant)
+                    and str(node.format_spec.values[0].value).startswith("+"))
+                self.assertEqual(found, [], f"{path.name} lines {found}")
+
+    def test_the_map_s_legend_signs_a_value_as_it_is_rounded(self):
+        self.assertEqual([worldmap._signed(v) for v in (-0.04, 0.04, 0.0, 1.26, -1.26)],
+                         ["0.0", "0.0", "0.0", "+1.3", "−1.3"])
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
@@ -9540,7 +9921,8 @@ until(function () { return svg.innerHTML !== ""; }, function () {
         dlat, dlon = grid.y[1] - grid.y[0], grid.x[1] - grid.x[0]
         for (lon, lat), text in zip(((-150.0, 12.0), (-126.0, 12.0), (-126.0, 0.0)), got):
             with self.subTest(lon=lon, lat=lat):
-                sign, size = re.search(r"Sea surface anomaly here: <strong>([+−])(\d+\.\d) °C", text).groups()
+                # A value that rounds to zero is unsigned.
+                sign, size = re.search(r"Sea surface anomaly here: <strong>([+−]?)(\d+\.\d) °C", text).groups()
                 quoted = float(size) * (-1.0 if sign == "−" else 1.0)
                 # Rounded half up, as the script's Math.round rounds.
                 row = math.floor((lat - grid.y[0]) / dlat + 0.5)
@@ -10377,6 +10759,24 @@ class TestCycloneTiming(unittest.TestCase):
         self.assertFalse(storm.intensifying_rapidly)
         self.assertEqual(storm.peak_intensification, (85.0, "2026092212"))
 
+    def test_a_day_ending_on_an_off_synoptic_analysis_is_read_over_24_hours(self):
+        # A 50 kt rise ending on a 21Z landfall fix read 0.0: no analysis sat
+        # exactly 24 hours before it, and the intensification alert was lost.
+        def fix(stamp, wind):
+            return cyclones.Fix(stamp=stamp, tau=0, lat=25.0, lon=-90.0, wind=wind,
+                                pressure=None, stage="HU", tech="BEST")
+        day = [fix("2026092418", 60), fix("2026092500", 70), fix("2026092506", 80),
+               fix("2026092512", 95), fix("2026092518", 110), fix("2026092521", 115)]
+        self.assertEqual(cyclones.recent_change(day), (50.0, "2026092521"))
+        storm = cyclones.Storm(basin="AL", number=9, year=2026, name="Ines", track=tuple(day),
+                               advisory={"advisory": "12"})
+        self.assertIn("tc_ri_al092026", [a.code for a in alerts.cyclone_rules(
+            SimpleNamespace(active=(storm,), basins={}))])
+        # Read between the analyses either side of that time, six hours apart
+        # at most: across a gap in the track there is no reading.
+        gap = [day[0], day[2], day[-1]]
+        self.assertEqual(cyclones.recent_change(gap), (0.0, ""))
+
     def test_forecast_leads_count_from_the_latest_analysis(self):
         storm = _polo()
         # Issued at 06Z; the 06Z and 09Z points are behind the 12Z analysis.
@@ -10487,6 +10887,21 @@ class TestCycloneCounts(unittest.TestCase):
         self.assertEqual(season["hurricanes"], 1)
         self.assertEqual(season["major"], 1)
 
+    def test_the_counts_read_a_fix_as_the_tracks_do(self):
+        # The Atlantic file's line for 29 September 1969 06 UTC has no comma
+        # between latitude and longitude. Split at commas, a hurricane's line
+        # like it read its 954 mb as 954 kt: 91 units of ACE and a major.
+        hurdat = "\n".join([
+            "AL012001,            ONE,      2,",
+            "20010801, 0000,  , HU, 20.0N,  60.0W,  90,  960,",
+            "20010801, 0600,  , HU, 20.5N    61.0W,  90,  954,",
+        ])
+        season = cyclones.hurdat_seasons(hurdat)[2001]
+        self.assertAlmostEqual(season["ace"], 2 * 90 ** 2 * 1e-4)
+        self.assertEqual((season["hurricanes"], season["major"]), (1, 0))
+        track = cyclones.hurdat_tracks(hurdat, first=2001)[0]
+        self.assertEqual([f.wind for f in track.fixes], [90, 90])
+
     def test_live_counts_need_a_tropical_stage(self):
         gale = cyclones.Storm(basin="AL", number=2, year=2026, track=(
             _fix(stamp="2026090100", wind=30, stage="TD"),
@@ -10537,6 +10952,25 @@ class TestAtcfParsing(unittest.TestCase):
         self.assertEqual(fixes[0].lat, 15.2)
         self.assertEqual(fixes[0].lon, -101.5)
         self.assertEqual(fixes[0].wind, 130)
+
+    def test_a_row_whose_time_is_no_time_is_dropped(self):
+        # Any ten digits passed: 31 September in one row of a deck raised in
+        # the season's intensity swings, outside any guard, and nothing was
+        # published until the deck changed.
+        text = _deck([
+            ("2026093012", 0, "152N", "1015W", 70, 985, "HU", "BEST", " 34"),
+            ("2026093112", 0, "160N", "1025W", 80, 975, "HU", "BEST", " 34"),
+            ("2026100112", 0, "170N", "1035W", 90, 965, "HU", "BEST", " 34"),
+        ])
+        fixes = cyclones.parse_atcf(text)
+        self.assertEqual([f.stamp for f in fixes], ["2026093012", "2026100112"])
+        storm = cyclones.Storm(basin="EP", number=18, year=2026, track=tuple(fixes))
+        self.assertEqual(stormfury.natural_swings([storm])["count"], 1)
+        # JTWC's history lines and its warning time are read the same way.
+        tcw = fixture("jtwc_wp2526.tcw")
+        bad = tcw.replace("2526092106 115N1433E", "2526093106 115N1433E")
+        self.assertEqual(len(jtwc.parse_tcw(bad).track), len(jtwc.parse_tcw(tcw).track) - 1)
+        self.assertIsNone(jtwc.parse_tcw(tcw.replace("2026092512 25W", "2026093212 25W")))
 
     def test_a_tech_filter_drops_rows_at_the_line(self):
         text = _deck([
@@ -11261,6 +11695,24 @@ AL012019,          NEITHER,     2,
         self.assertEqual(cyclones.season_ids(listing, 2026),
                          ["al052026", "ep152026", "ep162026", "ep172026"])
 
+    def test_the_season_is_the_newest_year_with_a_storm(self):
+        # It took the year from the latest advisory: one storm still going on
+        # 2 January dropped every finished storm of the season it belongs to.
+        listing = "bal052026.dat bep172026.dat bep902027.dat"
+        going = {"al302026": {"last_update": "2027-01-02T06:00:00+00:00"}}
+        self.assertEqual(cyclones.season_year(listing, going, date(2027, 1, 2)), 2026)
+        # Last season stands until the new year's first storm; an invest is none.
+        self.assertEqual(cyclones.season_year(listing, {}, date(2027, 3, 1)), 2026)
+        self.assertEqual(cyclones.season_year(listing + " bcp012027.dat", {}, date(2027, 3, 1)), 2027)
+        self.assertEqual(cyclones.season_year("", {}, date(2027, 3, 1)), 2027)
+
+    def test_a_season_past_is_counted_whole(self):
+        def built(listing, today):
+            state = cyclones.build({"atcf_index": SimpleNamespace(ok=True, text=listing)}, today=today)
+            return state.year, state.through
+        self.assertEqual(built("bal052026.dat", date(2027, 1, 15)), (2026, "31 December"))
+        self.assertEqual(built("bal012027.dat", date(2027, 6, 5)), (2027, "5 June"))
+
 
 class TestElNinoVerdict(unittest.TestCase):
     def season(self, basin, ratio):
@@ -11293,6 +11745,16 @@ class TestElNinoVerdict(unittest.TestCase):
         scored = cyclones.verdict(self.season("AL", 1.9), 1.8, flavour)
         self.assertEqual(scored["observed"], "above normal")
         self.assertIs(scored["agrees"], False)
+
+    def test_a_season_barely_begun_settles_nothing(self):
+        # On 1 January an empty season against a normal of a few hundredths
+        # read "below normal": the Atlantic "Confirmed", the Pacific "Contradicted".
+        normal = {"ace": 120.0, "ace_todate": 0.05, "named": 14.0, "hurricanes": 7.0,
+                  "major": 3.0, "years": 30}
+        season = cyclones.BasinSeason(basin="AL", storms=(), normal=normal, through="1 January")
+        scored = cyclones.verdict(season, 1.8, impacts.flavour_of(3.2))
+        self.assertEqual(scored["observed"], "too early to read")
+        self.assertIsNone(scored["agrees"])
 
     def test_a_season_near_its_normal_settles_nothing(self):
         """ENSO shifts the odds over a basin; it does not decide one season,
@@ -11828,6 +12290,107 @@ class TestMonthTicks(unittest.TestCase):
         self.assertEqual(ticks[0], "Sep 2011")
 
 
+class TestPageSpelling(unittest.TestCase):
+    """The model writes its sentences once, in ASCII, for the console as well
+    as the page; the page spells them as the site's name does: El Niño, La
+    Niña, and Niño 3.4 as CPC and the map write it."""
+
+    def test_the_model_s_words_are_spelled_as_the_page_spells_them(self):
+        self.assertEqual(
+            svg.prose("El Nino-like coupling; La Nina ahead; El Ninos since 1950, "
+                      "Nino-3.4 at +2.1 degC, Nino-1+2, Nino-4, Nino 3 and the Nino boxes"),
+            "El Ni\u00f1o-like coupling; La Ni\u00f1a ahead; El Ni\u00f1os since 1950, "
+            "Ni\u00f1o 3.4 at +2.1 &deg;C, Ni\u00f1o 1+2, Ni\u00f1o 4, Ni\u00f1o 3 and the "
+            "Ni\u00f1o boxes")
+
+    def test_a_storm_or_a_place_keeps_its_own_name(self):
+        # Typhoon Nina of 1987 is named Nina; a word that merely starts so is
+        # no Nino.
+        for words in ("Typhoon Nina struck Luzon", "Ninoy Aquino International", "Nina, Ninotchka"):
+            with self.subTest(words):
+                self.assertEqual(svg.prose(words), escape(words))
+
+    def test_spelling_a_page_leaves_its_rules_as_written(self):
+        # A page is spelled whole, its styles with it: a rule's comment on
+        # "the El Nino composite" made the desk's rules the page's no longer.
+        for name, rules in (("shell", dashboard._css()), ("ramps", fields.ramp_css()),
+                            ("atlas", atlasview.css()), ("globe", globe.css()),
+                            ("desk", stormdesk.css()), ("storms", storms.css()),
+                            ("street", street.css()), ("street storms", streetstorms.css()),
+                            ("then and now", thennow.css()), ("map", worldmap.css())):
+            with self.subTest(name):
+                self.assertEqual(svg.spell(rules), rules)
+
+
+class TestTextContrast(unittest.TestCase):
+    """Words are drawn in colours that can be read, 4.5:1 against the ground
+    under them (WCAG AA), in light mode and in dark. The status colours are
+    chosen to be seen as marks: as words, the amber of a warning read at 1.8:1
+    on the light card, and the muted grey of every axis and every "since" at
+    3.5:1."""
+
+    STATUS = ("good", "warning", "serious", "critical")
+
+    @staticmethod
+    def luminance(colour: str) -> float:
+        channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    def ratio(self, one: str, other: str) -> float:
+        high, low = sorted((self.luminance(one), self.luminance(other)), reverse=True)
+        return (high + 0.05) / (low + 0.05)
+
+    @staticmethod
+    def sheets() -> dict[str, str]:
+        from elnino import street, streetstorms, thennow
+        return {"shell": dashboard._css(), "ramps": fields.ramp_css(), "atlas": atlasview.css(),
+                "globe": globe.css(), "desk": stormdesk.css(), "storms": storms.css(),
+                "street": street.css(), "street storms": streetstorms.css(),
+                "then and now": thennow.css(), "map": worldmap.css()}
+
+    def words(self):
+        """Every rule that colours words with one of the palette's colours:
+        its sheet, its selector, the colour's name and the grounds it sits
+        on, its own background or else the card's and the page's. A rule
+        that sets a font and a fill colours an SVG's words."""
+        for sheet, css in self.sheets().items():
+            for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+                rules = dict(re.findall(r"([\w-]+)\s*:\s*([^;]+?)\s*(?:;|$)", body))
+                colour = rules.get("color")
+                if colour is None and re.search(r"\bfont(-size|-family|-weight)?\s*:", body):
+                    colour = rules.get("fill")
+                named = re.fullmatch(r"var\(--([\w-]+)\)", colour or "")
+                if not named or named.group(1) not in svg.LIGHT:
+                    continue
+                ground = re.fullmatch(r"var\(--([\w-]+)\)", rules.get("background", ""))
+                grounds = (ground.group(1),) if ground and ground.group(1) in svg.LIGHT else ("surface", "plane")
+                yield sheet, " ".join(selector.split()), named.group(1), grounds
+
+    def assert_read(self, status: bool) -> None:
+        seen = 0
+        for sheet, selector, colour, grounds in self.words():
+            if (colour.split("-")[0] in self.STATUS) != status:
+                continue
+            seen += 1
+            for theme_name, theme in (("light", svg.LIGHT), ("dark", svg.DARK)):
+                for ground in grounds:
+                    with self.subTest(sheet=sheet, rule=selector, colour=colour, theme=theme_name,
+                                      ground=ground):
+                        self.assertGreaterEqual(self.ratio(theme[colour], theme[ground]), 4.5)
+        self.assertGreater(seen, 3)
+
+    def test_a_status_in_words_can_be_read(self):
+        # An alert's level, a likely effect's chip, a feed's "live" pill and
+        # the band of the power meter.
+        self.assert_read(status=True)
+
+    def test_every_other_colour_in_words_can_be_read(self):
+        # The axes' ticks, the times an alert has held since, the notes, and
+        # the links.
+        self.assert_read(status=False)
+
+
 @unittest.skipUnless((CACHE / "oni.cache").exists(),
                      "no cached feeds; run `python track.py` once first")
 class TestEndToEnd(unittest.TestCase):
@@ -11846,6 +12409,9 @@ class TestEndToEnd(unittest.TestCase):
 
     def test_the_run_produced_a_complete_state(self):
         self.assertTrue(self.state.assessment.headline)
+        # The MJO is dated by the run's own clock.
+        mjo = self.state.atmosphere.mjo
+        self.assertEqual(mjo.age_days, (datetime.fromisoformat(self.state.run_at).date() - mjo.when).days)
         self.assertTrue(self.state.forecast.projections)
         self.assertIsNotNone(self.state.subsurface)
         self.assertTrue(self.state.atmosphere.indicators)
@@ -11866,6 +12432,39 @@ class TestEndToEnd(unittest.TestCase):
                 # The theme a page loading again hands over is set before it is styled.
                 theme, style = html.find(live.head(self.state.run_at)), html.find("<style>")
                 self.assertTrue(0 <= theme < style, (theme, style))
+
+    def test_every_page_s_theme_button_is_one_button(self):
+        # It read "Toggle theme" on the dashboard, "Theme" on the atlas and
+        # "Dark" or "Light" on the desk and the map, said nothing of which
+        # was on, and none kept the choice.
+        for name, page, engine in (("dashboard", dashboard.render(self.state), assets.dashboard()),
+                                   ("atlas", atlasview.page(self.state), assets.atlas()),
+                                   ("storms", stormdesk.page(self.state), assets.desk()),
+                                   ("map", stormdesk.page(self.state, focus="world"), assets.desk())):
+            with self.subTest(name):
+                buttons = re.findall(r'<button\b[^>]*\bid="theme"[^>]*>[^<]*</button>', page)
+                self.assertEqual(len(buttons), 1)
+                self.assertIn('aria-pressed="false"', buttons[0])
+                self.assertTrue(buttons[0].endswith(">Dark</button>"), buttons[0])
+                self.assertEqual(engine.text.count("elninoLive.themeButton("), 1)
+                # Pressed, it is drawn pressed.
+                self.assertRegex(page, r'(\.themebtn|\.atlasbar button)\[aria-pressed="true"\]')
+
+    def test_every_page_spells_el_nino_as_the_site_does(self):
+        # Its words, the labels a reader hears or hovers, and the charts'
+        # own words: "El Nino / Southern Oscillation Tracker" headed the
+        # dashboard under "El Ni\u00f1o Tracker" in the menu.
+        ascii = re.compile(r"\b(El Nino|La Nina|El Ninos|La Ninas)\b|\bNino\b(?=[- ]?\d| (box|region|ind))")
+        for name, page in (("dashboard", dashboard.render(self.state)),
+                           ("atlas", atlasview.page(self.state)),
+                           ("storms", stormdesk.page(self.state)),
+                           ("map", stormdesk.page(self.state, focus="world"))):
+            body = re.sub(r"<(script|style)\b.*?</\1>", " ", page, flags=re.S)
+            said = re.findall(r">([^<]+)<", body) + re.findall(
+                r'\b(?:aria-label|title|alt|data-label|placeholder)="([^"]*)"', body)
+            wrong = sorted({hit.group(0) for words in said for hit in ascii.finditer(unescape(words))})
+            with self.subTest(name):
+                self.assertEqual(wrong, [])
 
     def test_every_page_opens_on_the_site_s_menu(self):
         # Any page reaches any other: the menu is the first thing on each, and
@@ -12930,6 +13529,56 @@ class TestRunsOnOneIndex(unittest.TestCase):
         self.assertIn("did not arrive", " ".join(text.split()))
         json.dumps(dashboard.payload(self.no_oni))
 
+    def test_the_banner_s_problems_are_said_on_the_card_it_points_to(self):
+        # "Analysis degraded: 1 feed or parse problem. See data provenance
+        # below", and below, running on the legacy index was said nowhere.
+        html = dashboard.render(self.no_roni)
+        # The problems are the run's, storm and spatial notes among them, not
+        # all of feeds or parsing.
+        count = len(self.no_roni.warnings)
+        self.assertIn(f'Analysis degraded: {count} problem{"s" if count != 1 else ""} this run. '
+                      '<a href="#provenance">See data provenance below</a>', html)
+        card = re.search(r'<section class="card" id="provenance">.*?</section>', html, re.S).group(0)
+        for warning in self.no_roni.warnings:
+            with self.subTest(warning=warning[:40]):
+                self.assertIn(svg.spell(svg.esc(warning)), card)
+
+    def test_a_stale_mjo_is_dated_and_aged_and_placed_nowhere(self):
+        # A pentad 33 days old was placed, "enhanced convection near 120W,
+        # amplitude 1.4", by the report and the JSON alike, with only the
+        # note saying it was too old to place, and the JSON without the note.
+        stale = atmosphere.MjoState(
+            when=date(2026, 9, 20), enhanced_longitude="120W", enhanced_value=-1.4,
+            pacific_value=-1.4, amplitude=1.4, constructive=False, age_days=33,
+            note="CPC's newest pentad is 33 days old (20 Sep), too old to say where the active phase is now.")
+        self.assertTrue(stale.stale)
+        state = copy.deepcopy(self.no_oni)
+        state.atmosphere.mjo = stale
+        lines = report._section_atmosphere(state)
+        self.assertIn("  MJO (2026-09-20, 33 days old): not placed.", lines)
+        self.assertEqual([line for line in lines if "enhanced convection" in line or "amplitude" in line], [])
+        self.assertIn("    " + stale.note[:40], "\n".join(lines))
+        got = dashboard.payload(state)["atmosphere"]["mjo"]
+        self.assertEqual(got, {"date": "2026-09-20", "enhanced_longitude": None, "amplitude": None,
+                               "constructive": False, "age_days": 33, "stale": True, "note": stale.note})
+        # A fresh one is placed, and dated and aged too.
+        mjo = self.no_oni.atmosphere.mjo
+        fresh = dashboard.payload(self.no_oni)["atmosphere"]["mjo"]
+        self.assertEqual((fresh["age_days"], fresh["stale"], fresh["note"]),
+                         (mjo.age_days, mjo.age_days > atmosphere.MJO_STALE_DAYS, mjo.note))
+
+    def test_the_brief_says_why_the_run_is_degraded(self):
+        # "DEGRADED - 1 problem, see end", and the brief's end was its
+        # disclaimer: the reason was in the full report only, and the live
+        # run's log, which prints the brief, never said it.
+        brief = report.brief(self.no_roni)
+        self.assertIn("\nDATA PROBLEMS\n", brief)
+        flat = "".join(brief.split())
+        for warning in self.no_roni.warnings:
+            with self.subTest(warning=warning[:40]):
+                self.assertIn("".join(report._ascii(warning).split()), flat)
+        self.assertNotIn("DATA PROBLEMS", report.brief(dataclasses.replace(self.no_roni, warnings=[])))
+
     def test_running_on_the_legacy_index_is_a_degraded_run(self):
         a = self.no_roni.assessment
         self.assertEqual(a.index_name, "ONI")
@@ -13417,11 +14066,10 @@ class TestAtlasField(unittest.TestCase):
     def test_the_theme_button_turns_from_the_theme_shown(self):
         # With no theme chosen, it read the page as light: in a dark system
         # its first press set the dark theme already shown, and did nothing.
-        js = atlasview._JS
-        branch = js.split('} else if (t.id === "theme") {', 1)[1].split("} else {", 1)[0]
-        self.assertIn('var chosen = document.documentElement.getAttribute("data-theme");', branch)
-        self.assertIn('window.matchMedia("(prefers-color-scheme: dark)").matches', branch)
-        self.assertIn('setAttribute("data-theme", dark ? "light" : "dark");', branch)
+        # The site's one theme button turns from the theme shown (test_live);
+        # the atlas hands its button over, and themed() repaints.
+        self.assertIn('elninoLive.themeButton(document.getElementById("theme"));', atlasview._JS)
+        self.assertNotIn('t.id === "theme"', atlasview._JS)
 
     def test_the_page_is_measured_again_whenever_the_map_box_changes(self):
         # A window resize was the only cue: when the bar above re-wrapped, the

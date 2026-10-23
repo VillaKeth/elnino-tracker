@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 
 from . import atlasdata, composite, geo
 from .impacts import CATALOGUE, Teleconnection
+from .svg import signed
 
 
 # Below this ordinary-year rainfall a percentage change is arithmetic rather
@@ -466,9 +467,9 @@ def lessons(state: AtlasState) -> list[str]:
         out.append(
             "Fortaleza is the one to read twice: the Nordeste drought is a "
             "textbook El Nino teleconnection, and the composite has it at "
-            f"{best.precip.percent:+.0f}% of normal in "
+            f"{signed(best.precip.percent, 0)}% of normal in "
             f"{SEASON_LABEL[best.season]} - yet across {events} events its t of "
-            f"{best.precip.t:+.2f} does not reach the {best.precip.crit:.2f} "
+            f"{signed(best.precip.t, 2)} does not reach the {best.precip.crit:.2f} "
             "that season's sample needs. The sign is right and the sample is "
             "not big enough to say so. Calling that a drought signal is the "
             "most common way a composite like this gets misused."
@@ -481,7 +482,7 @@ def lessons(state: AtlasState) -> list[str]:
             and best.precip.base < 1.5):
         out.append(
             "Read the percentages against the millimetres beside them. Los "
-            f"Angeles composites at {best.precip.percent:+.0f}% of normal in "
+            f"Angeles composites at {signed(best.precip.percent, 0)}% of normal in "
             f"{SEASON_LABEL[best.season]}, which sounds large and is "
             f"{best.precip.value:.1f} mm a day on top of an ordinary "
             f"{best.precip.base:.1f}: the percentage is large because the "
@@ -500,7 +501,7 @@ def temperature_text(cell: Cell) -> str | None:
     """
     if cell.value is None:
         return None
-    text = f"{cell.value:+.2f}"
+    text = f"{signed(cell.value, 2)}"
     return text if cell.significant else f"({text})"
 
 

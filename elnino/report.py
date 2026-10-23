@@ -23,6 +23,7 @@ from . import (alerts, atlas, cyclones, daily, forecast, grids, history, impacts
                stormdesk, stormfury, tcproducts, windclim)
 from .grids import lon_name as _lon_name
 from .alerts import CRITICAL, INFO, WARNING, WATCH
+from .svg import signed, zero_unsigned
 from .winds import EQUATORIAL, HV97_EVENTS, HV97_LONGEST, REGIONS, REGIONS_BY_KEY, THRESHOLD
 
 WIDTH = 78
@@ -170,11 +171,11 @@ def _section_state(state) -> list[str]:
         lines.append(f"  CPC STATUS   {_ascii(a.status)}")
     lines.append(
         f"  STATE        {_ascii(a.index_tier)}  ({a.index_name} "
-        f"{a.index_latest.value:+.2f} degC, {a.index_latest.label})"
+        f"{signed(a.index_latest.value, 2)} degC, {a.index_latest.label})"
     )
     if a.index_name == "RONI" and a.oni_latest:
         lines.append(
-            f"  LEGACY ONI   {a.oni_latest.value:+.2f} degC ({a.oni_latest.label}) "
+            f"  LEGACY ONI   {signed(a.oni_latest.value, 2)} degC ({a.oni_latest.label}) "
             f"-> {_ascii(a.oni_tier)}"
         )
     elif a.index_name == "RONI":
@@ -192,8 +193,8 @@ def _section_state(state) -> list[str]:
     if peak:
         probs = state.forecast.peak_probability
         lines.append(
-            f"  PEAK (proj)  {a.index_name} {peak.mean:+.2f} degC in {peak.label} "
-            f"({peak.low:+.2f} to {peak.high:+.2f})"
+            f"  PEAK (proj)  {a.index_name} {signed(peak.mean, 2)} degC in {peak.label} "
+            f"({signed(peak.low, 2)} to {signed(peak.high, 2)})"
         )
         ordered = sorted(probs.items())
         lines.append(
@@ -203,14 +204,14 @@ def _section_state(state) -> list[str]:
     if state.subsurface:
         s = state.subsurface
         lines.append(
-            f"  SUBSURFACE   WWV {s.anomaly:+.2f} x10^14 m3, "
+            f"  SUBSURFACE   WWV {signed(s.anomaly, 2)} x10^14 m3, "
             f"rank {s.rank_alltime} of {s.total_alltime}, {_ascii(s.tendency_label)}"
         )
     if state.atmosphere and state.atmosphere.indicators:
         at = state.atmosphere
         coupled = "coupled" if at.coupled else "NOT yet coupled"
         lines.append(
-            f"  ATMOSPHERE   Walker {at.walker_index:+.2f} sigma, {coupled}, "
+            f"  ATMOSPHERE   Walker {signed(at.walker_index, 2)} sigma, {coupled}, "
             f"{at.agreement * 100:.0f}% of indicators agree"
         )
     if state.warnings:
@@ -235,7 +236,7 @@ def _section_cpc(state) -> list[str]:
 
 
 def _index_line(name: str, value, tier: str, role: str) -> str:
-    return (f"  {name:<5} {value.value:+.2f} degC  {value.label}   "
+    return (f"  {name:<5} {signed(value.value, 2)} degC  {value.label}   "
             f"-> {_ascii(tier)}  [{role}]")
 
 
@@ -255,7 +256,7 @@ def _section_intensity(state) -> list[str]:
         gap = ""
         if a.oni_latest and a.oni_latest.label == a.roni_latest.label:
             gap = (
-                f" This season the legacy ONI runs {a.oni_latest.value - a.roni_latest.value:+.2f} "
+                f" This season the legacy ONI runs {signed(a.oni_latest.value - a.roni_latest.value, 2)} "
                 "degC above it: warmth the whole tropical ocean shares, not the "
                 "Pacific's own."
             )
@@ -279,7 +280,7 @@ def _section_intensity(state) -> list[str]:
     lines.append("")
     lines.extend(_wrap("Episode: " + a.episode_status, indent="  "))
     if a.episode:
-        run = "  ".join(f"{v.season} {v.value:+.2f}" for v in a.episode.seasons[-6:])
+        run = "  ".join(f"{v.season} {signed(v.value, 2)}" for v in a.episode.seasons[-6:])
         lines.append(f"  Run so far: {run}")
 
     if a.scale:
@@ -294,8 +295,8 @@ def _section_intensity(state) -> list[str]:
             for region in a.scale.regions:
                 rows.append((
                     region.label,
-                    f"{region.anomaly:+.1f}",
-                    "-" if region.traditional is None else f"{region.traditional:+.1f}",
+                    f"{signed(region.anomaly, 1)}",
+                    "-" if region.traditional is None else f"{signed(region.traditional, 1)}",
                     f"{region.sst:.1f}",
                     _signed_bar(region.anomaly, limit=4.0, width=15),
                 ))
@@ -306,14 +307,14 @@ def _section_intensity(state) -> list[str]:
             for region in a.scale.regions:
                 rows.append((
                     region.label,
-                    f"{region.anomaly:+.1f}",
+                    f"{signed(region.anomaly, 1)}",
                     f"{region.sst:.1f}",
                     _signed_bar(region.anomaly, limit=4.0),
                 ))
             lines.extend(_table(rows, (39, -6, -6, 21)))
         lines.append("")
         lines.append(
-            f"  Flavour: {_ascii(a.scale.flavour)}  (index {a.scale.flavour_index:+.1f}, "
+            f"  Flavour: {_ascii(a.scale.flavour)}  (index {signed(a.scale.flavour_index, 1)}, "
             f"{a.scale.basis} anomalies)"
         )
         lines.extend(_wrap(
@@ -345,18 +346,18 @@ def _section_subsurface(state) -> list[str]:
     ))
     lines.append("")
     lines.append(
-        f"  WWV anomaly   {s.anomaly:+.2f} x10^14 m3   ({s.latest.label})"
+        f"  WWV anomaly   {signed(s.anomaly, 2)} x10^14 m3   ({s.latest.label})"
     )
     lines.append(f"  Rank          {_rank_phrase(s.rank_alltime, s.total_alltime, 'months')}")
     lines.append(
         f"                {_ordinal(s.rank_month)} of {s.total_month} for this calendar month "
         f"({s.percentile:.0f}th percentile)"
     )
-    lines.append(f"  Tendency      {s.tendency:+.3f} per month - {_ascii(s.tendency_label)}")
+    lines.append(f"  Tendency      {signed(s.tendency, 3)} per month - {_ascii(s.tendency_label)}")
     if s.west is not None:
         lines.append(
-            f"  Western half  {s.west.anomaly:+.2f} x10^14 m3   "
-            f"eastern half {s.east_anomaly:+.2f}"
+            f"  Western half  {signed(s.west.anomaly, 2)} x10^14 m3   "
+            f"eastern half {signed(s.east_anomaly, 2)}"
         )
         lines.extend(_wrap(
             "Heat piled in the west is fuel not yet spent; heat already in the "
@@ -367,7 +368,7 @@ def _section_subsurface(state) -> list[str]:
 
     lines.append("")
     lines.append(f"  Recharge oscillator phase: {_ascii(s.phase_name)}")
-    lines.append(f"    angle {s.phase_angle:+.0f} deg" + ("" if s.phase_confident else "  (near a boundary - treat as indicative)"))
+    lines.append(f"    angle {signed(s.phase_angle, 0)} deg" + ("" if s.phase_confident else "  (near a boundary - treat as indicative)"))
     lines.extend(_wrap(s.phase_note, indent="    "))
     lines.extend(_wrap(
         "The oscillator traces a clockwise loop: recharge, warming, discharge, "
@@ -388,7 +389,7 @@ def _section_subsurface(state) -> list[str]:
     if s.implied_nino34 is not None:
         lines.extend(_wrap(
             f"At that lead the present WWV alone implies Nino-3.4 near "
-            f"{s.implied_nino34:+.2f} degC. This is a one-predictor regression "
+            f"{signed(s.implied_nino34, 2)} degC. This is a one-predictor regression "
             "shown only as a sanity check on the full forecast; it is "
             "deliberately naive and will understate a strongly coupled event.",
             indent="  ",
@@ -414,7 +415,7 @@ def _section_atmosphere(state) -> list[str]:
     lines.append("")
     coupled = "COUPLED" if at.coupled else "NOT COUPLED"
     lines.append(
-        f"  Walker composite   {at.walker_index:+.2f} sigma  "
+        f"  Walker composite   {signed(at.walker_index, 2)} sigma  "
         f"[{_signed_bar(at.walker_index)}]  {coupled}"
     )
     lines.append(
@@ -422,7 +423,7 @@ def _section_atmosphere(state) -> list[str]:
     )
     if at.dissenters:
         dissent = ", ".join(
-            f"{_ascii(d.name)} ({d.score:+.2f})" for d in at.dissenters
+            f"{_ascii(d.name)} ({signed(d.score, 2)})" for d in at.dissenters
         )
         lines.append(f"  Dissenting         {dissent}")
         lines.extend(_wrap(
@@ -435,7 +436,7 @@ def _section_atmosphere(state) -> list[str]:
         recent = at.walker_history[-1].value - at.walker_history[-4].value
         word = "strengthening" if recent > 0.2 else "weakening" if recent < -0.2 else "steady"
         lines.append(
-            f"  Trend              {word}, {recent:+.2f} sigma over 3 months"
+            f"  Trend              {word}, {signed(recent, 2)} sigma over 3 months"
         )
 
     lines.append("")
@@ -443,8 +444,8 @@ def _section_atmosphere(state) -> list[str]:
     for ind in at.indicators:
         rows.append((
             ind.name,
-            f"{ind.raw:+.2f}",
-            f"{ind.score:+.2f}",
+            f"{signed(ind.raw, 2)}",
+            f"{signed(ind.score, 2)}",
             _signed_bar(ind.score, width=13),
             ind.label + (" STALE" if ind.stale else ""),
         ))
@@ -476,17 +477,21 @@ def _section_atmosphere(state) -> list[str]:
     if at.mjo:
         m = at.mjo
         lines.append("")
-        lines.append(
-            f"  MJO ({m.when:%Y-%m-%d}): enhanced convection near "
-            f"{_ascii(m.enhanced_longitude)}, amplitude {m.amplitude:.1f}"
-        )
+        if m.stale:
+            # Too old to place: its date and age, and the note says why.
+            lines.append(f"  MJO ({m.when:%Y-%m-%d}, {m.age_days} days old): not placed.")
+        else:
+            lines.append(
+                f"  MJO ({m.when:%Y-%m-%d}): enhanced convection near "
+                f"{_ascii(m.enhanced_longitude)}, amplitude {m.amplitude:.1f}"
+            )
         lines.extend(_wrap(m.note, indent="    "))
     if at.qbo:
         lines.append("")
         phase = "easterly" if at.qbo.raw < 0 else "westerly"
         lines.append(
-            f"  QBO (30 hPa, {at.qbo.label}): {at.qbo.raw:+.1f} m/s, {phase} phase, "
-            f"{at.qbo.score:+.1f} sigma."
+            f"  QBO (30 hPa, {at.qbo.label}): {signed(at.qbo.raw, 1)} m/s, {phase} phase, "
+            f"{signed(at.qbo.score, 1)} sigma."
         )
         lines.extend(_wrap(
             "The quasi-biennial oscillation is not an ENSO index. It is here "
@@ -509,7 +514,7 @@ def _soi_lines(days) -> list[str]:
     rows = [("", "30-day", "90-day", "daily", "Tahiti", "Darwin")]
     for item in reversed(days[-DAILY_ROWS:]):
         rows.append((item.day,
-                     *(f"{value:+.1f}" if value is not None else "n/a"
+                     *(f"{signed(value, 1)}" if value is not None else "n/a"
                        for value in (item.soi30, item.soi90, item.soi)),
                      *(f"{value:.1f}" if value is not None else "n/a"
                        for value in (item.tahiti, item.darwin))))
@@ -550,7 +555,7 @@ def _wind_lines(winds) -> list[str]:
     and how the events are found."""
     if winds is None:
         return []
-    above = f"above {THRESHOLD:+g} m/s"
+    above = f"above {signed(THRESHOLD, 0)} m/s"
     count = {0: "no event", 1: "1 event"}.get(len(winds.events), f"{len(winds.events)} events")
     lines = [""]
     lines.extend(_wrap(
@@ -565,14 +570,14 @@ def _wind_lines(winds) -> list[str]:
         lines.extend(_wrap(
             f"Under way in {_wind_region(event.region)}: {'at least ' if before else ''}"
             f"{event.days:g} days {above} since {'before ' if before else ''}"
-            f"{event.first:%Y-%m-%d %HZ}, peaking at {event.peak:+.1f} m/s on "
+            f"{event.first:%Y-%m-%d %HZ}, peaking at {signed(event.peak, 1)} m/s on "
             f"{event.centre:%Y-%m-%d}{sustained}.", indent="    "))
     if not winds.under_way:
         lines.append("    No event under way.")
     for run in winds.building:
         lines.extend(_wrap(
             f"Building in {_wind_region(run.region)}: {run.days:g} "
-            f"day{'' if run.days == 1 else 's'} {above}, latest {run.latest:+.1f} m/s; "
+            f"day{'' if run.days == 1 else 's'} {above}, latest {signed(run.latest, 1)} m/s; "
             "counted from three days.", indent="    "))
     listed = winds.latest_first[:WIND_EVENT_ROWS]
     if listed:
@@ -583,7 +588,7 @@ def _wind_lines(winds) -> list[str]:
             rows.append((event.region,
                          f"{event.first:%Y-%m-%d %HZ}{'*' if event.from_start else ''}",
                          "under way" if event.ongoing else f"{event.last:%Y-%m-%d %HZ}",
-                         f"{event.days:g}", f"{event.peak:+.1f}", daily.counts_as(event)))
+                         f"{event.days:g}", f"{signed(event.peak, 1)}", daily.counts_as(event)))
         lines.extend(_table(rows, (4, 15, 14, -5, -5, 27)))
         if any(event.from_start for event in listed):
             lines.extend(_wrap("* Began before the window: it started before its first "
@@ -595,7 +600,7 @@ def _wind_lines(winds) -> list[str]:
     rows = [("", *(REGIONS_BY_KEY[key].name.capitalize() for key in EQUATORIAL))]
     for day in list(winds.daily)[-DAILY_ROWS:][::-1]:
         values = winds.daily[day]
-        rows.append((day.isoformat(), *(f"{values[key]:+.2f}" if key in values else "n/a"
+        rows.append((day.isoformat(), *(f"{signed(values[key], 2)}" if key in values else "n/a"
                                         for key in EQUATORIAL)))
     lines.extend(_table(rows, (12, -8, -8, -8)))
     regions = "; ".join(f"{region.key} {region.span}" for region in REGIONS)
@@ -643,12 +648,12 @@ def _section_forecast(state) -> list[str]:
         rows.append((
             f"+{p.lead}mo",
             p.label,
-            f"{p.mean:+.2f}",
-            f"{p.low:+.2f} to {p.high:+.2f}",
+            f"{signed(p.mean, 2)}",
+            f"{signed(p.low, 2)} to {signed(p.high, 2)}",
             f"{p.spread:.2f}",
-            f"{methods['analog']:+.2f}" if "analog" in methods else "-",
-            f"{methods['recharge']:+.2f}" if "recharge" in methods else "-",
-            f"{methods['persistence']:+.2f}" if "persistence" in methods else "-",
+            f"{signed(methods['analog'], 2)}" if "analog" in methods else "-",
+            f"{signed(methods['recharge'], 2)}" if "recharge" in methods else "-",
+            f"{signed(methods['persistence'], 2)}" if "persistence" in methods else "-",
         ))
     lines.extend(_table(rows, (6, 9, -6, 16, -6, -7, -6, -7)))
 
@@ -656,7 +661,7 @@ def _section_forecast(state) -> list[str]:
     if peak:
         lines.append("")
         lines.append(
-            f"  Projected peak: {f.index_name} {peak.mean:+.2f} degC in {peak.label}"
+            f"  Projected peak: {f.index_name} {signed(peak.mean, 2)} degC in {peak.label}"
         )
         for threshold, probability in sorted(f.peak_probability.items()):
             lines.append(
@@ -723,7 +728,7 @@ def _section_skill(state) -> list[str]:
             f"+{s.lead}mo",
             f"{s.rmse:.2f}",
             f"{s.acc:.2f}",
-            f"{s.bias:+.2f}",
+            f"{signed(s.bias, 2)}",
             str(s.count),
             *(f"{s.by_method[m]:.2f}" if m in s.by_method else "-"
               for m in ("analog", "recharge", "persistence")),
@@ -774,9 +779,9 @@ def _section_analogs(state) -> list[str]:
         rows.append((
             analog.episode.name,
             f"{analog.rmse:.2f}",
-            f"{analog.peak_value:+.2f}",
+            f"{signed(analog.peak_value, 2)}",
             analog.peak_label,
-            f"{analog.seasons_to_peak:+d}",
+            signed(analog.seasons_to_peak, 0),
             _ascii(analog.tier).replace(" El Nino", ""),
             _ascii(record.flavour if record else "-"),
         ))
@@ -826,7 +831,7 @@ def _section_impacts(state) -> list[str]:
         lines.append("")
     lines.append(
         f"  Based on a projected {assessment.index_name} peak of "
-        f"{assessment.peak_index:+.2f} degC, "
+        f"{signed(assessment.peak_index, 2)} degC, "
         f"{_ascii(impacts.flavour_words(assessment.flavour))} flavour."
     )
     lines.append("")
@@ -862,7 +867,7 @@ def _watch_condition(impact, assessment) -> str:
         return ("A contested relationship: rated \"possible\" at most, however "
                 "strong the event.")
     text = (f"Joins the outlook at a {assessment.index_name} peak of about "
-            f"{impact.needs:+.1f} degC")
+            f"{signed(impact.needs, 1)} degC")
     penalty = impacts.flavour_penalty(impact.link, assessment.flavour)
     if penalty:
         text += f", {penalty:.2f} higher than usual for an event of this flavour"
@@ -1022,11 +1027,11 @@ def _section_data(state) -> list[str]:
             lines.append(f"    {key}: {_ascii(str(error))[:60]}")
     if state.warnings:
         lines.append("")
-        lines.append("  PARSE WARNINGS:")
+        lines.append("  PROBLEMS THIS RUN:")
         for warning in state.warnings:
             lines.extend(_wrap(warning, indent="    - "))
     if not failed and not warned and not state.warnings:
-        lines.append("  No feed failures and no parse warnings this run.")
+        lines.append("  No feed failures and no problems this run.")
     return lines
 
 
@@ -1055,7 +1060,7 @@ def _char_key(chars: tuple[str, ...], low: float, high: float,
               units: str, fmt: str = "{:+.1f}") -> list[str]:
     """One legend line: which character stands for which range."""
     width = (high - low) / len(chars)
-    pairs = [f"{chars[i]}={fmt.format(low + i * width)}" for i in range(len(chars))]
+    pairs = [f"{chars[i]}={zero_unsigned(fmt.format(low + i * width))}" for i in range(len(chars))]
     return _wrap("key  " + "  ".join(pairs) + f"  ({units}; blank = no data)",
                  indent="    ")
 
@@ -1129,7 +1134,7 @@ def _days_table(days, names: tuple[tuple[str, str], ...]) -> list[str]:
     rows = [("", *(label for _key, label in names))]
     for item in reversed(days[-DAILY_ROWS:]):
         rows.append((item.day + (" (preliminary)" if item.preliminary else ""),
-                     *(f"{item.means[key]:+.2f}" if key in item.means else "n/a"
+                     *(f"{signed(item.means[key], 2)}" if key in item.means else "n/a"
                        for key, _label in names)))
     return _table(rows, (24, *(-8 for _name in names)))
 
@@ -1141,7 +1146,7 @@ def _revision_lines(moved, where: str) -> list[str]:
         return []
     return _wrap(
         f"On the {moved.days} days both analyses carry, the final runs "
-        f"{moved.mean:+.2f} degC from the preliminary {where} on average, and "
+        f"{signed(moved.mean, 2)} degC from the preliminary {where} on average, and "
         f"up to {moved.most:.2f} degC on a day: about how far the preliminary "
         "days may yet move.",
         indent="    ",
@@ -1170,7 +1175,7 @@ def _section_spatial(state) -> list[str]:
         names = (("nino4", "Nino-4"), ("nino34", "Nino-3.4"),
                  ("nino3", "Nino-3"), ("nino12", "Nino-1+2"))
         rows = [
-            (label, f"{spatial.box_means[key]:+.2f} degC",
+            (label, f"{signed(spatial.box_means[key], 2)} degC",
              _signed_bar(spatial.box_means[key], limit=4.0))
             for key, label in names if key in spatial.box_means
         ]
@@ -1188,7 +1193,7 @@ def _section_spatial(state) -> list[str]:
             else:
                 flavour = "neither flavour is clearly dominant on this gradient"
             lines.extend(_wrap(
-                f"Nino-1+2 minus Nino-4 is {gradient:+.2f} degC - {flavour}.",
+                f"Nino-1+2 minus Nino-4 is {signed(gradient, 2)} degC - {flavour}.",
                 indent="    ",
             ))
 
@@ -1255,12 +1260,12 @@ def _section_spatial(state) -> list[str]:
                 _bar(depth or 0.0, maximum=250.0, width=28),
             ))
         lines.extend(_table(rows, (7, -7, 28)))
-        measured = grids.tilt([p.isotherm(20.0) for p in spatial.profiles])
+        measured = grids.tilt({p.lon: p.isotherm(20.0) for p in spatial.profiles})
         if measured is not None:
-            drop, west, east = measured
             lines.extend(_wrap(
-                f"West-minus-east tilt is {drop:.0f} m, {west:.0f} m at the two "
-                f"western moorings against {east:.0f} m at the two eastern. A "
+                f"West-minus-east tilt is {measured.drop:.0f} m, {measured.west:.0f} m at "
+                f"{measured.where('west')} against {measured.east:.0f} m at "
+                f"{measured.where('east')}. A "
                 "neutral Pacific runs near 100 m; a mature El Nino flattens "
                 "it, and that flattening is the event rather than a symptom "
                 "of it.",
@@ -1361,7 +1366,7 @@ def _section_cyclones(state) -> list[str]:
             burst, burst_when = storm.peak_intensification
             if burst >= cyclones.RI_THRESHOLD and burst_when != when:
                 sentence += (
-                    f" Its fastest 24 hours so far were {burst:+.0f} kt, to "
+                    f" Its fastest 24 hours so far were {signed(burst, 0)} kt, to "
                     f"{alerts._stamp(burst_when)}."
                 )
             lines.extend(_wrap(sentence, indent="    "))
@@ -1484,7 +1489,7 @@ def _section_cyclones(state) -> list[str]:
         lines.append(f"  {_ascii(season.name).upper()}: {mark[scored['agrees']]}")
         sentence = (
             f"The catalogue calls for {scored['expected']} activity here at "
-            f"{index_name} {index_value:+.2f} ({scored['likelihood']}, "
+            f"{index_name} {signed(index_value, 2)} ({scored['likelihood']}, "
             f"{scored['confidence']} confidence). Observed activity is "
             f"{scored['observed']}."
         )
@@ -1812,9 +1817,9 @@ def _section_atlas(state) -> list[str]:
         rows.append((
             _ascii(local.title.split(",")[0])[:12],
             best.season,
-            f"{best.precip.value:+.2f}" if best.precip.value is not None else "-",
-            f"{percent:+.0f}%" if percent is not None else "-",
-            f"{best.precip.t:+.2f}" if best.precip.t is not None else "-",
+            f"{signed(best.precip.value, 2)}" if best.precip.value is not None else "-",
+            f"{signed(percent, 0)}%" if percent is not None else "-",
+            f"{signed(best.precip.t, 2)}" if best.precip.t is not None else "-",
             f"{best.precip.crit:.2f}",
             best.precip.direction,
             atlas.temperature_text(best.air) or "-",
@@ -1837,6 +1842,17 @@ def _section_atlas(state) -> list[str]:
     return lines
 
 
+def _section_problems(state) -> list[str]:
+    """The run's problems, for the brief: its state line says "see end", and
+    it has no data section to end on."""
+    if not state.warnings:
+        return []
+    lines = _heading("data problems")
+    for warning in state.warnings:
+        lines.extend(_wrap(warning, indent="  - "))
+    return lines
+
+
 _RENDERERS = {
     "alerts": _section_alerts,
     "state": _section_state,
@@ -1854,6 +1870,7 @@ _RENDERERS = {
     "stormfury": _section_stormfury,
     "atlas": _section_atlas,
     "data": _section_data,
+    "problems": _section_problems,
 }
 
 
@@ -1883,5 +1900,6 @@ def render(state, sections: tuple[str, ...] = SECTIONS) -> str:
 
 
 def brief(state) -> str:
-    """The thirty-second version: alerts and state only."""
-    return render(state, sections=("alerts", "state"))
+    """The thirty-second version: alerts and state, and what degraded the
+    run if anything did."""
+    return render(state, sections=("alerts", "state", "problems"))

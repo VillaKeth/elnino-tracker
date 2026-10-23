@@ -31,6 +31,8 @@ from .svg import (  # noqa: F401 - re-exported for the panel modules
     esc,
     nice_ticks,
     prose,
+    signed,
+    spell,
     table,
     tick_text,
 )
@@ -116,16 +118,16 @@ def chart_oni(official: list[SeasonValue], legacy: list[SeasonValue],
         )
         plot.add(
             f'<text x="{ex + 10:.1f}" y="{ey + 4:.1f}" class="endlabel">'
-            f'{esc(label)} {value:+.2f}</text>'
+            f'{esc(label)} {signed(value, 2)}</text>'
         )
 
     for index, item in enumerate(recent):
         extra = ""
         key = (item.season, item.year)
         if key in lookup:
-            extra = f"{legacy_name} {lookup[key]:+.2f} °C (legacy)"
+            extra = f"{legacy_name} {signed(lookup[key], 2)} °C (legacy)"
         plot.add(_hit(plot.sx(index), plot.sy(item.value), item.label,
-                      f"{name} {item.value:+.2f} °C · {intensity_tier(item.value)}",
+                      f"{name} {signed(item.value, 2)} °C · {intensity_tier(item.value)}",
                       extra))
 
     return plot.svg(
@@ -183,13 +185,13 @@ def chart_regions(assessment: Assessment) -> str:
         anchor = "start" if warm else "end"
         plot.add(
             f'<text x="{tip_x:.1f}" y="{centre + 4:.1f}" text-anchor="{anchor}" '
-            f'class="barvalue">{region.anomaly:+.1f} °C</text>'
+            f'class="barvalue">{signed(region.anomaly, 1)} °C</text>'
         )
         plot.add(
             f'<rect class="hit" x="{plot.left:.1f}" y="{centre - band / 2:.1f}" '
             f'width="{plot.plot_w:.1f}" height="{band:.1f}" fill="transparent" tabindex="0" '
             f'data-label="{esc(region.label)}" '
-            f'data-value="anomaly {region.anomaly:+.1f} °C" '
+            f'data-value="anomaly {signed(region.anomaly, 1)} °C" '
             f'data-extra="SST {region.sst:.1f} °C"></rect>'
         )
 
@@ -251,7 +253,7 @@ def chart_weekly(weeks: list[WeekObservation], count: int = 104) -> str:
         plot.add(
             _hit(
                 plot.sx(index), plot.sy(week.nino34_anom), f"Week centred on {week.label}",
-                f"Nino-3.4 {week.nino34_anom:+.1f} °C", f"SST {week.nino34_sst:.1f} °C",
+                f"Nino-3.4 {signed(week.nino34_anom, 1)} °C", f"SST {week.nino34_sst:.1f} °C",
             )
         )
 
@@ -262,7 +264,7 @@ def chart_weekly(weeks: list[WeekObservation], count: int = 104) -> str:
     )
     plot.add(
         f'<text x="{ex + 10:.1f}" y="{ey + 4:.1f}" class="endlabel">'
-        f'{recent[-1].nino34_anom:+.1f} °C</text>'
+        f'{signed(recent[-1].nino34_anom, 1)} °C</text>'
     )
     return plot.svg(
         "Weekly Nino-3.4 anomaly",
@@ -318,7 +320,7 @@ def chart_analogs(assessment: Assessment) -> str:
         for index, value in enumerate(values):
             plot.add(
                 _hit(plot.sx(index), plot.sy(value), name,
-                     f"{assessment.index_name} {value:+.2f} °C",
+                     f"{assessment.index_name} {signed(value, 2)} °C",
                      f"season {index} after onset")
             )
 
@@ -443,13 +445,13 @@ h1 {{ font-size: 1.35rem; margin: 0; letter-spacing: -0.01em; }}
 .tile .t-label {{ color: var(--ink2); font-size: 0.76rem; }}
 .tile .t-value {{ font-size: 1.5rem; font-weight: 620; letter-spacing: -0.01em; margin-top: 2px; }}
 .tile .t-unit {{ font-size: 0.95rem; color: var(--ink2); font-weight: 500; }}
-.tile .t-note {{ color: var(--muted); font-size: 0.75rem; margin-top: 2px; }}
+.tile .t-note {{ color: var(--muted-ink); font-size: 0.75rem; margin-top: 2px; }}
 .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
   padding: 20px 22px 16px; margin-bottom: 20px; }}
 .card h2 {{ font-size: 1rem; margin: 0 0 2px; }}
 .card .caption {{ color: var(--ink2); font-size: 0.83rem; margin: 0 0 14px; }}
 svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
-.tick {{ fill: var(--muted); font-size: 11px; font-family: var(--font);
+.tick {{ fill: var(--muted-ink); font-size: 11px; font-family: var(--font);
   font-variant-numeric: tabular-nums; }}
 .rowlabel {{ fill: var(--ink2); font-size: 12px; font-family: var(--font); }}
 .barvalue, .endlabel {{ fill: var(--ink); font-size: 12px; font-weight: 600;
@@ -459,7 +461,7 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
 .placename {{ fill: var(--ink); font-weight: 600; }}
 .halo {{ paint-order: stroke; stroke: var(--plane); stroke-width: 3px;
   stroke-linejoin: round; }}
-.band-note, .axistitle {{ fill: var(--muted); font-size: 11px; font-family: var(--font); }}
+.band-note, .axistitle {{ fill: var(--muted-ink); font-size: 11px; font-family: var(--font); }}
 /* A threshold's name over the lines it names: a halo of the card's own
    ground, so a line under it does not cut through the letters. */
 .band-note {{ paint-order: stroke; stroke: var(--surface); stroke-width: 3px;
@@ -481,26 +483,26 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
 .meter-band {{ display: inline-flex; align-items: center; gap: 6px; font-weight: 650;
   font-size: 0.92rem; }}
 .statusicon {{ width: 15px; height: 15px; }}
-[data-status="critical"] .meter-band, [data-status="critical"] .statusicon {{ color: var(--critical); }}
-[data-status="serious"] .meter-band, [data-status="serious"] .statusicon {{ color: var(--serious); }}
-[data-status="warning"] .meter-band, [data-status="warning"] .statusicon {{ color: var(--warning); }}
-[data-status="good"] .meter-band, [data-status="good"] .statusicon {{ color: var(--good); }}
+[data-status="critical"] .meter-band, [data-status="critical"] .statusicon {{ color: var(--critical-ink); }}
+[data-status="serious"] .meter-band, [data-status="serious"] .statusicon {{ color: var(--serious-ink); }}
+[data-status="warning"] .meter-band, [data-status="warning"] .statusicon {{ color: var(--warning-ink); }}
+[data-status="good"] .meter-band, [data-status="good"] .statusicon {{ color: var(--good-ink); }}
 .meter-track {{ height: 14px; border-radius: 7px; background: var(--track); overflow: hidden; }}
 .meter-fill {{ height: 100%; border-radius: 7px; background: var(--warning); }}
 [data-status="critical"] .meter-fill {{ background: var(--critical); }}
 [data-status="serious"] .meter-fill {{ background: var(--serious); }}
 [data-status="good"] .meter-fill {{ background: var(--good); }}
-.meter-scale {{ display: flex; justify-content: space-between; color: var(--muted);
+.meter-scale {{ display: flex; justify-content: space-between; color: var(--muted-ink);
   font-size: 0.72rem; margin-top: 4px; font-variant-numeric: tabular-nums; }}
 .comps {{ margin-top: 16px; display: grid; gap: 9px; }}
 .comp {{ display: grid; grid-template-columns: 150px 1fr 34px; align-items: center; gap: 12px;
   font-size: 0.82rem; }}
 .comp-name {{ color: var(--ink2); }}
-.comp-name em {{ color: var(--muted); font-style: normal; margin-left: 5px; font-size: 0.72rem; }}
+.comp-name em {{ color: var(--muted-ink); font-style: normal; margin-left: 5px; font-size: 0.72rem; }}
 .comp-track {{ height: 7px; border-radius: 4px; background: var(--track); overflow: hidden; }}
 .comp-fill {{ display: block; height: 100%; background: var(--s1); border-radius: 4px; }}
 .comp-val {{ text-align: right; font-variant-numeric: tabular-nums; color: var(--ink2); }}
-.note {{ color: var(--muted); font-size: 0.78rem; margin: 14px 0 0; }}
+.note {{ color: var(--muted-ink); font-size: 0.78rem; margin: 14px 0 0; }}
 .tableview {{ margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }}
 .tableview summary {{ cursor: pointer; color: var(--ink2); font-size: 0.8rem; }}
 .tablewrap {{ overflow-x: auto; margin-top: 10px; }}
@@ -516,14 +518,17 @@ th {{ color: var(--ink2); font-weight: 600; }}
 .sources {{ list-style: none; padding: 0; margin: 0; font-size: 0.8rem; }}
 .sources li {{ display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border);
   color: var(--ink2); flex-wrap: wrap; }}
-.sources a {{ color: var(--s1); text-decoration: none; word-break: break-all; }}
+.sources a {{ color: var(--s1-ink); text-decoration: none; word-break: break-all; }}
 .sources a:hover {{ text-decoration: underline; }}
-.sources .said {{ flex-basis: 100%; color: var(--muted); }}
+.sources .said {{ flex-basis: 100%; color: var(--muted-ink); }}
+#provenance h3 {{ font-size: 0.82rem; font-weight: 600; margin: 14px 0 4px; }}
+.problems {{ margin: 0; padding-left: 18px; font-size: 0.8rem; color: var(--ink2); }}
+.problems li {{ padding: 3px 0; }}
 .pill {{ font-size: 0.68rem; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border);
   color: var(--ink2); white-space: nowrap; }}
-.pill.live {{ color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }}
-.pill.cache {{ color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, transparent); }}
-.pill.fail {{ color: var(--critical); border-color: color-mix(in srgb, var(--critical) 45%, transparent); }}
+.pill.live {{ color: var(--good-ink); border-color: color-mix(in srgb, var(--good) 45%, transparent); }}
+.pill.cache {{ color: var(--warning-ink); border-color: color-mix(in srgb, var(--warning) 45%, transparent); }}
+.pill.fail {{ color: var(--critical-ink); border-color: color-mix(in srgb, var(--critical) 45%, transparent); }}
 #tip {{ position: fixed; pointer-events: none; opacity: 0; transition: opacity .1s;
   background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
   padding: 7px 11px; font-size: 0.78rem; box-shadow: 0 6px 20px rgba(0,0,0,.18);
@@ -533,6 +538,8 @@ th {{ color: var(--ink2); font-weight: 600; }}
 .themebtn {{ background: var(--surface); color: var(--ink2); border: 1px solid var(--border);
   border-radius: 8px; padding: 5px 11px; font-size: 0.78rem; cursor: pointer;
   font-family: var(--font); }}
+.themebtn[aria-pressed="true"] {{ background: var(--ink); color: var(--surface);
+  border-color: var(--ink); }}
 /* --- a page following the site: the notice of a newer run (live.py) ------- */
 .livenote {{ position: fixed; z-index: 1000; left: 16px; right: 16px;
   bottom: calc(16px + env(safe-area-inset-bottom, 0px));
@@ -592,13 +599,13 @@ th {{ color: var(--ink2); font-weight: 600; }}
     text-underline-offset: 6px; }}
 }}
 @media print {{ .sitebar {{ display: none; }} }}
-footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
+footer {{ color: var(--muted-ink); font-size: 0.76rem; margin-top: 26px; }}
 /* --- panels added by the advanced system ---------------------------------- */
-.tiny {{ fill: var(--muted); font-size: 10px; font-family: var(--font); }}
+.tiny {{ fill: var(--muted-ink); font-size: 10px; font-family: var(--font); }}
 .pointlabel {{ fill: var(--ink); font-size: 11.5px; font-weight: 600;
   font-family: var(--font); }}
 .axislabel {{ fill: var(--ink2); font-size: 11.5px; font-family: var(--font); }}
-.quad {{ fill: var(--muted); font-size: 11px; font-family: var(--font);
+.quad {{ fill: var(--muted-ink); font-size: 11px; font-family: var(--font);
   letter-spacing: 0.02em; }}
 .panellabel {{ fill: var(--ink2); font-size: 11.5px; font-weight: 600;
   font-family: var(--font); }}
@@ -609,18 +616,18 @@ footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
 .chip {{ display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem;
   font-weight: 600; padding: 3px 10px; border-radius: 999px;
   border: 1px solid var(--border); color: var(--ink2); white-space: nowrap; }}
-.chip-now {{ color: var(--s2);
+.chip-now {{ color: var(--s2-ink);
   border-color: color-mix(in srgb, var(--s2) 45%, transparent); }}
-.chip-new {{ color: var(--critical); margin-left: 8px;
+.chip-new {{ color: var(--critical-ink); margin-left: 8px;
   border-color: color-mix(in srgb, var(--critical) 50%, transparent); }}
-.chip-quiet {{ color: var(--muted); }}
-.chip-critical {{ color: var(--critical);
+.chip-quiet {{ color: var(--muted-ink); }}
+.chip-critical {{ color: var(--critical-ink);
   border-color: color-mix(in srgb, var(--critical) 45%, transparent); }}
-.chip-serious {{ color: var(--serious);
+.chip-serious {{ color: var(--serious-ink);
   border-color: color-mix(in srgb, var(--serious) 45%, transparent); }}
-.chip-warning {{ color: var(--warning);
+.chip-warning {{ color: var(--warning-ink);
   border-color: color-mix(in srgb, var(--warning) 50%, transparent); }}
-.chip-good {{ color: var(--good);
+.chip-good {{ color: var(--good-ink);
   border-color: color-mix(in srgb, var(--good) 45%, transparent); }}
 
 .phasestate, .walkerfoot {{ display: flex; flex-wrap: wrap; align-items: center;
@@ -632,17 +639,18 @@ footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
   border-radius: 12px; margin-bottom: 16px; font-size: 0.88rem;
   border: 1px solid var(--border); background: var(--surface); }}
 .banner-level {{ font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em;
-  padding: 3px 9px; border-radius: 999px; color: var(--surface); }}
+  padding: 3px 9px; border-radius: 999px; }}
 .banner[data-status="critical"] {{
   border-color: color-mix(in srgb, var(--critical) 50%, transparent); }}
-.banner[data-status="critical"] .banner-level {{ background: var(--critical); }}
+.banner[data-status="critical"] .banner-level {{ background: var(--critical-ink); color: var(--surface); }}
 .banner[data-status="serious"] {{
   border-color: color-mix(in srgb, var(--serious) 50%, transparent); }}
-.banner[data-status="serious"] .banner-level {{ background: var(--serious); }}
+.banner[data-status="serious"] .banner-level {{ background: var(--serious-ink); color: var(--surface); }}
 .banner[data-status="warning"] {{
   border-color: color-mix(in srgb, var(--warning) 55%, transparent); }}
 .banner[data-status="warning"] .banner-level {{ background: var(--warning);
   color: #1a1a19; }}
+.banner a {{ color: inherit; text-underline-offset: 2px; }}
 
 .alerts {{ list-style: none; padding: 0; margin: 0; }}
 .alert {{ display: grid; grid-template-columns: 104px 1fr; gap: 14px;
@@ -650,13 +658,13 @@ footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
 .alert:first-child {{ border-top: none; }}
 .alert-level {{ display: inline-flex; align-items: center; gap: 6px;
   font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; }}
-.alert[data-status="critical"] .alert-level {{ color: var(--critical); }}
-.alert[data-status="serious"] .alert-level {{ color: var(--serious); }}
-.alert[data-status="warning"] .alert-level {{ color: var(--warning); }}
-.alert[data-status="good"] .alert-level {{ color: var(--muted); }}
+.alert[data-status="critical"] .alert-level {{ color: var(--critical-ink); }}
+.alert[data-status="serious"] .alert-level {{ color: var(--serious-ink); }}
+.alert[data-status="warning"] .alert-level {{ color: var(--warning-ink); }}
+.alert[data-status="good"] .alert-level {{ color: var(--muted-ink); }}
 .alert-title {{ font-weight: 600; font-size: 0.9rem; }}
 .alert-body p {{ margin: 4px 0 0; color: var(--ink2); font-size: 0.82rem; }}
-.alert-since {{ display: block; margin-top: 5px; color: var(--muted);
+.alert-since {{ display: block; margin-top: 5px; color: var(--muted-ink);
   font-size: 0.72rem; }}
 
 .probs {{ margin: 16px 0 4px; display: grid; gap: 7px; }}
@@ -678,16 +686,16 @@ footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
 .disclaimer p {{ margin: 0 0 6px; color: var(--ink2); font-size: 0.82rem; }}
 .impact-group {{ margin-top: 20px; }}
 .impact-group h3, .impact-watch h3 {{ font-size: 0.76rem; font-weight: 700;
-  letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted-ink);
   margin: 0 0 10px; }}
 .impacts {{ list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }}
 .impact {{ border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; }}
 .impact-head {{ display: flex; flex-wrap: wrap; align-items: center; gap: 9px;
   margin-bottom: 5px; }}
-.impact-window {{ color: var(--muted); font-size: 0.74rem; }}
+.impact-window {{ color: var(--muted-ink); font-size: 0.74rem; }}
 .impact-effect {{ font-size: 0.86rem; color: var(--ink); margin-bottom: 5px; }}
 .impact p {{ margin: 0 0 5px; color: var(--ink2); font-size: 0.81rem; }}
-.impact-exposure span {{ color: var(--muted); font-weight: 600;
+.impact-exposure span {{ color: var(--muted-ink); font-weight: 600;
   text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.06em;
   margin-right: 5px; }}
 .impact-flavour {{ font-style: italic; }}
@@ -700,9 +708,9 @@ footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
 .boxlabel {{ fill: var(--ink); font-size: 10.5px; font-weight: 700;
   font-family: var(--font); paint-order: stroke; stroke: var(--surface);
   stroke-width: 3px; stroke-linejoin: round; }}
-.subcaption {{ margin: 6px 0 0; color: var(--muted); font-size: 0.74rem; }}
+.subcaption {{ margin: 6px 0 0; color: var(--muted-ink); font-size: 0.74rem; }}
 .hovsolo {{ max-width: 600px; margin: 0 auto 14px; }}
-.hint {{ color: var(--muted); font-style: italic; }}
+.hint {{ color: var(--muted-ink); font-style: italic; }}
 .threeup {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }}
 .swatch-line {{ height: 3px; border-radius: 2px; background: var(--ink); }}
 .swatch-week {{ width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--s1);
@@ -713,12 +721,12 @@ footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
 .ramp {{ margin: 2px 0 10px; }}
 .ramplabel {{ font-size: 0.72rem; font-weight: 600; color: var(--ink2);
   letter-spacing: 0.02em; margin-bottom: 4px; }}
-.rampunits {{ color: var(--muted); font-weight: 400; }}
+.rampunits {{ color: var(--muted-ink); font-weight: 400; }}
 .rampstrip {{ display: flex; height: 10px; border-radius: 3px; overflow: hidden;
   border: 1px solid var(--border); }}
 .rampcell {{ flex: 1 1 0; }}
 .rampticks {{ display: flex; justify-content: space-between; margin-top: 3px; }}
-.ramptick {{ font-size: 0.66rem; color: var(--muted);
+.ramptick {{ font-size: 0.66rem; color: var(--muted-ink);
   font-variant-numeric: tabular-nums; }}
 /* A bar whose labels are placed at their values rather than spread out. */
 .rampscale {{ display: block; position: relative; height: 1.2em; }}
@@ -737,7 +745,7 @@ footer {{ color: var(--muted); font-size: 0.76rem; margin-top: 26px; }}
   padding: 4px 11px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--border); background: var(--plane); color: var(--ink2); }}
 .viewbtns button:hover {{ color: var(--ink); border-color: var(--axis); }}
-.viewbtns button[aria-pressed="true"] {{ color: var(--s1);
+.viewbtns button[aria-pressed="true"] {{ color: var(--s1-ink);
   border-color: color-mix(in srgb, var(--s1) 50%, transparent); }}
 
 @media (max-width: 1000px) {{
@@ -845,16 +853,9 @@ __SCENES__
 
 __GLOBE__
 
+  // The site's one theme button, its choice kept for every page (live.py).
   var btn = document.getElementById('theme');
-  if (btn) {
-    btn.addEventListener('click', function () {
-      var root = document.documentElement;
-      var dark = root.getAttribute('data-theme') === 'dark' ||
-        (!root.getAttribute('data-theme') &&
-          window.matchMedia('(prefers-color-scheme: dark)').matches);
-      root.setAttribute('data-theme', dark ? 'light' : 'dark');
-    });
-  }
+  if (btn) elninoLive.themeButton(btn);
 
   // The run's time ages while the page stays open, as the storm desk's do.
   function span(min) {
@@ -956,7 +957,8 @@ def storm_desk_card(state) -> str:
 </section>"""
 
 
-def _provenance_card(fetches: dict[str, Fetched]) -> str:
+def _provenance_card(fetches: dict[str, Fetched],
+                     warnings: list[str] | tuple[str, ...] = ()) -> str:
     """Where every number came from this run, feed by feed.
 
     A gridded feed whose dataset has no new day since it was downloaded, or a
@@ -967,9 +969,13 @@ def _provenance_card(fetches: dict[str, Fetched]) -> str:
     address that served it, and says under it what went wrong on the way: why
     the final analysis served rather than the preliminary, why a copy did, why
     nothing could.
+
+    The run's problems are said here too, since the banner that counts them
+    points here: one that names its feed under that feed, the rest after the
+    list.
     """
     source_items, pills = [], []
-    for fetched in fetches.values():
+    for key, fetched in fetches.items():
         if fetched.error:
             kind, pill, status = "fail", "fail", "fetch failed"
         elif fetched.unchanged:
@@ -982,7 +988,8 @@ def _provenance_card(fetches: dict[str, Fetched]) -> str:
             kind, pill, status = "live", "live", f"live {fetched.fetched_at}"
         pills.append(kind)
         address = fetched.url or fetched.source.url
-        said = [fetched.error] if fetched.error else fetched.warnings
+        said = [fetched.error] if fetched.error else list(fetched.warnings)
+        said += [w.removeprefix(f"{key}: ") for w in warnings if w.startswith(f"{key}: ")]
         source_items.append(
             f'<li><span class="pill {pill}">{esc(status)}</span>'
             f'<span>{esc(fetched.source.agency)} &mdash; {esc(fetched.source.name)}</span>'
@@ -1005,11 +1012,22 @@ def _provenance_card(fetches: dict[str, Fetched]) -> str:
                     "stamped with when it was fetched")
     if pills.count("fail"):
         came.append(f"{pills.count('fail')} failed with no cache to fall back on")
+    problems = ""
+    if warnings:
+        count = len(warnings)
+        problems = (f" {count} problem{'s' if count != 1 else ''} this run, "
+                    f"{'each ' if count != 1 else ''}said under the feed it came from "
+                    "or listed after the feeds.")
+    others = [w for w in warnings if not any(w.startswith(f"{key}: ") for key in fetches)]
+    other = ""
+    if others:
+        other = ("\n  <h3>Other problems this run</h3>\n  <ul class=\"problems\">"
+                 + "".join(f"<li>{esc(w)}</li>" for w in others) + "</ul>")
     return f"""<section class="card" id="provenance">
   <h2>Data provenance</h2>
   <p class="caption">Every number on this page comes from these feeds:
-    {"; ".join(came)}.</p>
-  <ul class="sources">{''.join(source_items)}</ul>
+    {"; ".join(came)}.{problems}</p>
+  <ul class="sources">{''.join(source_items)}</ul>{other}
 </section>"""
 
 
@@ -1043,7 +1061,7 @@ def render(state) -> str:
 <section class="hero" id="hero">
   <div>
     <div class="hero-label">{index_title} &mdash; {esc(a.index_latest.label)}</div>
-    <div class="hero-fig">{a.index_latest.value:+.2f}<span class="hero-unit"> °C</span></div>
+    <div class="hero-fig">{signed(a.index_latest.value, 2)}<span class="hero-unit"> °C</span></div>
     <div class="hero-tier">{esc(a.index_tier)}</div>
     <div class="hero-note">{rank_note}{index_role}</div>
   </div>
@@ -1055,7 +1073,7 @@ def render(state) -> str:
     if a.index_name == "RONI" and a.oni_latest:
         tiles.append(
             f'<div class="tile"><div class="t-label">Legacy ONI ({esc(a.oni_latest.label)})</div>'
-            f'<div class="t-value">{a.oni_latest.value:+.2f}{degrees}</div>'
+            f'<div class="t-value">{signed(a.oni_latest.value, 2)}{degrees}</div>'
             f'<div class="t-note">pre-2026 index &middot; {esc(a.oni_tier)}</div></div>'
         )
     elif a.index_name == "RONI":
@@ -1075,22 +1093,22 @@ def render(state) -> str:
             if region is None:
                 continue
             if relative and region.traditional is not None:
-                note += f" &middot; relative; traditional {region.traditional:+.1f} °C"
+                note += f" &middot; relative; traditional {signed(region.traditional, 1)} °C"
             tiles.append(
                 f'<div class="tile"><div class="t-label">{label}</div>'
-                f'<div class="t-value">{region.anomaly:+.1f}{degrees}</div>'
+                f'<div class="t-value">{signed(region.anomaly, 1)}{degrees}</div>'
                 f'<div class="t-note">{note}</div></div>'
             )
     if a.coupling.soi is not None:
         tiles.append(
             f'<div class="tile"><div class="t-label">SOI (3-month mean)</div>'
-            f'<div class="t-value">{a.coupling.soi:+.2f}</div>'
+            f'<div class="t-value">{signed(a.coupling.soi, 2)}</div>'
             f'<div class="t-note">{esc(a.coupling.soi_label)}</div></div>'
         )
     if a.coupling.mei is not None:
         tiles.append(
             f'<div class="tile"><div class="t-label">MEI.v2</div>'
-            f'<div class="t-value">{a.coupling.mei:+.2f}</div>'
+            f'<div class="t-value">{signed(a.coupling.mei, 2)}</div>'
             f'<div class="t-note">{esc(a.coupling.mei_label)}</div></div>'
         )
 
@@ -1098,7 +1116,7 @@ def render(state) -> str:
         sub = state.subsurface
         tiles.append(
             f'<div class="tile"><div class="t-label">Warm water volume</div>'
-            f'<div class="t-value">{sub.anomaly:+.2f}</div>'
+            f'<div class="t-value">{signed(sub.anomaly, 2)}</div>'
             f'<div class="t-note">10<sup>14</sup> m&sup3; &middot; '
             f'rank {sub.rank_alltime} of {sub.total_alltime}</div></div>'
         )
@@ -1106,7 +1124,7 @@ def render(state) -> str:
         at = state.atmosphere
         tiles.append(
             f'<div class="tile"><div class="t-label">Walker composite</div>'
-            f'<div class="t-value">{at.walker_index:+.2f}</div>'
+            f'<div class="t-value">{signed(at.walker_index, 2)}</div>'
             f'<div class="t-note">&sigma; &middot; '
             f'{"coupled" if at.coupled else "not yet coupled"}</div></div>'
         )
@@ -1114,9 +1132,9 @@ def render(state) -> str:
     if peak:
         tiles.append(
             f'<div class="tile"><div class="t-label">Projected {esc(a.index_name)} peak</div>'
-            f'<div class="t-value">{peak.mean:+.2f}{degrees}</div>'
+            f'<div class="t-value">{signed(peak.mean, 2)}{degrees}</div>'
             f'<div class="t-note">{esc(peak.label)} &middot; 80% range '
-            f'{peak.low:+.2f} to {peak.high:+.2f} °C</div></div>'
+            f'{signed(peak.low, 2)} to {signed(peak.high, 2)} °C</div></div>'
         )
 
     # --- cards ---------------------------------------------------------------
@@ -1185,10 +1203,10 @@ def render(state) -> str:
         columns.insert(2, "ONI °C (legacy)")
 
     def season_row(s: SeasonValue) -> list[str]:
-        row = [s.label, f"{s.value:+.2f}", intensity_tier(s.value)]
+        row = [s.label, f"{signed(s.value, 2)}", intensity_tier(s.value)]
         if legacy:
             key = (s.season, s.year)
-            row.insert(2, f"{legacy_map[key]:+.2f}" if key in legacy_map else "n/a")
+            row.insert(2, f"{signed(legacy_map[key], 2)}" if key in legacy_map else "n/a")
         return row
 
     cards.append(
@@ -1209,7 +1227,7 @@ def render(state) -> str:
   <h2>Scale &mdash; spatial extent across the Nino regions</h2>
   <p class="caption">Week centred on {esc(a.latest_week.label)} &middot;
     {a.scale.active_regions} of 4 regions at or above +0.5 °C &middot; {esc(a.scale.flavour)}
-    (Nino-1+2 minus Nino-4 = {a.scale.flavour_index:+.1f} °C) &middot;
+    (Nino-1+2 minus Nino-4 = {signed(a.scale.flavour_index, 1)} °C) &middot;
     {"relative anomalies, tropical mean removed, as CPC now quotes them"
      if a.scale.basis == "relative" else "traditional anomalies"}</p>
   {chart_regions(a)}
@@ -1217,8 +1235,8 @@ def render(state) -> str:
   {table("Nino-region weekly values",
          ["Region", f"{a.scale.basis.capitalize()} anomaly °C", "Traditional anomaly °C",
           "SST °C", "At threshold"],
-         [[r.label, f"{r.anomaly:+.1f}",
-           "n/a" if r.traditional is None else f"{r.traditional:+.1f}",
+         [[r.label, f"{signed(r.anomaly, 1)}",
+           "n/a" if r.traditional is None else f"{signed(r.traditional, 1)}",
            f"{r.sst:.1f}", "yes" if r.active else "no"]
           for r in a.scale.regions])}
 </section>"""
@@ -1233,7 +1251,7 @@ def render(state) -> str:
 
         def relative_cell(week) -> str:
             value = relative_by_week.get(week.week_ending)
-            return "n/a" if value is None else f"{value:+.1f}"
+            return "n/a" if value is None else f"{signed(value, 1)}"
 
         cards.append(
             f"""<section class="card" id="weekly">
@@ -1245,16 +1263,16 @@ def render(state) -> str:
   {table("Weekly Nino-3.4 (most recent 16 weeks)",
          ["Week centred on", "Relative anomaly °C", "Traditional anomaly °C", "SST °C",
           "Nino-1+2 traditional °C"],
-         [[w.label, relative_cell(w), f"{w.nino34_anom:+.1f}", f"{w.nino34_sst:.1f}",
-           f"{w.nino12_anom:+.1f}"]
+         [[w.label, relative_cell(w), f"{signed(w.nino34_anom, 1)}", f"{w.nino34_sst:.1f}",
+           f"{signed(w.nino12_anom, 1)}"]
           for w in reversed(shown[-16:])])}
 </section>"""
         )
 
     if a.analogs:
         analog_rows = [
-            [an.episode.name, f"{an.rmse:.3f}", f"{an.peak_value:+.2f}", an.peak_label,
-             f"{an.seasons_to_peak:+d}", an.tier]
+            [an.episode.name, f"{an.rmse:.3f}", f"{signed(an.peak_value, 2)}", an.peak_label,
+             signed(an.seasons_to_peak, 0), an.tier]
             for an in a.analogs
         ]
         legend_items = [(a.episode.name + " (now)", "var(--s1)")] if a.episode else []
@@ -1290,10 +1308,10 @@ def render(state) -> str:
     momentum_rows = []
     if a.momentum.season_delta is not None:
         momentum_rows.append([f"{a.index_name} change vs previous season",
-                              f"{a.momentum.season_delta:+.2f} °C"])
+                              f"{signed(a.momentum.season_delta, 2)} °C"])
     if a.momentum.weekly_delta is not None:
         momentum_rows.append(
-            [f"Nino-3.4 change over {a.momentum.weeks_span} weeks", f"{a.momentum.weekly_delta:+.2f} °C"]
+            [f"Nino-3.4 change over {a.momentum.weeks_span} weeks", f"{signed(a.momentum.weekly_delta, 2)} °C"]
         )
     momentum_rows.append(["Assessment", a.momentum.direction])
     momentum_rows.append(["Coupling verdict", "coupled" if a.coupling.coupled else "not yet clearly coupled"])
@@ -1307,7 +1325,7 @@ def render(state) -> str:
 </section>"""
     )
 
-    cards.append(_provenance_card(fetches))
+    cards.append(_provenance_card(fetches, state.warnings))
 
     # The banner is the one thing a reader sees without scrolling, so it carries
     # the worst open alert and says how many others sit behind it.
@@ -1327,14 +1345,14 @@ def render(state) -> str:
     if state.warnings:
         degraded = (
             f'<div class="banner" data-status="warning"><span class="banner-level">DATA</span>'
-            f'<span>Analysis degraded: {len(state.warnings)} feed or parse '
-            f'problem{"s" if len(state.warnings) != 1 else ""}. '
-            f'See data provenance below.</span></div>'
+            f'<span>Analysis degraded: {len(state.warnings)} '
+            f'problem{"s" if len(state.warnings) != 1 else ""} this run. '
+            f'<a href="#provenance">See data provenance below</a>.</span></div>'
         )
     cpc_status = discussion.get("status") or ""
     status_line = f" &middot; CPC: {esc(cpc_status)}" if cpc_status else ""
 
-    return f"""<!DOCTYPE html>
+    return spell(f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -1354,7 +1372,7 @@ def render(state) -> str:
       <h1>El Nino / Southern Oscillation Tracker</h1>
       <p class="sub">Generated {stormdesk._time(state.run_at, run_time)}{status_line}</p>
     </div>
-    <button class="themebtn" id="theme" type="button">Toggle theme</button>
+    <button class="themebtn" id="theme" type="button" aria-pressed="false">Dark</button>
   </header>
   {banner}
   {degraded}
@@ -1369,7 +1387,7 @@ def render(state) -> str:
 </main>
 <div id="tip" role="status" aria-live="polite"></div>
 </body>
-</html>"""
+</html>""")
 
 
 def _fix_json(fix) -> dict | None:
@@ -1581,12 +1599,18 @@ def payload(state) -> dict:
                     }
                     for i in atmosphere.indicators
                 ],
+                # The MJO's newest pentad: placed unless stale, too old
+                # to say where the active phase is now, and its note says.
                 "mjo": (
                     {
                         "date": atmosphere.mjo.when.isoformat(),
-                        "enhanced_longitude": atmosphere.mjo.enhanced_longitude,
-                        "amplitude": atmosphere.mjo.amplitude,
+                        "enhanced_longitude": (None if atmosphere.mjo.stale
+                                               else atmosphere.mjo.enhanced_longitude),
+                        "amplitude": None if atmosphere.mjo.stale else atmosphere.mjo.amplitude,
                         "constructive": atmosphere.mjo.constructive,
+                        "age_days": atmosphere.mjo.age_days,
+                        "stale": atmosphere.mjo.stale,
+                        "note": atmosphere.mjo.note,
                     }
                     if atmosphere.mjo else None
                 ),

@@ -31,7 +31,7 @@ from __future__ import annotations
 from datetime import date
 
 from . import classify, worldmap
-from .svg import esc
+from .svg import esc, signed
 
 # Esri's World Imagery Wayback as it answered on 29 September 2026: 196
 # releases from 2014-02-20 to 2026-08-05, each with its item, its tiles and
@@ -237,7 +237,7 @@ def presets(series, built: date, index: str = "RONI") -> list:
         before, after = _years_on(peak, -1), _years_on(peak, 1)
         name = f"{episode.name} El Ni\u00f1o"
         group = (f"{name}, peaking {episode.peak.label} at {index} "
-                 f"{classify.displayed(episode.peak.value):+.1f}")
+                 f"{signed(classify.displayed(episode.peak.value), 1)}")
         for key, left, right, words in (
                 ("before", before, peak,
                  f"{name}, developing: {_month(before)} \u2192 peak {_month(peak)}"),
@@ -472,7 +472,7 @@ def css() -> str:
 .thenread, .thennote { margin: 4px 0; color: var(--ink2); }
 .thenread:empty, .thennote:empty { display: none; }
 .thenlinks { margin: 4px 0 0; }
-.thenlinks a { color: var(--s1); min-height: 44px; display: inline-flex; align-items: center; }
+.thenlinks a { color: var(--s1-ink); min-height: 44px; display: inline-flex; align-items: center; }
 .ndviramp i { width: 2px; }
 @media (min-width: 900px) {
   #map.thenon { min-height: 45vh; }
